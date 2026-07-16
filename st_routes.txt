@@ -1,0 +1,286 @@
+﻿  // ==========================================
+  // STOCK TRANSFERS
+  // ==========================================
+  
+  app.get("/api/stock-transfers", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const transfers = await db.select().from(stock_transfers).where(eq(stock_transfers.companyId, companyId)).orderBy(desc(stock_transfers.createdAt));
+      
+      const allWarehouses = await db.select().from(warehouses).where(eq(warehouses.companyId, companyId));
+      
+      const enriched = transfers.map(t => {
+        const source = allWarehouses.find(w => w.id === t.sourceWarehouseId);
+        const dest = allWarehouses.find(w => w.id === t.destinationWarehouseId);
+        return {
+          ...t,
+          sourceWarehouseName: source?.name || 'Unknown',
+          destinationWarehouseName: dest?.name || 'Unknown'
+        };
+      });
+      res.json(enriched);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch stock transfers" });
+    }
+  });
+
+  app.get("/api/stock-transfers/incoming", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      
+      const userRole = await db.select().from(users).where(eq(users.uid, req.user.uid)).then(r => r[0]?.role);
+      let managedWarehouseIds: number[] = [];
+      
+      if (userRole !== 'Super Admin') {
+        const managers = await db.select().from(warehouse_managers).where(eq(warehouse_managers.userId, req.user.uid));
+        managedWarehouseIds = managers.map(m => m.warehouseId);
+        if (managedWarehouseIds.length === 0) {
+          return res.json([]);
+        }
+      }
+      
+      let incoming = await db.select().from(stock_transfers).where(
+        and(
+          eq(stock_transfers.companyId, companyId),
+          eq(stock_transfers.status, 'Transit')
+        )
+      ).orderBy(desc(stock_transfers.createdAt));
+      
+      if (userRole !== 'Super Admin') {
+        incoming = incoming.filter(t => managedWarehouseIds.includes(t.destinationWarehouseId));
+      }
+      
+      const allWarehouses = await db.select().from(warehouses).where(eq(warehouses.companyId, companyId));
+      const enriched = incoming.map(t => {
+        const source = allWarehouses.find(w => w.id === t.sourceWarehouseId);
+        const dest = allWarehouses.find(w => w.id === t.destinationWarehouseId);
+        return {
+          ...t,
+          sourceWarehouseName: source?.name || 'Unknown',
+          destinationWarehouseName: dest?.name || 'Unknown'
+        };
+      });
+      res.json(enriched);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch incoming transfers" });
+    }
+  });
+
+  app.post("/api/stock-transfers", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      
+      const { sourceWarehouseId, destinationWarehouseId, items } = req.body;
+      if (!sourceWarehouseId || !destinationWarehouseId || !items || items.length === 0) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      if (sourceWarehouseId === destinationWarehouseId) {
+        return res.status(400).json({ error: "Source and destination must be different" });
+      }
+
+      // Check stock availability
+      for (const item of items) {
+        const ws = await db.select().from(warehouse_stock).where(
+          and(
+            eq(warehouse_stock.warehouseId, sourceWarehouseId),
+            eq(warehouse_stock.itemId, item.itemId)
+          )
+        );
+        const currentQty = ws[0]?.quantity || 0;
+        if (currentQty < item.quantity) {
+          const invItem = await db.select().from(inventory_items).where(eq(inventory_items.id, item.itemId));
+          return res.status(400).json({ error: \Insufficient stock for \\ });
+        }
+      }
+
+      // Generate Transfer Number
+      const lastTransfer = await db.select().from(stock_transfers).where(eq(stock_transfers.companyId, companyId)).orderBy(desc(stock_transfers.id)).limit(1);
+      const nextId = lastTransfer.length > 0 ? lastTransfer[0].id + 1 : 1;
+      const transferNumber = \TRN-\-\\;
+
+      const newTransfer = await db.insert(stock_transfers).values({
+        companyId,
+        transferNumber,
+        sourceWarehouseId: parseInt(sourceWarehouseId),
+        destinationWarehouseId: parseInt(destinationWarehouseId),
+        status: 'Pending Approval',
+        requestedBy: req.user.uid
+      }).returning();
+      
+      const transferId = newTransfer[0].id;
+      
+      const itemInserts = items.map((i: any) => ({
+        transferId,
+        itemId: i.itemId,
+        quantity: parseInt(i.quantity)
+      }));
+      await db.insert(stock_transfer_items).values(itemInserts);
+
+      // Start BPMN Workflow
+      const workflow = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, 'Stock Transfer')));
+      if (workflow.length > 0) {
+        const wflow = workflow[0];
+        try {
+          // Naive parsing to find the Head of Operations task
+          const docMatch = wflow.xmlData.match(/<bpmn:userTask[^>]*>.*?<bpmn:documentation>(.*?)<\/bpmn:documentation>/s);
+          if (docMatch) {
+            const config = JSON.parse(docMatch[1]);
+            await db.insert(document_approvals).values({
+              documentType: 'Stock Transfer',
+              documentId: transferId,
+              companyId,
+              stepName: 'Head of Operations',
+              assigneeType: config.assigneeType,
+              assigneeValue: config.assigneeValue,
+              status: 'Pending'
+            });
+            // Send to Inbox
+            const { notifyApprovers } = require('./src/shared/lib/notifications.js');
+            await notifyApprovers(companyId, config.assigneeType, config.assigneeValue, 'Global', "Stock Transfer Approval Required", \Transfer \ requires your approval.\, "ACTION", "/inbox", "ST", transferId);
+          }
+        } catch(e) {
+          console.error("Workflow parsing failed", e);
+        }
+      }
+      
+      res.json({ success: true, transferNumber });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to create stock transfer" });
+    }
+  });
+
+  app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const transferId = parseInt(req.params.id);
+      const { status, comments } = req.body;
+      
+      const transfer = await db.select().from(stock_transfers).where(eq(stock_transfers.id, transferId));
+      if (!transfer.length) return res.status(404).json({ error: "Transfer not found" });
+      
+      const pendingApproval = await db.select().from(document_approvals).where(
+        and(
+          eq(document_approvals.documentType, 'Stock Transfer'),
+          eq(document_approvals.documentId, transferId),
+          eq(document_approvals.status, 'Pending')
+        )
+      );
+      
+      if (pendingApproval.length > 0) {
+        await db.update(document_approvals).set({
+          status,
+          comments,
+          approvedBy: req.user.uid,
+          updatedAt: new Date()
+        }).where(eq(document_approvals.id, pendingApproval[0].id));
+      }
+
+      // Clear inbox tasks
+      await db.update(inbox_tasks).set({
+        status: 'Completed',
+        actionResult: status,
+        updatedAt: new Date()
+      }).where(and(eq(inbox_tasks.referenceType, 'ST'), eq(inbox_tasks.referenceId, transferId)));
+
+      if (status === 'Approved') {
+        // Change status to Transit, deduct from source
+        await db.update(stock_transfers).set({ status: 'Transit', updatedAt: new Date() }).where(eq(stock_transfers.id, transferId));
+        
+        const items = await db.select().from(stock_transfer_items).where(eq(stock_transfer_items.transferId, transferId));
+        for (const item of items) {
+          // Deduct from Source
+          const sourceStock = await db.select().from(warehouse_stock).where(
+            and(
+              eq(warehouse_stock.warehouseId, transfer[0].sourceWarehouseId),
+              eq(warehouse_stock.itemId, item.itemId)
+            )
+          );
+          if (sourceStock.length > 0) {
+            await db.update(warehouse_stock)
+              .set({ quantity: sourceStock[0].quantity - item.quantity, lastUpdated: new Date() })
+              .where(eq(warehouse_stock.id, sourceStock[0].id));
+          }
+          // Record Outward transaction
+          await db.insert(stock_transactions).values({
+            companyId,
+            itemId: item.itemId,
+            warehouseId: transfer[0].sourceWarehouseId,
+            transactionType: 'Outward',
+            quantity: item.quantity,
+            referenceType: 'Stock Transfer',
+            referenceNumber: transfer[0].transferNumber,
+            performedBy: req.user.uid
+          });
+        }
+      } else {
+        await db.update(stock_transfers).set({ status: 'Rejected', updatedAt: new Date() }).where(eq(stock_transfers.id, transferId));
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to approve transfer" });
+    }
+  });
+
+  app.post("/api/stock-transfers/:id/receive", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const transferId = parseInt(req.params.id);
+      
+      const transfer = await db.select().from(stock_transfers).where(eq(stock_transfers.id, transferId));
+      if (!transfer.length || transfer[0].status !== 'Transit') return res.status(400).json({ error: "Invalid transfer state" });
+      
+      // Update status to Received
+      await db.update(stock_transfers).set({ status: 'Received', updatedAt: new Date() }).where(eq(stock_transfers.id, transferId));
+      
+      // Add to destination warehouse
+      const items = await db.select().from(stock_transfer_items).where(eq(stock_transfer_items.transferId, transferId));
+      for (const item of items) {
+        const destStock = await db.select().from(warehouse_stock).where(
+          and(
+            eq(warehouse_stock.warehouseId, transfer[0].destinationWarehouseId),
+            eq(warehouse_stock.itemId, item.itemId)
+          )
+        );
+        
+        if (destStock.length > 0) {
+          await db.update(warehouse_stock)
+            .set({ quantity: destStock[0].quantity + item.quantity, lastUpdated: new Date() })
+            .where(eq(warehouse_stock.id, destStock[0].id));
+        } else {
+          await db.insert(warehouse_stock).values({
+            companyId,
+            warehouseId: transfer[0].destinationWarehouseId,
+            itemId: item.itemId,
+            quantity: item.quantity
+          });
+        }
+        
+        // Record Inward transaction
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId: item.itemId,
+          warehouseId: transfer[0].destinationWarehouseId,
+          transactionType: 'Inward',
+          quantity: item.quantity,
+          referenceType: 'Stock Transfer Receive',
+          referenceNumber: transfer[0].transferNumber,
+          performedBy: req.user.uid
+        });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to receive transfer" });
+    }
+  });

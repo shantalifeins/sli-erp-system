@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-olive: #978c21;
+  --color-brand-orange: #f37021;
+  --color-brand-charcoal: #3c3c3b;
+  
+  --color-brand-blue: #0058b3;
+  --color-brand-brown: #701d23;
+  --color-brand-green: #254525;
+  --color-brand-plum: #503382;
+  --color-brand-seashell: #fcf4eb;
+  --color-brand-coconut: #9a4a46;
+
+  --font-sans: "Poppins", "Inter", "Avenir", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Palatino", "Palatino Linotype", "Book Antiqua", serif;
+}
+
+@layer base {
+  body {
+    @apply text-brand-charcoal bg-white font-sans;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold text-brand-charcoal;
+  }
+
+  /* Global table responsiveness for mobile */
+  div:has(> table) {
+    overflow: auto !important;
+    min-height: 0 !important;
+  }
+
+  table {
+    min-width: 800px;
+  }
+  
+  @media (min-width: 768px) {
+    table {
+      min-width: 100%;
+    }
+  }
+
+  table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+}
+
+/* Global mandatory field star indicator */
+label:has(+ input:required)::after,
+label:has(+ select:required)::after,
+label:has(+ textarea:required)::after {
+  content: ' *';
+  color: #ef4444; /* text-red-500 */
+}

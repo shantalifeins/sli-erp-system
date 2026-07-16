@@ -1,0 +1,1 @@
+import * as dotenv from 'dotenv'; dotenv.config(); import { db } from './src/db/index.js'; import { departments } from './src/db/schema.js'; async function main() { try { const res = await db.insert(departments).values({ name: 'Test', code: '002' }).returning(); console.log('Success:', res); } catch (err) { console.error('Error:', err); } process.exit(0); } main();

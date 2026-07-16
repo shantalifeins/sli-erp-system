@@ -1,0 +1,1 @@
+import { db } from './src/shared/db/index'; import { bpmn_definitions } from './src/shared/db/schema'; import { eq } from 'drizzle-orm'; async function run() { await db.delete(bpmn_definitions).where(eq(bpmn_definitions.documentType, 'CS Evaluation')); console.log('Deleted successfully'); process.exit(0); } run().catch(console.error);

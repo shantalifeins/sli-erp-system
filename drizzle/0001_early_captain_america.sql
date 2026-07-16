@@ -1,0 +1,1 @@
+ALTER TABLE "companies" ADD COLUMN "sso_email_domain" text;

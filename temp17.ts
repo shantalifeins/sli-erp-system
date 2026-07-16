@@ -1,0 +1,1 @@
+import { db } from './src/shared/db/index'; import { users } from './src/shared/db/schema'; import { eq } from 'drizzle-orm'; async function run() { const all = await db.select().from(users).where(eq(users.email, 'shantalifeins@gmail.com')); console.log(JSON.stringify(all, null, 2)); process.exit(0); } run().catch(console.error);

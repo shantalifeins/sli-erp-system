@@ -1,0 +1,1 @@
+import pg from 'pg'; import * as dotenv from 'dotenv'; dotenv.config(); const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }); async function run() { const res = await pool.query('SELECT xml_data FROM bpmn_definitions WHERE id = 44'); console.log(res.rows[0].xml_data); process.exit(0); } run();
