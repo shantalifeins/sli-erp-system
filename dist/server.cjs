@@ -1527,8 +1527,8 @@ var import_crypto = __toESM(require("crypto"), 1);
 var import_nodemailer = __toESM(require("nodemailer"), 1);
 var import_supabase_js2 = require("@supabase/supabase-js");
 var supabaseAdmin = (0, import_supabase_js2.createClient)(
-  process.env.VITE_SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+  process.env.VITE_SUPABASE_URL || "https://placeholder.supabase.co",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder_key",
   { auth: { persistSession: false, autoRefreshToken: false } }
 );
 var ssoRouter = (0, import_express4.Router)();
