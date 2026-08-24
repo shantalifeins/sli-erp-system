@@ -149,7 +149,22 @@ Located in `src/shared/db/schema.ts`:
 - Dispatches web notifications and SMTP emails using `nodemailer` with dynamic bracket placeholders (`[document_type]`, `[approver_name]`).
 
 ### Production Deployment Requirements
-1. **Node.js (18 LTS / 20 LTS)** & **PM2** (`pm2 start dist/server.cjs --name sli-erp`).
-2. **Nginx Reverse Proxy**: Serves Vite static build (`dist/`) and proxies `/api` to port 3000.
+1. **Node.js (18 LTS / 20 LTS / 22 LTS)** & **Docker** (`docker run -d --name sli_erp_app --restart always -p 5000:3000 --env-file .env sli_erp_app_img`).
+2. **Apache2 Reverse Proxy**: Proxies port 80/443 to container port 5000 (`http://127.0.0.1:5000/`).
 3. **SSL (Certbot / Let's Encrypt)**: Mandatory for HTTPS cookie security and SSO.
-4. **PostgreSQL (Supabase or Self-Hosted Postgres 15+)**.
+4. **PostgreSQL (Self-Hosted Postgres 15+ in postgres_prod)**.
+
+---
+
+## 🚀 11. Production Staging, Vercel & Live Server MCP Workflow
+
+### Environment & Development Lifecycle
+1. **Local & Staging Stage (Vercel + Supabase)**:
+   - Local IDE development & feature testing use `AUTH_MODE=supabase`.
+   - Staging deployments are hosted on Vercel with user permission.
+2. **Production Live Server Stage (Git + MCP Deployment)**:
+   - Production bundle is compiled locally (`npm run build`).
+   - Code is committed and pushed strictly to `https://github.com/shantalifeins/sli-erp-system.git`.
+   - Deployment on the live server (`10.16.49.78`) MUST ONLY occur via MCP server tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main`.
+   - **No Direct SSH Mandate**: Direct SSH login, raw SSH execution, or storing remote passwords in codebase files is strictly forbidden.
+   - **Live Database Isolation**: Runs native PostgreSQL (`AUTH_MODE=postgres`) in `sli_erp_db` inside `postgres_prod`. Supabase is NOT installed on the live server.

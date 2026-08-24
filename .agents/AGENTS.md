@@ -66,3 +66,12 @@ This document defines the strict architecture, security standards, UI convention
 - **Strict Directory Boundaries**: Always operate strictly within the root directory of the active workspace (`d:\Procurement And inventory`).
 - **Git Remote Verification**: Before executing any `git push` or `git remote` command, ALWAYS verify `git remote -v` to ensure it points strictly to the assigned repository for THIS project (`https://github.com/shantalifeins/sli-erp-system.git`).
 - **Zero Cross-Contamination**: Never copy, commit, or push files or secrets between different project repositories. Each project must maintain its own dedicated Git history, `.env` configurations, and deployment pipelines.
+
+---
+
+## 🚀 7. Environment Branching, Deployment & No-Direct-SSH Directives
+- **Staging / Vercel Environment**: Local development and testing are deployed to Vercel (with user permission) connected to Supabase (`AUTH_MODE=supabase`).
+- **Production Live Server Environment**: Once features are verified on Vercel/local, code is built (`npm run build`) and pushed to Git (`https://github.com/shantalifeins/sli-erp-system.git`).
+- **MCP Server Deployment Only**: Live server deployments MUST occur via MCP deployment tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main` on the live server.
+- **Strict No-Direct-SSH Mandate**: The AI agent is STRICTLY FORBIDDEN from attempting direct SSH connections, storing server credentials, or executing raw SSH commands. All remote production management MUST strictly use MCP tools under strict action guardrails.
+- **Zero Supabase Installation on Live Server**: The live server runs native PostgreSQL (`AUTH_MODE=postgres`) inside `postgres_prod`. Never install or deploy Supabase services on the live server.
