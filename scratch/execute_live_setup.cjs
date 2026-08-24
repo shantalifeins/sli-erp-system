@@ -64,7 +64,10 @@ async function startDeployment() {
 
         // Step 3: Clone or update repo at /home/iamadmin/sli-erp
         console.log('\n--- Step 3: Cloning/Pulling repository at /home/iamadmin/sli-erp ---');
-        await runCommand('if [ ! -d "/home/iamadmin/sli-erp" ]; then git clone https://github.com/shantalifeins/sli-erp-system.git /home/iamadmin/sli-erp; else cd /home/iamadmin/sli-erp && git fetch origin && git checkout main && git pull origin main; fi');
+        await runCommand('if [ ! -d "/home/iamadmin/sli-erp" ]; then git clone https://github.com/shantalifeins/sli-erp-system.git /home/iamadmin/sli-erp; else cd /home/iamadmin/sli-erp && git fetch origin && git checkout main && git reset --hard origin/main; fi');
+
+        // Remove dist from .dockerignore on server
+        await runCommand('rm -f /home/iamadmin/sli-erp/.dockerignore');
 
         // Step 4: Write .env file
         console.log('\n--- Step 4: Configuring .env in /home/iamadmin/sli-erp ---');
@@ -78,29 +81,22 @@ FRONTEND_URL=https://erp.shantalife.com`;
         await runCommand(`cat << 'EOF' > /home/iamadmin/sli-erp/.env\n${envContent}\nEOF`);
 
         // Step 5: Install host packages for Drizzle CLI
-        console.log('\n--- Step 5: Installing host-side npm packages for migration ---');
+        console.log('\n--- Step 5: Installing npm packages for migration ---');
         await runCommand('cd /home/iamadmin/sli-erp && npm install');
 
         // Step 6: Push Drizzle DB migrations
         console.log('\n--- Step 6: Running Drizzle DB schema migrations ---');
         await runCommand('cd /home/iamadmin/sli-erp && npx drizzle-kit push --config=src/shared/db/drizzle.config.ts');
 
-        // Step 7: Create robust Multi-Stage Dockerfile (Debian slim for glibc native Tailwind 4 compatibility)
-        console.log('\n--- Step 7: Creating multi-stage Dockerfile ---');
-        const dockerfileContent = `FROM node:18-slim AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-FROM node:18-slim AS runner
+        // Step 7: Create ultra-lightweight Dockerfile using pre-built dist
+        console.log('\n--- Step 7: Creating lightweight production Dockerfile ---');
+        const dockerfileContent = `FROM node:18-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm install --only=production
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
+COPY dist ./dist
+COPY public ./public
 EXPOSE 5000
 CMD ["node", "dist/server.cjs"]`;
         await runCommand(`cat << 'EOF' > /home/iamadmin/sli-erp/Dockerfile\n${dockerfileContent}\nEOF`);
@@ -110,7 +106,7 @@ CMD ["node", "dist/server.cjs"]`;
         await runCommand('cd /home/iamadmin/sli-erp && docker build -t sli_erp_app_img .');
         await runCommand('docker stop sli_erp_app 2>/dev/null || true');
         await runCommand('docker rm sli_erp_app 2>/dev/null || true');
-        await runCommand('docker run -d --name sli_erp_app --restart always --net=host -p 5000:5000 --env-file /home/iamadmin/sli-erp/.env sli_erp_app_img');
+        await runCommand('docker run -d --name sli_erp_app --restart always -p 5000:5000 --env-file /home/iamadmin/sli-erp/.env sli_erp_app_img');
 
         // Step 9: Verify container status and health endpoint
         console.log('\n--- Step 9: Verifying container health ---');

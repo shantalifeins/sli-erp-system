@@ -939,8 +939,8 @@ var db = (0, import_node_postgres.drizzle)(pool, { schema: schema_exports });
 var import_drizzle_orm = require("drizzle-orm");
 var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
 var jwt = import_jsonwebtoken.default.default || import_jsonwebtoken.default;
-var supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+var supabaseUrl = process.env.VITE_SUPABASE_URL || "https://placeholder.supabase.co";
+var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "placeholder_key";
 var supabase = (0, import_supabase_js.createClient)(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: false,
@@ -2023,9 +2023,11 @@ var import_cors = __toESM(require("cors"), 1);
 var import_nodemailer3 = __toESM(require("nodemailer"), 1);
 var import_helmet = __toESM(require("helmet"), 1);
 dotenv.config();
+var supabaseUrl2 = process.env.VITE_SUPABASE_URL || "https://placeholder.supabase.co";
+var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder_key";
 var supabaseAdmin2 = (0, import_supabase_js3.createClient)(
-  process.env.VITE_SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+  supabaseUrl2,
+  supabaseKey,
   {
     auth: {
       persistSession: false,

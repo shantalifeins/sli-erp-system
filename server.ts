@@ -24,9 +24,12 @@ import profileChangeRouter from './src/modules/userPanel/api/profileChange.js';
 import { evaluateWorkflowPath } from './src/shared/lib/bpmnParser.js';
 import { hashPassword, verifyPassword, generateAuthToken } from './src/shared/lib/authUtils.js';
 
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder_key';
+
 const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  supabaseUrl,
+  supabaseKey,
   {
     auth: {
       persistSession: false,
