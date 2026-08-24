@@ -176,4 +176,5 @@ An MCP Deployment Server (`scripts/mcp-deploy-server.ts`) will be integrated int
 ### Manual Verification
 - Test login with local Supabase setup (`AUTH_MODE=supabase`).
 - Test login with direct Postgres setup (`AUTH_MODE=postgres`).
+- Verify Git Remote points strictly to `https://github.com/shantalifeins/sli-erp-system.git`.
 - Verify Chatwoot (`https://chatwoot.shantalife.com`) remains 100% operational during and after deployment.
