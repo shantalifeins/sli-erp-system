@@ -59,3 +59,10 @@ This document defines the strict architecture, security standards, UI convention
 6. **Explicit User Approval**:
    - **Deployment**: Do NOT deploy to Vercel (`npx vercel --prod`) without explicit user permission.
    - **Structural Changes**: Do NOT alter DB schema or core API routes without user confirmation.
+
+---
+
+## 🔒 6. Multi-Project & Workspace Git Isolation Rules
+- **Strict Directory Boundaries**: Always operate strictly within the root directory of the active workspace (`d:\Procurement And inventory`).
+- **Git Remote Verification**: Before executing any `git push` or `git remote` command, ALWAYS verify `git remote -v` to ensure it points strictly to the assigned repository for THIS project (`https://github.com/shantalifeins/erp.git`).
+- **Zero Cross-Contamination**: Never copy, commit, or push files or secrets between different project repositories. Each project must maintain its own dedicated Git history, `.env` configurations, and deployment pipelines.
