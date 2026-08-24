@@ -4,12 +4,17 @@ import * as schema from './schema.js';
 
 const { Pool } = pg;
 
+const isSslDisabled = process.env.DATABASE_URL?.includes('sslmode=disable') ||
+  process.env.DATABASE_URL?.includes('127.0.0.1') ||
+  process.env.DATABASE_URL?.includes('172.17.0.1') ||
+  process.env.DATABASE_URL?.includes('localhost');
+
 export const createPool = () => {
   return new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    max: 1, // Set to 1 globally to prevent Supabase connection exhaustion (EMAXCONNSESSION)
-    idleTimeoutMillis: 10000, // Close idle connections after 10 seconds
+    ssl: isSslDisabled ? false : { rejectUnauthorized: false },
+    max: 20,
+    idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000,
   });
 };

@@ -76,7 +76,7 @@ NODE_ENV=production
 PORT=5000
 VITE_API_URL=https://erp.shantalife.com
 JWT_SECRET=sli_erp_live_jwt_secret_key_2026_ssl
-DATABASE_URL=postgres://sli_erp_user:D0m@1n!ssl_erp_2026@127.0.0.1:5432/sli_erp_db
+DATABASE_URL=postgres://sli_erp_user:D0m@1n!ssl_erp_2026@172.17.0.1:5432/sli_erp_db?sslmode=disable
 FRONTEND_URL=https://erp.shantalife.com`;
         await runCommand(`cat << 'EOF' > /home/iamadmin/sli-erp/.env\n${envContent}\nEOF`);
 
@@ -86,7 +86,15 @@ FRONTEND_URL=https://erp.shantalife.com`;
 
         // Step 6: Push Drizzle DB migrations
         console.log('\n--- Step 6: Running Drizzle DB schema migrations ---');
-        await runCommand('cd /home/iamadmin/sli-erp && npx drizzle-kit push --config=src/shared/db/drizzle.config.ts');
+        const hostEnvContent = `AUTH_MODE=postgres
+NODE_ENV=production
+PORT=5000
+VITE_API_URL=https://erp.shantalife.com
+JWT_SECRET=sli_erp_live_jwt_secret_key_2026_ssl
+DATABASE_URL=postgres://sli_erp_user:D0m@1n!ssl_erp_2026@127.0.0.1:5432/sli_erp_db
+FRONTEND_URL=https://erp.shantalife.com`;
+        await runCommand(`cat << 'EOF' > /home/iamadmin/sli-erp/.env.host\n${hostEnvContent}\nEOF`);
+        await runCommand('cd /home/iamadmin/sli-erp && npx dotenv-cli -e .env.host -- npx drizzle-kit push --config=src/shared/db/drizzle.config.ts || cd /home/iamadmin/sli-erp && npx drizzle-kit push --config=src/shared/db/drizzle.config.ts');
 
         // Step 7: Create ultra-lightweight Dockerfile using pre-built dist
         console.log('\n--- Step 7: Creating lightweight production Dockerfile ---');
@@ -106,7 +114,7 @@ CMD ["node", "dist/server.cjs"]`;
         await runCommand('cd /home/iamadmin/sli-erp && docker build -t sli_erp_app_img .');
         await runCommand('docker stop sli_erp_app 2>/dev/null || true');
         await runCommand('docker rm sli_erp_app 2>/dev/null || true');
-        await runCommand('docker run -d --name sli_erp_app --restart always -p 5000:5000 --env-file /home/iamadmin/sli-erp/.env sli_erp_app_img');
+        await runCommand('docker run -d --name sli_erp_app --restart always -p 5000:3000 --env-file /home/iamadmin/sli-erp/.env sli_erp_app_img');
 
         // Step 9: Verify container status and health endpoint
         console.log('\n--- Step 9: Verifying container health ---');

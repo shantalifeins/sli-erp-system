@@ -902,14 +902,13 @@ var stock_consumption_history = (0, import_pg_core.pgTable)("stock_consumption_h
 
 // src/shared/db/index.ts
 var { Pool } = import_pg.default;
+var isSslDisabled = process.env.DATABASE_URL?.includes("sslmode=disable") || process.env.DATABASE_URL?.includes("127.0.0.1") || process.env.DATABASE_URL?.includes("172.17.0.1") || process.env.DATABASE_URL?.includes("localhost");
 var createPool = () => {
   return new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    max: 1,
-    // Set to 1 globally to prevent Supabase connection exhaustion (EMAXCONNSESSION)
+    ssl: isSslDisabled ? false : { rejectUnauthorized: false },
+    max: 20,
     idleTimeoutMillis: 1e4,
-    // Close idle connections after 10 seconds
     connectionTimeoutMillis: 1e4
   });
 };
