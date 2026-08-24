@@ -39,8 +39,9 @@ export function validateCommand(command: string): { allowed: boolean; reason?: s
 /**
  * Triggers deployment on remote server strictly via Git pull.
  */
-export async function pullAndDeploy(host: string, user: string, branch: string = 'main'): Promise<string> {
-  const deployCmd = `ssh -o StrictHostKeyChecking=no ${user}@${host} "cd /home/iamadmin/sli-erp && git fetch origin && git checkout ${branch} && git pull origin ${branch} && npm install && npm run build && docker restart sli_erp_app"`;
+export async function pullAndDeploy(host: string, user: string, branch: string = 'main', sshKeyPath?: string): Promise<string> {
+  const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
+  const deployCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "cd /home/iamadmin/sli-erp && git fetch origin && git checkout ${branch} && git reset --hard origin/${branch} && docker build -t sli_erp_app_img . && docker restart sli_erp_app"`;
   
   const check = validateCommand(deployCmd);
   if (!check.allowed) throw new Error(check.reason);
@@ -53,8 +54,9 @@ export async function pullAndDeploy(host: string, user: string, branch: string =
   }
 }
 
-export async function checkServerHealth(host: string, user: string): Promise<string> {
-  const sshCmd = `ssh -o StrictHostKeyChecking=no ${user}@${host} "docker ps --filter name=sli_erp_app && curl -s http://localhost:5000/api/health"`;
+export async function checkServerHealth(host: string, user: string, sshKeyPath?: string): Promise<string> {
+  const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
+  const sshCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "docker ps --filter name=sli_erp_app && curl -s http://localhost:5000/api/health"`;
   const check = validateCommand(sshCmd);
   if (!check.allowed) throw new Error(check.reason);
 
@@ -66,8 +68,9 @@ export async function checkServerHealth(host: string, user: string): Promise<str
   }
 }
 
-export async function runRemoteMigration(host: string, user: string, dbUrl: string): Promise<string> {
-  const cmd = `ssh -o StrictHostKeyChecking=no ${user}@${host} "cd /home/iamadmin/sli-erp && DATABASE_URL='${dbUrl}' npx drizzle-kit push"`;
+export async function runRemoteMigration(host: string, user: string, dbUrl: string, sshKeyPath?: string): Promise<string> {
+  const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
+  const cmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "cd /home/iamadmin/sli-erp && DATABASE_URL='${dbUrl}' npx drizzle-kit push"`;
   const check = validateCommand(cmd);
   if (!check.allowed) throw new Error(check.reason);
 
