@@ -9,8 +9,10 @@ import { checkPlugin } from './src/shared/middleware/checkPlugin.js';
 import { db } from './src/shared/db/index.js';
 import { users, roles, purchase_requisitions, rfq, rfq_vendors, quotations, comparative_statements, purchase_orders, po_items, grn, grn_items, qc_inspections, invoices, payments, approval_workflows, pr_approvals, document_approvals, pr_items, role_permissions, departments, designations, system_settings, bpmn_definitions, bpmn_instances, inbox_tasks, warehouse_stock } from './src/shared/db/schema.js';
 import { vendors, inventory_items, notifications, notification_settings, smtp_settings, stock_transactions, item_categories, stock_out_requests, global_stock_ledger } from './src/shared/db/schema.js';
-import { plugins, companies, company_plugins, units, branches, warehouses, warehouse_managers, vendor_evaluations, stock_transfers, stock_transfer_items, profile_change_requests } from './src/shared/db/schema.js';
-import { eq, desc, and, ne, isNull, or, sql, inArray, like, getTableColumns } from 'drizzle-orm';
+import { plugins, companies, company_plugins, units, branches, warehouses, warehouse_managers, vendor_evaluations, stock_transfers, stock_transfer_items, profile_change_requests, work_orders } from './src/shared/db/schema.js';
+// Phase 1 new table imports
+import { stock_reservations, physical_stock_counts, physical_count_details, stock_adjustments, vendor_quality_metrics, stock_consumption_history, rejected_item_dispositions } from './src/shared/db/schema.js';
+import { eq, desc, and, ne, isNull, or, sql, inArray, like, ilike, getTableColumns } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { getUser } from './src/shared/db/users.js';
 import { createClient } from '@supabase/supabase-js';
@@ -20,6 +22,7 @@ import procurementReportsRouter from './src/modules/procurement/api/reports.js';
 import ssoRouter from './src/modules/auth/api/sso.js';
 import profileChangeRouter from './src/modules/userPanel/api/profileChange.js';
 import { evaluateWorkflowPath } from './src/shared/lib/bpmnParser.js';
+import { hashPassword, verifyPassword, generateAuthToken } from './src/shared/lib/authUtils.js';
 
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL || '',
@@ -184,21 +187,33 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { module: string, ti
 
 async function getNotificationConfig(companyId: string, actionEvent: string, defaultMessage: string, templateData: Record<string, any> = {}) {
   try {
+    // Map actionEvent aliases
+    let resolvedEvent = actionEvent;
+    if (actionEvent === "Purchase Requisition Approval Required") resolvedEvent = "PR Approval Required";
+    if (actionEvent === "Purchase Requisition Created") resolvedEvent = "PR Created";
+    if (actionEvent === "Item Requisition Created") resolvedEvent = "Item Requisition Created";
+    if (actionEvent === "Item Requisition Approval Required") resolvedEvent = "Item Requisition Approval Required";
+    if (actionEvent === "CS Evaluation Approval Required") resolvedEvent = "CS Evaluation Approval Required";
+    if (actionEvent === "Stock Transfer Approval Required") resolvedEvent = "Stock Transfer Approval Required";
+    if (actionEvent === "PO Approval Required") resolvedEvent = "PO Approval Required";
+
     const setting = await db.select().from(notification_settings)
       .where(and(
         eq(notification_settings.companyId, companyId),
-        eq(notification_settings.actionEvent, actionEvent)
+        eq(notification_settings.actionEvent, resolvedEvent)
       ))
       .limit(1);
 
-    const defaultTemplate = DEFAULT_NOTIFICATION_TEMPLATES[actionEvent];
+    const defaultTemplate = DEFAULT_NOTIFICATION_TEMPLATES[resolvedEvent];
 
-    let title = defaultTemplate ? defaultTemplate.titleTemplate : actionEvent;
+    let title = defaultTemplate ? defaultTemplate.titleTemplate : resolvedEvent;
     let message = defaultMessage;
-    let mailSubject = defaultTemplate ? defaultTemplate.mailSubjectTemplate : actionEvent;
+    let mailSubject = defaultTemplate ? defaultTemplate.mailSubjectTemplate : resolvedEvent;
     let mailBody = defaultTemplate ? defaultTemplate.mailBodyTemplate : defaultMessage;
+    
     let isWebActive = true;
-    let isMailActive = false;
+    // Default email notifications to active for required approvals/actions
+    let isMailActive = resolvedEvent.toLowerCase().includes("approval") || resolvedEvent.toLowerCase().includes("required");
 
     if (setting.length > 0) {
       isWebActive = setting[0].isActive !== null ? setting[0].isActive : true;
@@ -209,7 +224,20 @@ async function getNotificationConfig(companyId: string, actionEvent: string, def
       mailBody = setting[0].mailBodyTemplate || mailBody;
     }
 
-    for (const [key, value] of Object.entries(templateData)) {
+    // Auto-fill templateData from defaultMessage if missing
+    const finalData = { ...templateData };
+    if (!finalData.reference) {
+      // Look for references like PR-xxx, IR-xxx, CS-xxx, PO-xxx, GRN-xxx, INV-xxx, PSC-xxx, or "Transfer 123"
+      const refMatch = defaultMessage.match(/\b(PR-\d+|IR-\d+|CS-\d+|PO-\d+|GRN-\d+|INV-\d+|PSC-\d+-\d+|Transfer \d+|Transfer-\d+)\b/i);
+      if (refMatch) {
+        finalData.reference = refMatch[1];
+      }
+    }
+    if (!finalData.comments && defaultMessage.includes("Comment: ")) {
+      finalData.comments = defaultMessage.split("Comment: ")[1];
+    }
+
+    for (const [key, value] of Object.entries(finalData)) {
       const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
       title = title.replace(regex, String(value));
       message = message.replace(regex, String(value));
@@ -220,7 +248,7 @@ async function getNotificationConfig(companyId: string, actionEvent: string, def
     return { title, message, mailSubject, mailBody, isWebActive, isMailActive };
   } catch (error) {
     console.error("Error getting notification config:", error);
-    return { title: actionEvent, message: defaultMessage };
+    return { title: actionEvent, message: defaultMessage, mailSubject: actionEvent, mailBody: defaultMessage, isWebActive: true, isMailActive: false };
   }
 }
 
@@ -260,31 +288,42 @@ async function notifyUsersByRole(companyId: string, role: string, title: string,
   }
 }
 
-async function notifyApprovers(companyId: string, assigneeType: string, assigneeValue: string, departmentContext: string, title: string, message: string, type: string, link: string, referenceType?: string, referenceId?: number) {
+async function notifyApprovers(companyId: string, assigneeType: string, assigneeValue: string, departmentContext: string, title: string, message: string, type: string, link: string, referenceType?: string, referenceId?: number, requesterBranchId?: number) {
   try {
     const config = await getNotificationConfig(companyId, title, message, {});
     if (!config) return;
     if (!config.isWebActive && !config.isMailActive) return;
 
-    let query = db.select({ uid: users.uid, email: users.email }).from(users).where(eq(users.companyId, companyId));
-    
-    if (assigneeType === 'Department Head') {
-      const dept = await db.select({ managerUid: departments.managerUid }).from(departments).where(and(eq(departments.companyId, companyId), eq(departments.name, departmentContext))).limit(1);
-      if (dept.length > 0 && dept[0].managerUid) {
-        query = db.select({ uid: users.uid, email: users.email }).from(users).where(eq(users.uid, dept[0].managerUid));
-      } else {
-        query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.role, 'Department Head'), eq(users.department, departmentContext)));
+    let matchedUsers: { uid: string; email: string | null }[] = [];
+
+    const findUsers = async (branchIdToFilter?: number) => {
+      let query = db.select({ uid: users.uid, email: users.email }).from(users).where(eq(users.companyId, companyId));
+      const branchCond = branchIdToFilter ? eq(users.branchId, branchIdToFilter) : undefined;
+
+      if (assigneeType === 'Department Head') {
+        const dept = await db.select({ managerUid: departments.managerUid }).from(departments).where(and(eq(departments.companyId, companyId), eq(departments.name, departmentContext))).limit(1);
+        if (dept.length > 0 && dept[0].managerUid) {
+          query = db.select({ uid: users.uid, email: users.email }).from(users).where(eq(users.uid, dept[0].managerUid));
+        } else {
+          query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.role, 'Department Head'), eq(users.department, departmentContext), branchCond));
+        }
+      } else if (assigneeType === 'Role') {
+        query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.role, assigneeValue), branchCond));
+      } else if (assigneeType === 'Designation') {
+        query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.designation, assigneeValue), branchCond));
+      } else if (assigneeType === 'Specific User') {
+        query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.uid, assigneeValue)));
       }
-    } else if (assigneeType === 'Role') {
-      query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.role, assigneeValue)));
-    } else if (assigneeType === 'Designation') {
-      query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.designation, assigneeValue)));
-    } else if (assigneeType === 'Specific User') {
-      query = db.select({ uid: users.uid, email: users.email }).from(users).where(and(eq(users.companyId, companyId), eq(users.uid, assigneeValue)));
+      return await query;
+    };
+
+    if (requesterBranchId) {
+      matchedUsers = await findUsers(requesterBranchId);
+    }
+    if (matchedUsers.length === 0) {
+      matchedUsers = await findUsers();
     }
 
-    const matchedUsers = await query;
-    
     if (config.isMailActive) {
       for (const u of matchedUsers) {
         if (u.email) {
@@ -814,6 +853,66 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Native Direct PostgreSQL Auth Login Route (for Production Server / AUTH_MODE=postgres)
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body || {};
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+
+      // Search user by email (case-insensitive)
+      const dbUsers = await db.select().from(users).where(ilike(users.email, email.trim())).limit(1);
+      const user = dbUsers[0];
+
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      if (user.status === 'Inactive') {
+        return res.status(403).json({ error: "Your account is currently inactive. Please contact support." });
+      }
+
+      // Verify password hash
+      let isValidPassword = false;
+      if (user.passwordHash) {
+        isValidPassword = verifyPassword(password, user.passwordHash);
+      } else {
+        // Fallback for initial imported/seeded users with no password_hash set yet
+        // Store password hash on first successful login if password satisfies basic criteria
+        const newHash = hashPassword(password);
+        await db.update(users).set({ passwordHash: newHash }).where(eq(users.id, user.id));
+        isValidPassword = true;
+      }
+
+      if (!isValidPassword) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      const token = generateAuthToken({
+        uid: user.uid,
+        email: user.email,
+        companyId: user.companyId,
+        role: user.role
+      });
+
+      return res.json({
+        message: "Login successful",
+        token,
+        user: {
+          uid: user.uid,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          companyId: user.companyId
+        }
+      });
+    } catch (error: any) {
+      console.error("Login error:", error);
+      return res.status(500).json({ error: "Internal server error during authentication" });
+    }
   });
 
   // Auth synchronization route
@@ -1819,11 +1918,18 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
 
   app.post("/api/permissions", requireAuth, async (req: AuthRequest, res) => {
     try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(400).json({ error: "No company context" });
+      
       const { role, module, canView, canCreate, canEdit, canDelete, canApprove } = req.body;
       
-      // Check if exists
+      // Check if exists within this company
       const existing = await db.select().from(role_permissions).where(
-        and(eq(role_permissions.role, role), eq(role_permissions.module, module))
+        and(
+          eq(role_permissions.role, role),
+          eq(role_permissions.module, module),
+          eq(role_permissions.companyId, companyId)
+        )
       );
 
       let result;
@@ -1833,7 +1939,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         }).where(eq(role_permissions.id, existing[0].id)).returning();
       } else {
         result = await db.insert(role_permissions).values({
-          role, module, canView, canCreate, canEdit, canDelete, canApprove
+          companyId, role, module, canView, canCreate, canEdit, canDelete, canApprove
         }).returning();
       }
       res.json(result[0]);
@@ -1989,20 +2095,26 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       let companyId = await resolveTenantId(req);
       if (!companyId) return res.json([]);
       
-      const { type } = req.query;
-      
-      // Auto-migrate old PRs
-      await db.update(purchase_requisitions).set({ companyId }).where(isNull(purchase_requisitions.companyId));
-      
-      let prsQuery: any = db.select().from(purchase_requisitions).where(eq(purchase_requisitions.companyId, companyId)).orderBy(desc(purchase_requisitions.createdAt));
-      
+      const { type, mine } = req.query;
+
+      let conditions: any[] = [eq(purchase_requisitions.companyId, companyId)];
+
       if (type === 'IR') {
-        prsQuery = db.select().from(purchase_requisitions).where(and(eq(purchase_requisitions.companyId, companyId), like(purchase_requisitions.prNumber, 'IR-%'))).orderBy(desc(purchase_requisitions.createdAt));
+        conditions.push(like(purchase_requisitions.prNumber, 'IR-%'));
+        // Item Requisitions in User Panel are strictly scoped to the creator user
+        if (mine !== 'false') {
+          conditions.push(eq(purchase_requisitions.uid, req.user!.uid));
+        }
       } else if (type === 'PR') {
-        prsQuery = db.select().from(purchase_requisitions).where(and(eq(purchase_requisitions.companyId, companyId), like(purchase_requisitions.prNumber, 'PR-%'))).orderBy(desc(purchase_requisitions.createdAt));
+        conditions.push(like(purchase_requisitions.prNumber, 'PR-%'));
+        if (mine === 'true') {
+          conditions.push(eq(purchase_requisitions.uid, req.user!.uid));
+        }
+      } else if (mine === 'true') {
+        conditions.push(eq(purchase_requisitions.uid, req.user!.uid));
       }
       
-      const prs = await prsQuery;
+      const prs = await db.select().from(purchase_requisitions).where(and(...conditions)).orderBy(desc(purchase_requisitions.createdAt));
       const allItems = await db.select().from(pr_items);
       const allApprovals = await db.select().from(pr_approvals);
       const allInventoryItems = await db.select().from(inventory_items);
@@ -2039,9 +2151,18 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       if (!companyId) return res.status(403).json({ error: "Company required" });
       const { requestor, department, costCenter, priority, estimatedCost, justification, items, isDraft, documentType = 'Item Requisition', sourceIrId, procurementMethod } = req.body;
       
-      const prefix = documentType === 'Purchase Request' || documentType === 'Purchase Requisition' ? 'PR' : 'IR';
+      const isPR = documentType === 'Purchase Request' || documentType === 'Purchase Requisition';
+      const targetDocType = isPR ? 'Purchase Requisition' : 'Item Requisition';
+      const approvalTitle = isPR ? "Purchase Requisition Approval Required" : "Item Requisition Approval Required";
+      const createdTitle = isPR ? "Purchase Requisition Created" : "Item Requisition Created";
+      const defaultLink = isPR ? "/purchase-requisition" : "/item-requisition";
+
+      const prefix = isPR ? 'PR' : 'IR';
       const prNumber = `${prefix}-${Date.now()}`;
       
+      const requesterUser = await db.select({ branchId: users.branchId }).from(users).where(eq(users.uid, req.user.uid)).limit(1);
+      const requesterBranchId = requesterUser[0]?.branchId || undefined;
+
       const prResult = await db.insert(purchase_requisitions).values({
         companyId,
         prNumber,
@@ -2075,8 +2196,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       
       // Setup Approvals based on workflow only if NOT draft
       if (!isDraft) {
-        // Fetch dynamic BPMN definition
-        let defs = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, documentType), eq(bpmn_definitions.isActive, true)));
+        // Fetch dynamic BPMN definition for targetDocType
+        let defs = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, targetDocType), eq(bpmn_definitions.isActive, true)));
         
         let approvalsToInsert: any[] = [];
         
@@ -2122,10 +2243,10 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           await db.insert(pr_approvals).values(approvalsToInsert);
           const firstStep = approvalsToInsert.find(a => a.stepOrder === 1);
           if (firstStep) {
-            await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, department, "Item Requisition Approval Required", `Request ${prNumber} requires your approval.`, "ACTION", "/inbox", "PR", newPrId);
+            await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, department, approvalTitle, `Request ${prNumber} requires your approval.`, "ACTION", "/inbox", "PR", newPrId, requesterBranchId);
           }
         } else {
-          await notifyApprovers(companyId, 'Role', 'Admin', department, "Item Request Created", `Request ${prNumber} has been submitted with no approvals required.`, "INFO", "/pr");
+          await notifyApprovers(companyId, 'Role', 'Admin', department, createdTitle, `Request ${prNumber} has been submitted with no approvals required.`, "INFO", defaultLink, undefined, undefined, requesterBranchId);
         }
       }
 
@@ -2181,8 +2302,14 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         // Clear only pending approvals, keep historical ones
         await db.delete(pr_approvals).where(and(eq(pr_approvals.prId, prId), eq(pr_approvals.status, 'Pending')));
 
-        // Fetch dynamic BPMN definition
-        let defs = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, 'Item Requisition'), eq(bpmn_definitions.isActive, true)));
+        const isPR = req.body.documentType ? (req.body.documentType === 'Purchase Request' || req.body.documentType === 'Purchase Requisition') : existingPr[0].prNumber?.startsWith('PR-');
+        const targetDocType = isPR ? 'Purchase Requisition' : 'Item Requisition';
+        const approvalTitle = isPR ? "Purchase Requisition Approval Required" : "Item Requisition Approval Required";
+        const createdTitle = isPR ? "Purchase Requisition Created" : "Item Requisition Created";
+        const defaultLink = isPR ? "/purchase-requisition" : "/item-requisition";
+
+        // Fetch dynamic BPMN definition for targetDocType
+        let defs = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, targetDocType), eq(bpmn_definitions.isActive, true)));
         
         let approvalsToInsert: any[] = [];
         
@@ -2223,14 +2350,17 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           }
         }
         
+        const requesterUser = await db.select({ branchId: users.branchId }).from(users).where(eq(users.uid, existingPr[0].uid)).limit(1);
+        const requesterBranchId = requesterUser[0]?.branchId || undefined;
+
         if (approvalsToInsert.length > 0) {
           await db.insert(pr_approvals).values(approvalsToInsert);
           const firstStep = approvalsToInsert.find(a => a.stepOrder === 1);
           if (firstStep) {
-            await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, department, "Item Requisition Approval Required", `Request ${existingPr[0].prNumber} requires your approval.`, "ACTION", "/inbox", "PR", prId);
+            await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, department, approvalTitle, `Request ${existingPr[0].prNumber} requires your approval.`, "ACTION", "/inbox", "PR", prId, requesterBranchId);
           }
         } else {
-          await notifyApprovers(companyId, 'Role', 'Admin', department, "Item Requisition Created", `Request ${existingPr[0].prNumber} has been submitted with no approvals required.`, "INFO", "/item-requisition");
+          await notifyApprovers(companyId, 'Role', 'Admin', department, createdTitle, `Request ${existingPr[0].prNumber} has been submitted with no approvals required.`, "INFO", defaultLink, undefined, undefined, requesterBranchId);
         }
       }
 
@@ -2259,31 +2389,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const userRole = dbUser[0]?.role;
       const isSuperAdmin = userRole === 'Super Admin';
 
-      let prsWithDetails = prs
-        .map(pr => ({
-          ...pr,
-          items: allItems.filter(i => i.prId === pr.id).map(i => {
-             const inv = allInventory.find(inv => inv.id === i.itemId);
-             return {
-               ...i,
-               availableStock: inv?.quantityInStock || 0,
-               isAdminItem: inv?.isAdminItem || false,
-               isItItem: inv?.isItItem || false,
-             };
-          }),
-          approvals: allApprovals.filter(a => a.prId === pr.id).sort((a, b) => a.stepOrder - b.stepOrder)
-        }))
-        .filter(pr => {
-          if (pr.status === 'Draft') {
-            return pr.approvals.some((a: any) => a.status === 'Review');
-          }
-          return true;
-        });
-
-      // Fetch all departments to check managers
-      const allDepartments = await db.select().from(departments).where(eq(departments.companyId, companyId));
-
-      // Get branch IDs for warehouses managed by this user (to filter Approved requisitions)
+      // Get branch IDs for warehouses managed by this user (to filter Approved requisitions for fulfillment)
       const managedWhs = await db.select().from(warehouse_managers)
         .where(eq(warehouse_managers.userId, req.user!.uid));
       const managedWhIds = managedWhs.map(m => m.warehouseId);
@@ -2297,40 +2403,33 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       // Fetch all users to map creators to their branch
       const creators = await db.select().from(users).where(eq(users.companyId, companyId));
 
-      // Filter by role: Super Admin sees all, others see only those where they are the specific authorized approver
-      if (!isSuperAdmin) {
-        prsWithDetails = prsWithDetails.filter(pr => {
-          const pendingStep = pr.approvals.find((a: any) => a.status === 'Pending');
-          if (!pendingStep) {
-            // Allow if it's Approved (Inventory Managers need to see these for fulfillment)
-            // Restrict to only the approved requisitions from the branches managed by this user
-            if (pr.status === 'Approved') {
-              const creator = creators.find(u => u.uid === pr.uid);
-              return creator?.branchId !== null && creator?.branchId !== undefined && managedBranchIds.includes(creator.branchId);
-            }
-            // Allow if it's in Review and they are one of the past approvers/reviewers
-            if (pr.status === 'Draft' && pr.approvals.some((a: any) => a.status === 'Review')) {
-              return pr.approvals.some((a: any) => a.approvedBy === req.user!.uid || a.roleRequired === userRole || a.assigneeValue === userRole);
-            }
-            return false;
-          }
-          
-          const roleReq = pendingStep.roleRequired;
-          
-          // Smart Organogram Routing logic
-          if (roleReq === 'Department Head' || roleReq.includes('Department')) {
-            // Find the PR's department in the organogram
-            const prDept = allDepartments.find(d => d.name === pr.department);
-            // Must be the assigned manager of that department
-            return prDept && prDept.managerUid === req.user!.uid;
-          }
-          
-          // For future: if (roleReq === 'Unit Head') { ... find unit manager ... }
+      let prsWithDetails = prs
+        .map(pr => {
+          const creator = creators.find(u => u.uid === pr.uid);
+          const isBranchManager = creator?.branchId !== null && creator?.branchId !== undefined && managedBranchIds.includes(creator.branchId);
+          const canFulfill = isSuperAdmin || (pr.status === 'Approved' && isBranchManager);
 
-          // Fallback: Global roles or specific Designations (like "Finance Manager" or "Software Engineer")
-          return roleReq === userRole || roleReq === dbUser[0]?.designation;
+          return {
+            ...pr,
+            canFulfill,
+            items: allItems.filter(i => i.prId === pr.id).map(i => {
+               const inv = allInventory.find(inv => inv.id === i.itemId);
+               return {
+                 ...i,
+                 availableStock: inv?.quantityInStock || 0,
+                 isAdminItem: inv?.isAdminItem || false,
+                 isItItem: inv?.isItItem || false,
+               };
+            }),
+            approvals: allApprovals.filter(a => a.prId === pr.id).sort((a, b) => a.stepOrder - b.stepOrder)
+          };
+        })
+        .filter(pr => {
+          if (pr.status === 'Draft') {
+            return pr.approvals.some((a: any) => a.status === 'Review');
+          }
+          return true;
         });
-      }
 
       res.json(prsWithDetails);
     } catch (error: any) {
@@ -2424,7 +2523,9 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         } else {
           // Notify next approver
           const nextStep = remainingSteps.sort((a, b) => a.stepOrder - b.stepOrder)[0];
-          await notifyApprovers(existingPr[0].companyId, nextStep.assigneeType || 'Role', nextStep.assigneeValue || nextStep.roleRequired, existingPr[0].department, "PR Approval Required", `PR ${existingPr[0].prNumber} requires your approval.`, "ACTION", "/inbox", "PR", prId);
+          const prCreator = await db.select({ branchId: users.branchId }).from(users).where(eq(users.uid, existingPr[0].uid)).limit(1);
+          const prCreatorBranchId = prCreator[0]?.branchId || undefined;
+          await notifyApprovers(existingPr[0].companyId, nextStep.assigneeType || 'Role', nextStep.assigneeValue || nextStep.roleRequired, existingPr[0].department, "PR Approval Required", `PR ${existingPr[0].prNumber} requires your approval.`, "ACTION", "/inbox", "PR", prId, prCreatorBranchId);
         }
       }
 
@@ -2636,6 +2737,77 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
+  app.post("/api/vendors", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(400).json({ error: "Company ID not resolved" });
+      
+      const { name, bin, tin, contactPerson, email, phone, bankName, branchName, accountName, accountNumber, routingNumber } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "Vendor name is required" });
+      }
+
+      const [newVendor] = await db.insert(vendors).values({
+        companyId,
+        name,
+        bin,
+        tin,
+        contactPerson,
+        email,
+        phone,
+        bankName,
+        branchName,
+        accountName,
+        accountNumber,
+        routingNumber,
+        status: 'Active',
+        rating: '0.0'
+      }).returning();
+
+      res.status(201).json(newVendor);
+    } catch (error: any) {
+      console.error("Failed to create vendor:", error);
+      res.status(500).json({ error: "Failed to create vendor" });
+    }
+  });
+
+  app.put("/api/vendors/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(400).json({ error: "Company ID not resolved" });
+      
+      const vendorId = parseInt(req.params.id);
+      const { name, bin, tin, contactPerson, email, phone, bankName, branchName, accountName, accountNumber, routingNumber, status } = req.body;
+
+      const [updatedVendor] = await db.update(vendors)
+        .set({
+          name,
+          bin,
+          tin,
+          contactPerson,
+          email,
+          phone,
+          bankName,
+          branchName,
+          accountName,
+          accountNumber,
+          routingNumber,
+          ...(status ? { status } : {})
+        })
+        .where(and(eq(vendors.id, vendorId), eq(vendors.companyId, companyId)))
+        .returning();
+
+      if (!updatedVendor) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+
+      res.json(updatedVendor);
+    } catch (error: any) {
+      console.error("Failed to update vendor:", error);
+      res.status(500).json({ error: "Failed to update vendor" });
+    }
+  });
+
   // ==========================================
   // RFQ Endpoints
   // ==========================================
@@ -2740,9 +2912,16 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           rfqId,
           vendorId,
           prItemId: q.prItemId,
-          quotedPrice: q.quotedPrice.toString(),
+          quotedPrice: (q.quotedPrice || 0).toString(),
           deliveryDays: q.deliveryDays || null,
-          remarks: q.remarks || null
+          remarks: q.remarks || null,
+          attachmentUrl: q.attachmentUrl || null,
+          vatPercent: (q.vatPercent ?? 0).toString(),
+          vatAmount: (q.vatAmount ?? 0).toString(),
+          taxPercent: (q.taxPercent ?? 0).toString(),
+          taxAmount: (q.taxAmount ?? 0).toString(),
+          totalAmount: (q.totalAmount ?? 0).toString(),
+          description: q.description || null,
         }));
         await db.insert(quotations).values(insertQuotes);
       }
@@ -2766,16 +2945,20 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const allRfqs = await db.select().from(rfq).where(eq(rfq.companyId, companyId));
       const allPrs = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.companyId, companyId));
       const allVendors = await db.select().from(vendors).where(eq(vendors.companyId, companyId));
+      const allEvaluations = await db.select().from(vendor_evaluations).where(eq(vendor_evaluations.companyId, companyId));
 
       const cssWithDetails = css.map(c => {
         const r = allRfqs.find(rf => rf.id === c.rfqId);
         const pr = allPrs.find(p => p.id === c.prId);
         const vendor = allVendors.find(v => v.id === c.selectedVendorId);
+        const evals = allEvaluations.filter(e => e.csId === c.id);
         return {
           ...c,
           rfqNumber: r?.rfqNumber || '',
           prNumber: pr?.prNumber || '',
-          selectedVendorName: vendor?.name || ''
+          selectedVendorName: vendor?.name || '',
+          isEvaluated: evals.length > 0 || c.evaluationType === 'Quick Evaluation',
+          evaluations: evals
         };
       });
       res.json(cssWithDetails);
@@ -2785,12 +2968,309 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
+  app.get("/api/cs/:id/evaluations", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const csId = parseInt(req.params.id);
+      const evals = await db.select().from(vendor_evaluations).where(and(eq(vendor_evaluations.companyId, companyId), eq(vendor_evaluations.csId, csId)));
+      res.json(evals);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch evaluations" });
+    }
+  });
+
+  async function ensureWorkOrderForCs(companyId: string, csId: number, createdByUid?: string) {
+    try {
+      const existing = await db.select().from(work_orders).where(eq(work_orders.csId, csId));
+      if (existing.length > 0) return existing[0];
+
+      const csList = await db.select().from(comparative_statements).where(eq(comparative_statements.id, csId));
+      if (csList.length === 0) return null;
+      const cs = csList[0];
+
+      if (!cs.selectedVendorId) return null;
+
+      const vendorList = await db.select().from(vendors).where(eq(vendors.id, cs.selectedVendorId));
+      const vendor = vendorList[0];
+
+      const prList = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, cs.prId));
+      const pr = prList[0];
+
+      let poId: number | null = null;
+      let poNumber = '';
+      const existingPos = await db.select().from(purchase_orders).where(eq(purchase_orders.csId, csId));
+      if (existingPos.length > 0) {
+        poId = existingPos[0].id;
+        poNumber = existingPos[0].poNumber;
+      } else {
+        poNumber = `PO-${Date.now()}`;
+        const newPo = await db.insert(purchase_orders).values({
+          companyId,
+          poNumber,
+          prId: cs.prId,
+          csId: cs.id,
+          vendorId: cs.selectedVendorId,
+          totalAmount: cs.totalAmount || '0',
+          status: 'Approved',
+          createdBy: createdByUid || cs.createdBy
+        }).returning();
+        poId = newPo[0].id;
+
+        const quotes = await db.select().from(quotations).where(and(eq(quotations.rfqId, cs.rfqId), eq(quotations.vendorId, cs.selectedVendorId)));
+        const prItems = await db.select().from(pr_items).where(eq(pr_items.prId, cs.prId));
+        if (prItems.length > 0) {
+          const poItemsData = prItems.map(item => {
+            const q = quotes.find(quote => quote.prItemId === item.id);
+            return {
+              poId: newPo[0].id,
+              itemName: item.itemName,
+              quantity: item.quantity,
+              uom: item.uom || 'Pcs',
+              unitPrice: (q?.quotedPrice || item.estimatedPrice || '0').toString()
+            };
+          });
+          await db.insert(po_items).values(poItemsData);
+        }
+      }
+
+      const year = new Date().getFullYear();
+      const month = String(new Date().getMonth() + 1).padStart(2, '0');
+      const woNumber = `SLI/HQ/${String(csId).padStart(3, '0')}/${year}/${month}`;
+
+      const defaultTerms = [
+        `As per your Quotation e-mail dated ${cs.createdAt ? new Date(cs.createdAt).toLocaleDateString() : 'N/A'} Ref No. UTCEH-IDB-${cs.id}`,
+        "Payment shall be made after 15 days of receipt of all materials in good condition.",
+        `Please submit the bill along with the Purchase Order (${poNumber}) number clearly mentioned on both the invoice and delivery challan for processing of payment.`,
+        "Price is VAT & TAX included.",
+        "Price includes delivery charges.",
+        "Please provide invoice with Mushak 6.3.",
+        "Shanta Life reserves the full right to cancel or amend the Work Order at any stage, as deemed necessary."
+      ];
+
+      const woResult = await db.insert(work_orders).values({
+        companyId,
+        woNumber,
+        csId: cs.id,
+        poId,
+        prId: cs.prId,
+        vendorId: cs.selectedVendorId,
+        subject: `Work Order for ${pr?.prNumber || 'Procurement Items'}`,
+        attnPerson: vendor?.contactPerson || vendor?.name || 'Authorized Representative',
+        quotationRefNo: `UTCEH-IDB-${cs.id}`,
+        quotationDate: cs.createdAt || new Date(),
+        deliveryAddress: 'Shanta Western Tower, Level 10, 186, Bir Uttam Mir Shawkat Sarak, Tejgaon, Dhaka - 1208, Bangladesh',
+        officeContactName: pr?.requestor || 'Mr. Mamun Hossain',
+        officeContactPhone: '+8801332544756',
+        officeContactEmail: 'mamun.hossain@shantalife.com',
+        totalAmount: cs.totalAmount || '0',
+        vatAmount: '0',
+        taxAmount: '0',
+        grandTotal: cs.totalAmount || '0',
+        termsConditions: defaultTerms,
+        status: 'Pending Signed Upload',
+        createdBy: createdByUid || cs.createdBy
+      }).returning();
+
+      return woResult[0];
+    } catch (err) {
+      console.error("Error in ensureWorkOrderForCs:", err);
+      return null;
+    }
+  }
+
+  async function ensureWorkOrdersForTenant(companyId: string) {
+    try {
+      const csList = await db.select().from(comparative_statements).where(eq(comparative_statements.companyId, companyId));
+      for (const cs of csList) {
+        if (cs.selectedVendorId) {
+          await ensureWorkOrderForCs(companyId, cs.id);
+        }
+      }
+
+      const poList = await db.select().from(purchase_orders).where(eq(purchase_orders.companyId, companyId));
+      for (const po of poList) {
+        if (po.vendorId) {
+          const existingWo = await db.select().from(work_orders).where(eq(work_orders.poId, po.id));
+          if (existingWo.length === 0) {
+            const year = new Date().getFullYear();
+            const month = String(new Date().getMonth() + 1).padStart(2, '0');
+            const woNumber = `SLI/HQ/${String(po.id).padStart(3, '0')}/${year}/${month}`;
+            const vendorList = await db.select().from(vendors).where(eq(vendors.id, po.vendorId));
+            const vendor = vendorList[0];
+
+            const defaultTerms = [
+              `As per your Quotation Ref No. PO-${po.poNumber}`,
+              "Payment shall be made after 15 days of receipt of all materials in good condition.",
+              `Please submit the bill along with the Purchase Order (${po.poNumber}) number clearly mentioned on both the invoice and delivery challan for processing of payment.`,
+              "Price is VAT & TAX included.",
+              "Price includes delivery charges.",
+              "Please provide invoice with Mushak 6.3.",
+              "Shanta Life reserves the full right to cancel or amend the Work Order at any stage, as deemed necessary."
+            ];
+
+            await db.insert(work_orders).values({
+              companyId,
+              woNumber,
+              csId: po.csId || null,
+              poId: po.id,
+              prId: po.prId || null,
+              vendorId: po.vendorId,
+              subject: `Work Order for Purchase Order ${po.poNumber}`,
+              attnPerson: vendor?.contactPerson || vendor?.name || 'Authorized Representative',
+              quotationRefNo: `PO-${po.poNumber}`,
+              quotationDate: po.createdAt || new Date(),
+              deliveryAddress: 'Shanta Western Tower, Level 10, 186, Bir Uttam Mir Shawkat Sarak, Tejgaon, Dhaka - 1208, Bangladesh',
+              officeContactName: 'Mr. Mamun Hossain',
+              officeContactPhone: '+8801332544756',
+              officeContactEmail: 'mamun.hossain@shantalife.com',
+              totalAmount: po.totalAmount || '0',
+              vatAmount: '0',
+              taxAmount: '0',
+              grandTotal: po.totalAmount || '0',
+              termsConditions: defaultTerms,
+              status: 'Pending Signed Upload',
+              createdBy: po.createdBy
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error in ensureWorkOrdersForTenant:", err);
+    }
+  }
+
+  // --- Work Orders Endpoints ---
+  app.get("/api/work-orders", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      
+      await ensureWorkOrdersForTenant(companyId);
+
+      const wos = await db.select().from(work_orders).where(eq(work_orders.companyId, companyId)).orderBy(desc(work_orders.createdAt));
+      const allVendors = await db.select().from(vendors).where(eq(vendors.companyId, companyId));
+      const allPrs = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.companyId, companyId));
+      const allPos = await db.select().from(purchase_orders).where(eq(purchase_orders.companyId, companyId));
+      const allCss = await db.select().from(comparative_statements).where(eq(comparative_statements.companyId, companyId));
+
+      const enrichedWos = wos.map(wo => {
+        const vendor = allVendors.find(v => v.id === wo.vendorId);
+        const pr = allPrs.find(p => p.id === wo.prId);
+        const po = allPos.find(p => p.id === wo.poId);
+        const cs = allCss.find(c => c.id === wo.csId);
+        return {
+          ...wo,
+          vendorName: vendor?.name || 'N/A',
+          vendorPhone: vendor?.phone || '',
+          vendorEmail: vendor?.email || '',
+          vendorAddress: 'Tejgaon, Dhaka - 1208, Bangladesh',
+          prNumber: pr?.prNumber || '',
+          poNumber: po?.poNumber || '',
+          csNumber: cs?.csNumber || ''
+        };
+      });
+
+      res.json(enrichedWos);
+    } catch (error: any) {
+      console.error("Failed to fetch work orders:", error);
+      res.status(500).json({ error: "Failed to fetch work orders" });
+    }
+  });
+
+  app.get("/api/work-orders/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const id = parseInt(req.params.id);
+      const woList = await db.select().from(work_orders).where(and(eq(work_orders.id, id), eq(work_orders.companyId, companyId)));
+      if (woList.length === 0) return res.status(404).json({ error: "Work order not found" });
+
+      const wo = woList[0];
+      const vendorList = await db.select().from(vendors).where(eq(vendors.id, wo.vendorId));
+      const prList = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, wo.prId));
+      const poList = wo.poId ? await db.select().from(purchase_orders).where(eq(purchase_orders.id, wo.poId)) : [];
+      const itemsList = wo.poId ? await db.select().from(po_items).where(eq(po_items.poId, wo.poId)) : [];
+
+      res.json({
+        ...wo,
+        vendor: vendorList[0] || null,
+        pr: prList[0] || null,
+        po: poList[0] || null,
+        items: itemsList
+      });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch work order detail" });
+    }
+  });
+
+  app.put("/api/work-orders/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const id = parseInt(req.params.id);
+      const {
+        subject, attnPerson, quotationRefNo, quotationDate,
+        deliveryAddress, officeContactName, officeContactPhone, officeContactEmail,
+        termsConditions, vatAmount, taxAmount, grandTotal
+      } = req.body;
+
+      const updated = await db.update(work_orders).set({
+        subject,
+        attnPerson,
+        quotationRefNo,
+        quotationDate: quotationDate ? new Date(quotationDate) : undefined,
+        deliveryAddress,
+        officeContactName,
+        officeContactPhone,
+        officeContactEmail,
+        termsConditions,
+        vatAmount: vatAmount ? vatAmount.toString() : undefined,
+        taxAmount: taxAmount ? taxAmount.toString() : undefined,
+        grandTotal: grandTotal ? grandTotal.toString() : undefined,
+      }).where(and(eq(work_orders.id, id), eq(work_orders.companyId, companyId))).returning();
+
+      res.json(updated[0]);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to update work order" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/upload-signed", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const id = parseInt(req.params.id);
+      const { signedFileUrl } = req.body;
+
+      if (!signedFileUrl) {
+        return res.status(400).json({ error: "Signed document attachment URL is required" });
+      }
+
+      const updated = await db.update(work_orders).set({
+        signedFileUrl,
+        signedUploadedAt: new Date(),
+        signedUploadedBy: req.user.uid,
+        status: 'Signed & Active'
+      }).where(and(eq(work_orders.id, id), eq(work_orders.companyId, companyId))).returning();
+
+      res.json(updated[0]);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to upload signed work order" });
+    }
+  });
+
   app.post("/api/cs", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!companyId) return res.status(403).json({ error: "Company required" });
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-      const { rfqId, prId, selectedVendorId, justification, totalAmount, evaluationType = 'Full Evaluation' } = req.body;
+      const { rfqId, prId, selectedVendorId, justification, totalAmount, evaluationType = 'Full Evaluation', vendorScores, submitForApproval = false } = req.body;
       const csNumber = `CS-${Date.now()}`;
 
       const csResult = await db.insert(comparative_statements).values({
@@ -2806,9 +3286,69 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         createdBy: req.user.uid
       }).returning();
 
+      const newCs = csResult[0];
+
       await db.update(rfq).set({ status: 'Closed' }).where(eq(rfq.id, rfqId));
 
-      res.json(csResult[0]);
+      if (vendorScores && vendorScores.length > 0) {
+        const insertData = vendorScores.map((vs: any) => ({
+          companyId,
+          csId: newCs.id,
+          vendorId: vs.vendorId,
+          criteriaName: vs.criteriaName,
+          weight: vs.weight.toString(),
+          score: vs.score.toString(),
+          remarks: vs.remarks
+        }));
+        await db.insert(vendor_evaluations).values(insertData);
+      }
+
+      if (submitForApproval) {
+        if (evaluationType !== 'Quick Evaluation' && (!vendorScores || vendorScores.length === 0)) {
+          return res.status(400).json({ error: "Cannot submit CS for approval. Vendor evaluation must be completed first." });
+        }
+        const pr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, prId));
+        const dept = pr[0]?.department || 'Global';
+        const amount = Number(totalAmount) || 0;
+
+        await db.update(comparative_statements).set({ status: 'Pending Approval' }).where(eq(comparative_statements.id, newCs.id));
+
+        let defs = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, 'CS Evaluation'), eq(bpmn_definitions.isActive, true)));
+        
+        let approvalsToInsert: any[] = [];
+        if (defs.length > 0) {
+          const xmlData = defs[0].xmlData;
+          const context = { amount, department: dept };
+          const path = evaluateWorkflowPath(xmlData, context);
+          
+          let stepOrder = 1;
+          for (const task of path) {
+            approvalsToInsert.push({
+              companyId,
+              documentType: 'CS',
+              documentId: newCs.id,
+              stepOrder: stepOrder++,
+              roleRequired: task.assigneeValue,
+              assigneeType: task.assigneeType,
+              assigneeValue: task.assigneeValue,
+              status: 'Pending'
+            });
+          }
+        }
+
+        if (approvalsToInsert.length > 0) {
+          await db.insert(document_approvals).values(approvalsToInsert);
+          const firstStep = approvalsToInsert.find(a => a.stepOrder === 1);
+          if (firstStep) {
+            await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, dept, "CS Evaluation Approval Required", `CS ${csNumber} requires your approval.`, "ACTION", "/inbox", "CS", newCs.id);
+          }
+        } else {
+          await db.update(comparative_statements).set({ status: 'Approved' }).where(eq(comparative_statements.id, newCs.id));
+          await ensureWorkOrderForCs(companyId, newCs.id, req.user.uid);
+        }
+      }
+
+      res.json(newCs);
     } catch (error: any) {
       console.error(error);
       res.status(500).json({ error: "Failed to create CS" });
@@ -2861,6 +3401,12 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const csRecord = await db.select().from(comparative_statements).where(eq(comparative_statements.id, csId));
       if (csRecord.length === 0) return res.status(404).json({ error: "CS not found" });
 
+      // Enforce vendor evaluation check before submitting for approval
+      const evals = await db.select().from(vendor_evaluations).where(eq(vendor_evaluations.csId, csId));
+      if (evals.length === 0 && csRecord[0].evaluationType !== 'Quick Evaluation') {
+        return res.status(400).json({ error: "Cannot submit CS for approval. Vendor evaluation must be completed first." });
+      }
+
       const pr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, csRecord[0].prId));
       const dept = pr[0]?.department || 'Global';
       const amount = Number(csRecord[0].totalAmount) || 0;
@@ -2899,6 +3445,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         }
       } else {
         await db.update(comparative_statements).set({ status: 'Approved' }).where(eq(comparative_statements.id, csId));
+        await ensureWorkOrderForCs(companyId, csId, req.user.uid);
       }
 
       res.json({ success: true });
@@ -2969,6 +3516,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const remainingSteps = approvals.filter(a => a.id !== pendingStep.id && a.status === 'Pending');
         if (remainingSteps.length === 0) {
           await db.update(comparative_statements).set({ status: 'Approved' }).where(eq(comparative_statements.id, csId));
+          await ensureWorkOrderForCs(existingCs[0].companyId!, csId, req.user.uid);
         } else {
           const nextStep = remainingSteps.sort((a, b) => a.stepOrder - b.stepOrder)[0];
           await notifyApprovers(existingCs[0].companyId!, nextStep.assigneeType || 'Role', nextStep.assigneeValue || nextStep.roleRequired, pr[0]?.department || 'Global', "CS Evaluation Approval Required", `CS ${existingCs[0].csNumber} requires your approval.`, "ACTION", "/inbox", "CS", csId);
@@ -3108,6 +3656,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const allPos = await db.select().from(purchase_orders).where(eq(purchase_orders.companyId, companyId));
       const allVendors = await db.select().from(vendors).where(eq(vendors.companyId, companyId));
       const allGrnItems = await db.select().from(grn_items);
+      const allPoItems = await db.select().from(po_items);
+      const allQcInspections = await db.select().from(qc_inspections);
 
       const grnsWithDetails = grns.map(g => {
         const po = allPos.find(p => p.id === g.poId);
@@ -3116,7 +3666,21 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           ...g,
           poNumber: po?.poNumber || '',
           vendorName: vendor?.name || '',
-          items: allGrnItems.filter(i => i.grnId === g.id)
+          items: allGrnItems.filter(i => i.grnId === g.id).map(i => {
+            const poItem = allPoItems.find(pi => pi.id === i.poItemId);
+            const itemQcs = allQcInspections.filter(q => q.grnItemId === i.id);
+            const latestQc = itemQcs.length > 0 ? itemQcs[itemQcs.length - 1] : null;
+            return {
+              ...i,
+              itemName: poItem?.itemName || `Item ID #${i.poItemId}`,
+              category: (poItem as any)?.category || 'General',
+              uom: poItem?.uom || 'Pcs',
+              unitPrice: poItem?.unitPrice || 0,
+              passedQty: latestQc ? latestQc.passedQty : (i.status === 'Passed' ? i.quantityReceived : 0),
+              failedQty: latestQc ? latestQc.failedQty : (i.status === 'Failed' || i.status === 'Hold' ? i.quantityReceived : 0),
+              remarks: latestQc?.remarks || ''
+            };
+          })
         };
       });
       res.json(grnsWithDetails);
@@ -3133,6 +3697,15 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { poId, items, warehouseId } = req.body;
       const grnNumber = `GRN-${Date.now()}`;
+
+      // Check if PO has a signed Work Order uploaded
+      const woRecords = await db.select().from(work_orders).where(eq(work_orders.poId, poId));
+      if (woRecords.length > 0) {
+        const wo = woRecords[0];
+        if (!wo.signedFileUrl || wo.status !== 'Signed & Active') {
+          return res.status(400).json({ error: "Cannot create GRN: Signed Work Order must be uploaded first for this Purchase Order." });
+        }
+      }
 
       const dbUserResult = await db.select().from(users).where(eq(users.uid, req.user!.uid)).limit(1);
       const dbUser = dbUserResult[0];
@@ -3207,6 +3780,10 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         }
       }
 
+      // Check previous passed qty for this GRN Item to calculate incremental stock addition
+      const previousQcList = await db.select().from(qc_inspections).where(eq(qc_inspections.grnItemId, grnItemId));
+      const previousPassedTotal = previousQcList.length > 0 ? previousQcList[previousQcList.length - 1].passedQty : 0;
+
       const qcResult = await db.insert(qc_inspections).values({
         grnItemId,
         inspectedQty,
@@ -3216,75 +3793,176 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         inspectedBy: req.user.uid
       }).returning();
 
-      const status = failedQty > 0 ? 'Hold' : 'Passed';
+      let status = 'Passed';
+      if (passedQty > 0 && failedQty > 0) {
+        status = 'Partial';
+      } else if (failedQty > 0 && passedQty === 0) {
+        status = 'Hold';
+      }
       await db.update(grn_items).set({ status }).where(eq(grn_items.id, grnItemId));
+
+      // Calculate incremental stock for newly passed items
+      const newlyPassed = Math.max(0, passedQty - previousPassedTotal);
 
       const grnItem = await db.select().from(grn_items).where(eq(grn_items.id, grnItemId));
       const grnId = grnItem[0].grnId;
-      const allGrnItems = await db.select().from(grn_items).where(eq(grn_items.grnId, grnId));
-      const pendingQcItems = allGrnItems.filter(i => i.status === 'Pending QC');
+      const grnRecord = await db.select().from(grn).where(eq(grn.id, grnId));
+      const warehouseId = grnRecord[0]?.warehouseId;
+      const companyId = grnRecord[0]?.companyId;
 
-      if (pendingQcItems.length === 0) {
-        await db.update(grn).set({ status: 'QC Completed' }).where(eq(grn.id, grnId));
-        const grnRecord = await db.select().from(grn).where(eq(grn.id, grnId));
-        const warehouseId = grnRecord[0]?.warehouseId;
-        const companyId = grnRecord[0]?.companyId;
+      if (newlyPassed > 0 && warehouseId && companyId) {
+        const poItem = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
+        if (poItem.length > 0) {
+          const targetName = poItem[0].itemName.trim();
+          let inv = await db.select().from(inventory_items).where(
+            and(
+              eq(inventory_items.companyId, companyId),
+              ilike(inventory_items.name, targetName)
+            )
+          );
 
-        for (const item of allGrnItems) {
-          const qc = await db.select().from(qc_inspections).where(eq(qc_inspections.grnItemId, item.id));
-          const passed = qc[0]?.passedQty || 0;
-          if (passed > 0) {
-            const poItem = await db.select().from(po_items).where(eq(po_items.id, item.poItemId));
-            if (poItem.length > 0) {
-              const inv = await db.select().from(inventory_items).where(eq(inventory_items.name, poItem[0].itemName));
-              if (inv.length > 0) {
-                // 1. Update Global quantityInStock
-                await db.update(inventory_items).set({
-                  quantityInStock: (inv[0].quantityInStock || 0) + passed
-                }).where(eq(inventory_items.id, inv[0].id));
+          let invItemId: number;
+          if (inv.length === 0) {
+            const [newInv] = await db.insert(inventory_items).values({
+              companyId,
+              itemCode: `ITEM-${Date.now()}`,
+              name: poItem[0].itemName,
+              category: (poItem[0] as any)?.category || 'General',
+              uom: poItem[0].uom || 'Pcs',
+              basePrice: String(poItem[0].unitPrice || '0.00'),
+              quantityInStock: newlyPassed
+            }).returning();
+            invItemId = newInv.id;
+          } else {
+            invItemId = inv[0].id;
+            // 1. Update Global quantityInStock & Weighted Average Costing (WAC)
+            const currentQty = inv[0].quantityInStock || 0;
+            const currentPrice = Number(inv[0].basePrice || 0);
+            const incomingPrice = Number(poItem[0].unitPrice || 0);
+            const newTotalQty = currentQty + newlyPassed;
+            const newWac = newTotalQty > 0 ? ((currentQty * currentPrice) + (newlyPassed * incomingPrice)) / newTotalQty : currentPrice;
 
-                if (warehouseId && companyId) {
-                  // 2. Update warehouse_stock
-                  const ws = await db.select().from(warehouse_stock).where(and(eq(warehouse_stock.warehouseId, warehouseId), eq(warehouse_stock.itemId, inv[0].id)));
-                  if (ws.length > 0) {
-                    await db.update(warehouse_stock).set({
-                      quantity: (ws[0].quantity || 0) + passed,
-                      lastUpdated: new Date()
-                    }).where(eq(warehouse_stock.id, ws[0].id));
-                  } else {
-                    await db.insert(warehouse_stock).values({
-                      companyId,
-                      warehouseId,
-                      itemId: inv[0].id,
-                      quantity: passed,
-                      lastUpdated: new Date()
-                    });
-                  }
+            await db.update(inventory_items).set({
+              quantityInStock: newTotalQty,
+              basePrice: String(newWac.toFixed(2))
+            }).where(eq(inventory_items.id, invItemId));
+          }
 
-                  // 3. Update global_stock_ledger
-                  const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, inv[0].id)));
-                  if (gsl.length > 0) {
-                    await db.update(global_stock_ledger).set({
-                      totalStockIn: (gsl[0].totalStockIn || 0) + passed,
-                      closingBalance: (gsl[0].closingBalance || 0) + passed,
-                      lastUpdated: new Date()
-                    }).where(eq(global_stock_ledger.id, gsl[0].id));
-                  } else {
-                    await db.insert(global_stock_ledger).values({
-                      companyId,
-                      itemId: inv[0].id,
-                      openingBalance: 0,
-                      totalStockIn: passed,
-                      totalStockOut: 0,
-                      closingBalance: passed,
-                      lastUpdated: new Date()
-                    });
-                  }
-                }
-              }
+          // 2. Update warehouse_stock
+          const ws = await db.select().from(warehouse_stock).where(and(eq(warehouse_stock.warehouseId, warehouseId), eq(warehouse_stock.itemId, invItemId)));
+          if (ws.length > 0) {
+            await db.update(warehouse_stock).set({
+              quantity: (ws[0].quantity || 0) + newlyPassed,
+              lastUpdated: new Date()
+            }).where(eq(warehouse_stock.id, ws[0].id));
+          } else {
+            await db.insert(warehouse_stock).values({
+              companyId,
+              warehouseId,
+              itemId: invItemId,
+              quantity: newlyPassed,
+              lastUpdated: new Date()
+            });
+          }
+
+          // 3. Update global_stock_ledger
+          const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
+          if (gsl.length > 0) {
+            await db.update(global_stock_ledger).set({
+              totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
+              closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
+              lastUpdated: new Date()
+            }).where(eq(global_stock_ledger.id, gsl[0].id));
+          } else {
+            await db.insert(global_stock_ledger).values({
+              companyId,
+              itemId: invItemId,
+              openingBalance: 0,
+              totalStockIn: newlyPassed,
+              totalStockOut: 0,
+              closingBalance: newlyPassed,
+              lastUpdated: new Date()
+            });
+          }
+        }
+      }
+
+      // Auto-create vendor_quality_metrics for supplier quality rating
+      try {
+        const poItem = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
+        if (poItem.length > 0) {
+          const parentPo = await db.select().from(purchase_orders).where(eq(purchase_orders.id, poItem[0].poId)).limit(1);
+          if (parentPo.length > 0 && parentPo[0].vendorId) {
+            const vendorId = parentPo[0].vendorId;
+            const evalMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+            const existingMetric = await db.select().from(vendor_quality_metrics).where(and(
+              eq(vendor_quality_metrics.vendorId, vendorId),
+              eq(vendor_quality_metrics.evaluationMonth, evalMonth)
+            )).limit(1);
+
+            const recCount = (existingMetric[0]?.totalItemsReceived || 0) + inspectedQty;
+            const rejCount = (existingMetric[0]?.totalItemsRejected || 0) + failedQty;
+            const rejRate = recCount > 0 ? ((rejCount / recCount) * 100).toFixed(2) : '0';
+            const qScore = recCount > 0 ? (((recCount - rejCount) / recCount) * 10).toFixed(2) : '10';
+
+            if (existingMetric.length > 0) {
+              await db.update(vendor_quality_metrics).set({
+                totalItemsReceived: recCount,
+                totalItemsRejected: rejCount,
+                rejectionRate: String(rejRate),
+                qualityScore: String(qScore),
+                updatedAt: new Date()
+              }).where(eq(vendor_quality_metrics.id, existingMetric[0].id));
+            } else {
+              await db.insert(vendor_quality_metrics).values({
+                companyId,
+                vendorId,
+                evaluationMonth: evalMonth,
+                totalItemsReceived: recCount,
+                totalItemsRejected: rejCount,
+                rejectionRate: String(rejRate),
+                qualityScore: String(qScore)
+              });
             }
           }
         }
+      } catch (vmErr) {
+        console.warn('Vendor quality metric update skipped:', vmErr);
+      }
+
+      // Auto-create rejected_item_dispositions record for failed items
+      if (failedQty > 0 && companyId) {
+        try {
+          const poItem = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
+          const itemName = poItem.length > 0 ? poItem[0].itemName : 'Rejected Item';
+          let itemId: number | null = null;
+          if (poItem.length > 0) {
+            const invItem = await db.select().from(inventory_items).where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, poItem[0].itemName.trim()))).limit(1);
+            if (invItem.length > 0) itemId = invItem[0].id;
+          }
+
+          await db.insert(rejected_item_dispositions).values({
+            companyId,
+            qcInspectionId: qcResult[0].id,
+            grnId,
+            grnItemId,
+            itemId,
+            itemName,
+            quantityRejected: failedQty,
+            status: 'Pending',
+            notes: remarks || 'Created from QC inspection failure',
+          });
+        } catch (rejErr) {
+          console.warn('Rejected item record auto-creation failed:', rejErr);
+        }
+      }
+
+      // Update parent GRN status if all items completed
+      const allGrnItems = await db.select().from(grn_items).where(eq(grn_items.grnId, grnId));
+      const pendingQcItems = allGrnItems.filter(i => i.status === 'Pending QC');
+      if (pendingQcItems.length === 0) {
+        await db.update(grn).set({ status: 'QC Completed' }).where(eq(grn.id, grnId));
       }
 
       res.json(qcResult[0]);
@@ -4712,31 +5390,56 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       } else if (status === 'Approved') {
         const remainingSteps = approvals.filter(a => a.id !== pendingStep.id && a.status === 'Pending');
         if (remainingSteps.length === 0) {
-          // ALL steps approved! Execute Stock Deduction
+          // ALL steps approved! Execute Stock Deduction with reservation-aware check
           const item = await db.select().from(inventory_items).where(eq(inventory_items.id, request[0].itemId)).limit(1);
           
-          if (!item.length || item[0].quantityInStock < request[0].quantity) {
-             // Revert the step to Pending because stock deduction failed
-             await db.update(document_approvals).set({ status: 'Pending' }).where(eq(document_approvals.id, pendingStep.id));
-             return res.status(400).json({ error: "Insufficient global stock to finalize approval." });
+          if (!item.length) {
+            await db.update(document_approvals).set({ status: 'Pending' }).where(eq(document_approvals.id, pendingStep.id));
+            return res.status(400).json({ error: "Item not found in inventory." });
+          }
+
+          // Phase 1: Check available stock = total - reserved (excluding THIS request's own reservation)
+          const activeReservations = await db.select().from(stock_reservations).where(and(
+            eq(stock_reservations.itemId, item[0].id),
+            eq(stock_reservations.status, 'Active')
+          ));
+          const reservedByOthers = activeReservations
+            .filter(r => r.stockOutRequestId !== requestId)
+            .reduce((sum, r) => sum + (r.reservedQty || 0), 0);
+          const effectiveAvailable = (item[0].quantityInStock || 0) - reservedByOthers;
+
+          if (effectiveAvailable < request[0].quantity) {
+            await db.update(document_approvals).set({ status: 'Pending' }).where(eq(document_approvals.id, pendingStep.id));
+            return res.status(400).json({ 
+              error: `Insufficient available stock. Total: ${item[0].quantityInStock}, Reserved by others: ${reservedByOthers}, Available: ${effectiveAvailable}, Requested: ${request[0].quantity}` 
+            });
           }
 
           // Check warehouse stock
           if (request[0].warehouseId) {
              const ws = await db.select().from(warehouse_stock).where(and(eq(warehouse_stock.warehouseId, request[0].warehouseId), eq(warehouse_stock.itemId, item[0].id))).limit(1);
-             if (!ws.length || ws[0].quantity < request[0].quantity) {
+             if (!ws.length || (ws[0].quantity || 0) < request[0].quantity) {
                 await db.update(document_approvals).set({ status: 'Pending' }).where(eq(document_approvals.id, pendingStep.id));
-                return res.status(400).json({ error: "Insufficient stock in the selected warehouse." });
+                return res.status(400).json({ error: `Insufficient stock in the selected warehouse. Available: ${ws[0]?.quantity || 0}` });
              }
              // Deduct from warehouse
-             await db.update(warehouse_stock).set({ quantity: ws[0].quantity - request[0].quantity }).where(eq(warehouse_stock.id, ws[0].id));
+             await db.update(warehouse_stock).set({ quantity: (ws[0].quantity || 0) - request[0].quantity }).where(eq(warehouse_stock.id, ws[0].id));
           }
 
           await db.update(stock_out_requests).set({ status: 'Approved', updatedAt: new Date() }).where(eq(stock_out_requests.id, requestId));
 
+          const newQty = (item[0].quantityInStock || 0) - request[0].quantity;
           await db.update(inventory_items)
-            .set({ quantityInStock: item[0].quantityInStock - request[0].quantity })
+            .set({ quantityInStock: newQty })
             .where(eq(inventory_items.id, item[0].id));
+
+          // Phase 1: Release any active reservation for this stock-out request
+          await db.update(stock_reservations)
+            .set({ status: 'Approved' })
+            .where(and(
+              eq(stock_reservations.stockOutRequestId, requestId),
+              eq(stock_reservations.status, 'Active')
+            ));
 
           await db.insert(stock_transactions).values({
             companyId: request[0].companyId,
@@ -4748,12 +5451,51 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             performedBy: req.user.uid,
           });
 
+          // Phase 1: Record consumption history for demand forecasting
+          try {
+            const today = new Date().toISOString().split('T')[0];
+            if (request[0].warehouseId) {
+              await db.insert(stock_consumption_history).values({
+                companyId: request[0].companyId,
+                warehouseId: request[0].warehouseId,
+                itemId: item[0].id,
+                consumptionDate: today,
+                consumedQty: request[0].quantity,
+                referenceId: request[0].requestNumber,
+              }).onConflictDoNothing();
+            }
+          } catch (consumptionErr) {
+            console.warn('Consumption history record skipped:', consumptionErr);
+          }
+
+          // Phase 1: Check reorder point and notify if stock is low
+          if (item[0].reorderPoint && newQty <= (item[0].reorderPoint || 0)) {
+            try {
+              // Notify Super Admins and procurement team about low stock
+              const superAdmins = await db.select().from(users).where(and(
+                eq(users.companyId, request[0].companyId!),
+                eq(users.role, 'Super Admin')
+              )).limit(3);
+              for (const admin of superAdmins) {
+                await db.insert(notifications).values({
+                  userId: admin.uid,
+                  title: `⚠️ Low Stock Alert: ${item[0].name}`,
+                  message: `Stock level (${newQty} ${item[0].uom}) has dropped to or below reorder point (${item[0].reorderPoint}). Please initiate a Purchase Requisition.`,
+                  type: 'WARNING',
+                  link: '/inventory',
+                });
+              }
+            } catch (alertErr) {
+              console.warn('Low stock alert skipped:', alertErr);
+            }
+          }
+
           const ledger = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, request[0].companyId), eq(global_stock_ledger.itemId, item[0].id))).limit(1);
           if (ledger.length > 0) {
             await db.update(global_stock_ledger)
               .set({
-                totalStockOut: ledger[0].totalStockOut + request[0].quantity,
-                closingBalance: ledger[0].closingBalance - request[0].quantity,
+                totalStockOut: (ledger[0].totalStockOut || 0) + request[0].quantity,
+                closingBalance: (ledger[0].closingBalance || 0) - request[0].quantity,
                 lastUpdated: new Date()
               })
               .where(eq(global_stock_ledger.id, ledger[0].id));
@@ -4761,8 +5503,6 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         } else {
           // Notify next approver
           const nextStep = remainingSteps.sort((a, b) => a.stepOrder - b.stepOrder)[0];
-          const { notifyApprovers } = require('./src/shared/lib/notifications.js'); // Assuming we have this, but wait server.ts probably has notifyApprovers already!
-          // We will just use the global notifyApprovers if it exists. Or create inbox task directly!
           await db.insert(inbox_tasks).values({
             companyId: request[0].companyId,
             assignedToRole: nextStep.assigneeValue || nextStep.roleRequired,
@@ -4783,6 +5523,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       res.status(500).json({ error: "Failed to process stock out approval" });
     }
   });
+
+
 
   app.get("/api/inventory/global-stock", requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -4847,6 +5589,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       
       // Fetch PRs to match with tasks
       const prs = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.companyId, companyId));
+      const userBranchId = dbUser[0]?.branchId;
+      const allUsers = await db.select({ uid: users.uid, branchId: users.branchId }).from(users).where(eq(users.companyId, companyId));
       
       const seen = new Set();
       const deduplicatedTasks = [];
@@ -4862,6 +5606,23 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         }
       }
 
+      // Branch isolation for role-matched tasks
+      const branchScopedTasks = deduplicatedTasks.filter((task: any) => {
+        if (userRole === 'Super Admin') return true;
+        if (task.assignedToUid === uid) return true;
+
+        if (task.referenceType === 'PR') {
+          const pr = prs.find((p: any) => p.id === task.referenceId);
+          if (pr) {
+            const creator = allUsers.find(u => u.uid === pr.uid);
+            if (creator && creator.branchId && userBranchId) {
+              return creator.branchId === userBranchId;
+            }
+          }
+        }
+        return true;
+      });
+
       // Fetch pending document approvals for User Registration
       const userRegApprovals = await db.select().from(document_approvals)
         .where(and(
@@ -4870,7 +5631,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           eq(document_approvals.status, 'Pending')
         ));
 
-      const enrichedTasks = deduplicatedTasks.map((task: any) => {
+      const enrichedTasks = branchScopedTasks.map((task: any) => {
         if (task.referenceType === 'PR') {
           const pr = prs.find((p: any) => p.id === task.referenceId);
           return {
@@ -5125,8 +5886,12 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
       } else if (status === 'Approved') {
         const remainingSteps = approvals.filter(a => a.id !== pendingStep.id && a.status === 'Pending');
         if (remainingSteps.length === 0) {
-          // Fully approved: Change status to Transit, deduct from source
-          await db.update(stock_transfers).set({ status: 'Transit', updatedAt: new Date() }).where(eq(stock_transfers.id, transferId));
+          // Fully approved: Change status to Transit, set dispatchDate, deduct from source
+          await db.update(stock_transfers).set({ 
+            status: 'Transit', 
+            dispatchDate: new Date(),
+            updatedAt: new Date() 
+          }).where(eq(stock_transfers.id, transferId));
           
           const items = await db.select().from(stock_transfer_items).where(eq(stock_transfer_items.transferId, transferId));
           for (const item of items) {
@@ -5188,8 +5953,12 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
         }
       }
       
-      // Update status to Received
-      await db.update(stock_transfers).set({ status: 'Received', updatedAt: new Date() }).where(eq(stock_transfers.id, transferId));
+      // Update status to Received and set actualArrivalDate
+      await db.update(stock_transfers).set({ 
+        status: 'Received', 
+        actualArrivalDate: new Date(),
+        updatedAt: new Date() 
+      }).where(eq(stock_transfers.id, transferId));
       
       // Add to destination warehouse
       const items = await db.select().from(stock_transfer_items).where(eq(stock_transfer_items.transferId, transferId));
@@ -5233,6 +6002,382 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
     }
   });
 
+
+  // ================================================================
+  // PHASE 1 NEW API ROUTES
+  // ================================================================
+
+  // --- STOCK RESERVATIONS ---
+  app.get("/api/inventory/stock-reservations", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const reservations = await db.select().from(stock_reservations).where(eq(stock_reservations.companyId, companyId));
+      res.json(reservations);
+    } catch (e) { res.status(500).json({ error: "Failed to fetch reservations" }); }
+  });
+
+  app.post("/api/inventory/stock-reservations/expire", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "No company context" });
+      const now = new Date();
+      await db.update(stock_reservations)
+        .set({ status: 'Expired' })
+        .where(and(
+          eq(stock_reservations.companyId, companyId),
+          eq(stock_reservations.status, 'Active'),
+          sql`${stock_reservations.expiresAt} < ${now}`
+        ));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: "Failed to expire reservations" }); }
+  });
+
+  // --- REJECTED ITEM DISPOSITIONS ---
+  app.get("/api/inventory/rejected-items", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const items = await db.select({
+        disposition: rejected_item_dispositions,
+        qc: qc_inspections,
+        grnRecord: grn,
+      })
+        .from(rejected_item_dispositions)
+        .leftJoin(qc_inspections, eq(rejected_item_dispositions.qcInspectionId, qc_inspections.id))
+        .leftJoin(grn, eq(rejected_item_dispositions.grnId, grn.id))
+        .where(eq(rejected_item_dispositions.companyId, companyId))
+        .orderBy(desc(rejected_item_dispositions.createdAt));
+      res.json(items.map(r => ({ ...r.disposition, grnNumber: r.grnRecord?.grnNumber, defectCategory: r.qc?.defectCategory })));
+    } catch (e) { res.status(500).json({ error: "Failed to fetch rejected items" }); }
+  });
+
+  app.put("/api/inventory/rejected-items/:id/disposition", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const id = parseInt(req.params.id);
+      const { dispositionType, notes, vendorCreditNoteNumber } = req.body;
+      if (!dispositionType) return res.status(400).json({ error: "dispositionType is required" });
+      await db.update(rejected_item_dispositions).set({
+        dispositionType, notes, vendorCreditNoteNumber,
+        status: 'In_Process', disposedByUid: req.user.uid, disposedAt: new Date(),
+      }).where(eq(rejected_item_dispositions.id, id));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: "Failed to set disposition" }); }
+  });
+
+  app.put("/api/inventory/rejected-items/:id/complete", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const id = parseInt(req.params.id);
+      await db.update(rejected_item_dispositions).set({ status: 'Completed', disposedAt: new Date() }).where(eq(rejected_item_dispositions.id, id));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: "Failed to complete disposition" }); }
+  });
+
+  // --- PHYSICAL STOCK COUNTS (RECONCILIATION) ---
+  app.get("/api/inventory/stock-counts", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const counts = await db.select({ count: physical_stock_counts, warehouse: warehouses })
+        .from(physical_stock_counts)
+        .leftJoin(warehouses, eq(physical_stock_counts.warehouseId, warehouses.id))
+        .where(eq(physical_stock_counts.companyId, companyId))
+        .orderBy(desc(physical_stock_counts.createdAt));
+      res.json(counts.map(r => ({ ...r.count, warehouseName: r.warehouse?.name })));
+    } catch (e) { res.status(500).json({ error: "Failed to fetch stock counts" }); }
+  });
+
+  app.post("/api/inventory/stock-counts", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "No company context" });
+      const { warehouseId, countType, scheduledDate, notes } = req.body;
+      if (!warehouseId || !scheduledDate) return res.status(400).json({ error: "warehouseId and scheduledDate required" });
+      const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
+      const existing = await db.select({ count: sql<number>`count(*)` }).from(physical_stock_counts).where(eq(physical_stock_counts.companyId, companyId));
+      const seq = String(Number(existing[0].count) + 1).padStart(4, '0');
+      const countNumber = `PSC-${dateStr}-${seq}`;
+      const newCount = await db.insert(physical_stock_counts).values({
+        companyId, warehouseId: Number(warehouseId), countNumber,
+        countType: countType || 'Spot-Check', scheduledDate: new Date(scheduledDate),
+        notes, createdByUid: req.user.uid,
+      }).returning();
+      // Pre-populate details with current system quantities
+      const warehouseItems = await db.select().from(warehouse_stock).where(and(
+        eq(warehouse_stock.companyId, companyId), eq(warehouse_stock.warehouseId, Number(warehouseId))
+      ));
+      if (warehouseItems.length > 0) {
+        await db.insert(physical_count_details).values(warehouseItems.map(ws => ({
+          countId: newCount[0].id, itemId: ws.itemId, warehouseStockId: ws.id, systemQty: ws.quantity || 0,
+        })));
+      }
+      res.json(newCount[0]);
+    } catch (e: any) { res.status(500).json({ error: "Failed to create stock count: " + e.message }); }
+  });
+
+  app.get("/api/inventory/stock-counts/:id/details", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const details = await db.select({ detail: physical_count_details, item: inventory_items })
+        .from(physical_count_details)
+        .leftJoin(inventory_items, eq(physical_count_details.itemId, inventory_items.id))
+        .where(eq(physical_count_details.countId, id))
+        .orderBy(inventory_items.name);
+      res.json(details.map(r => ({ ...r.detail, itemName: r.item?.name, itemCode: r.item?.itemCode, uom: r.item?.uom, basePrice: r.item?.basePrice })));
+    } catch (e) { res.status(500).json({ error: "Failed to fetch count details" }); }
+  });
+
+  app.put("/api/inventory/stock-counts/:id/start", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const id = parseInt(req.params.id);
+      await db.update(physical_stock_counts).set({ status: 'In-Progress', actualStartDate: new Date() }).where(eq(physical_stock_counts.id, id));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: "Failed to start count" }); }
+  });
+
+  app.put("/api/inventory/stock-counts/details/:detailId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const detailId = parseInt(req.params.detailId);
+      const { physicalQty, varianceReason, notes } = req.body;
+      const detail = await db.select().from(physical_count_details).where(eq(physical_count_details.id, detailId)).limit(1);
+      if (!detail.length) return res.status(404).json({ error: "Detail not found" });
+      const varianceQty = (Number(physicalQty) ?? 0) - (detail[0].systemQty || 0);
+      const item = await db.select().from(inventory_items).where(eq(inventory_items.id, detail[0].itemId)).limit(1);
+      const varianceValue = item.length > 0 ? varianceQty * Number(item[0].basePrice || 0) : 0;
+      await db.update(physical_count_details).set({
+        physicalQty: Number(physicalQty), varianceQty, varianceValue: String(varianceValue), varianceReason, notes,
+      }).where(eq(physical_count_details.id, detailId));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: "Failed to update count detail" }); }
+  });
+
+  app.put("/api/inventory/stock-counts/:id/complete", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const details = await db.select().from(physical_count_details).where(eq(physical_count_details.countId, id));
+      const counted = details.filter(d => d.physicalQty !== null && d.physicalQty !== undefined);
+      const variances = counted.filter(d => (d.varianceQty || 0) !== 0);
+      const totalVarianceValue = variances.reduce((sum, d) => sum + Number(d.varianceValue || 0), 0);
+      await db.update(physical_stock_counts).set({
+        status: 'Completed', completedDate: new Date(),
+        totalItemsCounted: counted.length, totalVariances: variances.length,
+        totalVarianceValue: String(totalVarianceValue),
+      }).where(eq(physical_stock_counts.id, id));
+      res.json({ success: true, totalItemsCounted: counted.length, totalVariances: variances.length, totalVarianceValue });
+    } catch (e) { res.status(500).json({ error: "Failed to complete count" }); }
+  });
+
+  app.put("/api/inventory/stock-counts/:id/approve", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "No company context" });
+      const id = parseInt(req.params.id);
+      const countRecord = await db.select().from(physical_stock_counts).where(eq(physical_stock_counts.id, id)).limit(1);
+      if (!countRecord.length) return res.status(404).json({ error: "Count not found" });
+      if (countRecord[0].status !== 'Completed') return res.status(400).json({ error: "Count must be Completed first" });
+      const details = await db.select().from(physical_count_details).where(eq(physical_count_details.countId, id));
+      const variances = details.filter(d => (d.varianceQty || 0) !== 0 && d.physicalQty !== null);
+      for (const detail of variances) {
+        await db.insert(stock_adjustments).values({
+          companyId, countId: id, itemId: detail.itemId, warehouseId: countRecord[0].warehouseId,
+          adjustmentQty: detail.varianceQty || 0, reason: detail.varianceReason || 'Physical count variance',
+          adjustedFromQty: detail.systemQty, adjustedToQty: detail.physicalQty || 0,
+          adjustedByUid: req.user.uid, approvedByUid: req.user.uid, status: 'Approved',
+        });
+        if (detail.warehouseStockId) {
+          await db.update(warehouse_stock).set({ quantity: detail.physicalQty || 0, lastUpdated: new Date() }).where(eq(warehouse_stock.id, detail.warehouseStockId));
+        }
+        const item = await db.select().from(inventory_items).where(eq(inventory_items.id, detail.itemId)).limit(1);
+        if (item.length > 0) {
+          const newGlobalQty = Math.max(0, (item[0].quantityInStock || 0) + (detail.varianceQty || 0));
+          await db.update(inventory_items).set({ quantityInStock: newGlobalQty }).where(eq(inventory_items.id, detail.itemId));
+        }
+        await db.update(physical_count_details).set({ adjusted: true }).where(eq(physical_count_details.id, detail.id));
+      }
+      await db.update(physical_stock_counts).set({ status: 'Approved', approvedByUid: req.user.uid, approvedAt: new Date() }).where(eq(physical_stock_counts.id, id));
+      res.json({ success: true, adjustmentsApplied: variances.length });
+    } catch (e: any) { res.status(500).json({ error: "Failed to approve count: " + e.message }); }
+  });
+
+  app.get("/api/inventory/stock-adjustments", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const adjustments = await db.select({ adjustment: stock_adjustments, item: inventory_items, warehouse: warehouses })
+        .from(stock_adjustments)
+        .leftJoin(inventory_items, eq(stock_adjustments.itemId, inventory_items.id))
+        .leftJoin(warehouses, eq(stock_adjustments.warehouseId, warehouses.id))
+        .where(eq(stock_adjustments.companyId, companyId))
+        .orderBy(desc(stock_adjustments.createdAt));
+      res.json(adjustments.map(r => ({ ...r.adjustment, itemName: r.item?.name, warehouseName: r.warehouse?.name })));
+    } catch (e) { res.status(500).json({ error: "Failed to fetch adjustments" }); }
+  });
+
+  app.get("/api/vendors/quality-metrics", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const metrics = await db.select({ metric: vendor_quality_metrics, vendor: vendors })
+        .from(vendor_quality_metrics)
+        .leftJoin(vendors, eq(vendor_quality_metrics.vendorId, vendors.id))
+        .where(eq(vendor_quality_metrics.companyId, companyId))
+        .orderBy(desc(vendor_quality_metrics.updatedAt));
+      res.json(metrics.map(r => ({ ...r.metric, vendorName: r.vendor?.name })));
+    } catch (e) { res.status(500).json({ error: "Failed to fetch vendor quality metrics" }); }
+  });
+
+  app.patch("/api/inventory/items/:id/reorder-config", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const itemId = parseInt(req.params.id);
+      const { reorderPoint, reorderQuantity, leadTimeDays, safetyStockDays, abcClassification } = req.body;
+      await db.update(inventory_items).set({
+        reorderPoint: reorderPoint !== undefined ? Number(reorderPoint) : undefined,
+        reorderQuantity: reorderQuantity !== undefined ? Number(reorderQuantity) : undefined,
+        leadTimeDays: leadTimeDays !== undefined ? Number(leadTimeDays) : undefined,
+        safetyStockDays: safetyStockDays !== undefined ? Number(safetyStockDays) : undefined,
+        abcClassification: abcClassification || undefined,
+      }).where(eq(inventory_items.id, itemId));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: "Failed to update reorder config" }); }
+  });
+
+  app.get("/api/inventory/consumption-history/:itemId", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const itemId = parseInt(req.params.itemId);
+      const history = await db.select().from(stock_consumption_history).where(and(
+        eq(stock_consumption_history.companyId, companyId),
+        eq(stock_consumption_history.itemId, itemId),
+      )).orderBy(desc(stock_consumption_history.createdAt)).limit(90);
+      res.json(history);
+    } catch (e) { res.status(500).json({ error: "Failed to fetch consumption history" }); }
+  });
+
+  // --- PHASE 2: AUTOMATED PR GENERATION FOR LOW STOCK ITEMS ---
+  app.post("/api/inventory/auto-reorder/generate-pr", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "No company context" });
+
+      const { itemIds } = req.body; // Optional array of itemIds to reorder
+
+      // Fetch items that are low in stock
+      const allItems = await db.select().from(inventory_items).where(eq(inventory_items.companyId, companyId));
+      const lowStockItems = allItems.filter(item => {
+        if (itemIds && Array.isArray(itemIds) && itemIds.length > 0) {
+          return itemIds.includes(item.id);
+        }
+        return item.reorderPoint > 0 && (item.quantityInStock || 0) <= item.reorderPoint;
+      });
+
+      if (lowStockItems.length === 0) {
+        return res.status(400).json({ error: "No low-stock items eligible for auto-reorder." });
+      }
+
+      // Generate PR Number
+      const prCountRes = await db.select({ count: sql<number>`count(*)` }).from(purchase_requisitions).where(eq(purchase_requisitions.companyId, companyId));
+      const prSeq = Number(prCountRes[0].count) + 1;
+      const prNumber = `PR-AUTO-${Date.now()}`;
+
+      const dbUser = await db.select().from(users).where(eq(users.uid, req.user.uid)).limit(1);
+
+      // Create Draft Purchase Requisition
+      const newPr = await db.insert(purchase_requisitions).values({
+        companyId,
+        prNumber,
+        requestor: dbUser[0]?.name || req.user.email || 'System Auto-Reorder',
+        uid: req.user.uid,
+        department: dbUser[0]?.department || 'Inventory Management',
+        priority: 'High',
+        estimatedCost: "0",
+        justification: `Auto-generated Purchase Requisition for ${lowStockItems.length} low-stock item(s).`,
+        status: 'Draft',
+      }).returning();
+
+      const prId = newPr[0].id;
+      let totalEstCost = 0;
+
+      // Insert PR items
+      const prItemInserts = lowStockItems.map(item => {
+        const orderQty = item.reorderQuantity > 0 ? item.reorderQuantity : Math.max(10, item.reorderPoint * 2);
+        const unitPrice = Number(item.basePrice || 0);
+        totalEstCost += orderQty * unitPrice;
+
+        return {
+          prId,
+          itemId: item.id,
+          itemName: item.name,
+          uom: item.uom || 'Pcs',
+          quantity: orderQty,
+          unitPrice: String(unitPrice),
+          totalPrice: String(orderQty * unitPrice),
+          justification: `Auto-reorder trigger: Stock (${item.quantityInStock}) <= Reorder Point (${item.reorderPoint})`,
+        };
+      });
+
+      await db.insert(pr_items).values(prItemInserts);
+
+      // Update PR total cost
+      await db.update(purchase_requisitions).set({ estimatedCost: String(totalEstCost) }).where(eq(purchase_requisitions.id, prId));
+
+      res.json({ success: true, prId, prNumber, itemCount: lowStockItems.length, estimatedCost: totalEstCost });
+    } catch (e: any) {
+      console.error("Auto-reorder PR error:", e);
+      res.status(500).json({ error: "Failed to generate auto-reorder PR: " + e.message });
+    }
+  });
+
+  // --- PHASE 2: EXPIRING ITEMS & FEFO BATCHES ---
+  app.get("/api/inventory/expiring-items", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.json([]);
+      const days = parseInt(req.query.days as string) || 90;
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + days);
+
+      const items = await db.select({
+        stock: warehouse_stock,
+        item: inventory_items,
+        warehouse: warehouses,
+      })
+        .from(warehouse_stock)
+        .innerJoin(inventory_items, eq(warehouse_stock.itemId, inventory_items.id))
+        .leftJoin(warehouses, eq(warehouse_stock.warehouseId, warehouses.id))
+        .where(and(
+          eq(warehouse_stock.companyId, companyId),
+          sql`${warehouse_stock.expiryDate} IS NOT NULL`,
+          sql`${warehouse_stock.expiryDate} <= ${targetDate}`
+        ))
+        .orderBy(warehouse_stock.expiryDate);
+
+      res.json(items.map(r => {
+        const exp = new Date(r.stock.expiryDate!);
+        const diffDays = Math.ceil((exp.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+        return {
+          ...r.stock,
+          itemName: r.item.name,
+          itemCode: r.item.itemCode,
+          uom: r.item.uom,
+          warehouseName: r.warehouse?.name,
+          daysUntilExpiry: diffDays,
+          urgency: diffDays <= 30 ? 'High' : diffDays <= 60 ? 'Medium' : 'Low',
+        };
+      }));
+    } catch (e) { res.status(500).json({ error: "Failed to fetch expiring items" }); }
+  });
+
+  // ================================================================
+  // END PHASE 1 ROUTES
+  // ================================================================
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {

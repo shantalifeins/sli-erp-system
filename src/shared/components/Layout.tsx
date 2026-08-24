@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle } from 'lucide-react';
 import { cn } from '@/src/shared/lib/utils';
 import { useLayoutControl } from '@/src/shared/contexts/LayoutContext';
 
@@ -116,10 +116,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   if (path === '/user-dashboard' || path.startsWith('/inbox') || path.startsWith('/my-tasks') || path.startsWith('/profile') || path === '/item-requisition' || path.startsWith('/item-requisition/')) {
     activeModule = 'user-panel';
     activeModuleName = 'My Panel';
-  } else if (path.startsWith('/procurement') || path === '/purchase-requisition' || path.startsWith('/purchase-requisition/') || path.startsWith('/pr-') || path.startsWith('/purchase') || path.startsWith('/po') || path.startsWith('/rfq') || path.startsWith('/cs') || path.startsWith('/invoices')) {
+  } else if (path.startsWith('/procurement') || path === '/purchase-requisition' || path.startsWith('/purchase-requisition/') || path.startsWith('/pr-') || path.startsWith('/purchase') || path.startsWith('/po') || path.startsWith('/work-orders') || path.startsWith('/rfq') || path.startsWith('/cs') || path.startsWith('/invoices')) {
     activeModule = 'procurement';
     activeModuleName = 'Procurement';
-  } else if (path === '/inventory-dashboard' || path === '/requisition-list' || path.startsWith('/requisition-report') || path.startsWith('/inventory') || path.startsWith('/grn') || path.startsWith('/qc') || path.startsWith('/stock') || path.startsWith('/vendors') || path.startsWith('/transfer-receive')) {
+  } else if (path === '/inventory-dashboard' || path === '/requisition-list' || path.startsWith('/requisition-report') || path.startsWith('/inventory') || path.startsWith('/grn') || path.startsWith('/qc') || path.startsWith('/stock') || path.startsWith('/vendors') || path.startsWith('/transfer-receive') || path.startsWith('/rejected-items') || path.startsWith('/stock-reconciliation')) {
     activeModule = 'inventory';
     activeModuleName = 'Inventory Management';
   } else if (path.startsWith('/admin')) {
@@ -134,6 +134,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'RFQ (Quotation)', href: '/rfq', icon: Send, show: isSuperAdmin || getPermission('RFQ (Quotation)')?.canView },
     { name: 'Comparative Statement', href: '/cs', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Comparative Statement')?.canView },
     { name: 'Purchase Orders', href: '/po', icon: ShoppingCart, show: isSuperAdmin || getPermission('Purchase Orders')?.canView },
+    { name: 'Work Orders', href: '/work-orders', icon: ClipboardList, show: isSuperAdmin || getPermission('Purchase Orders')?.canView },
     { name: 'Invoices & Payments', href: '/invoices-payments', icon: DollarSign, show: isSuperAdmin || getPermission('Invoices & Payments')?.canView },
     {
       name: 'Reports',
@@ -153,6 +154,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Stock Transfer', href: '/stock-transfer', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Stock Transfer')?.canView },
     { name: 'Transfer Receive', href: '/transfer-receive', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Transfer Receive')?.canView },
     { name: 'Goods Receipt (GRN)', href: '/grn', icon: Truck, show: isSuperAdmin || getPermission('Goods Receipt (GRN)')?.canView },
+    { name: 'Rejected Items', href: '/rejected-items', icon: AlertTriangle, show: isSuperAdmin || getPermission('Rejected Items')?.canView },
+    { name: 'Stock Reconciliation', href: '/stock-reconciliation', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Stock Reconciliation')?.canView },
 
     {
       name: 'Reports',

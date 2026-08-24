@@ -68,7 +68,7 @@ export default function ItemCategories() {
     <PageLayout 
       loading={loading}
       search={{ placeholder: "Search categories...", onSearch: setSearchQuery }}
-      pagination={{ currentPage, totalPages, onPageChange: setCurrentPage }}
+      pagination={showForm ? undefined : { currentPage, totalPages, onPageChange: setCurrentPage }}
     >
       <div className="space-y-6 flex flex-col h-full">
         {!showForm && (
@@ -106,8 +106,20 @@ export default function ItemCategories() {
                 <input value={description} onChange={e => setDescription(e.target.value)} className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" />
               </div>
             </div>
-            <div className="flex justify-end pt-2">
-              <button type="submit" className="px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors">Save Category</button>
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
+              <button 
+                type="button" 
+                onClick={() => setShowForm(false)} 
+                className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                className="px-5 py-2.5 bg-brand-orange text-white rounded-lg text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors"
+              >
+                Save Category
+              </button>
             </div>
           </form>
           </div>

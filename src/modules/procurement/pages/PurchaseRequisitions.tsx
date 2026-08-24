@@ -191,7 +191,7 @@ export default function PurchaseRequisitions() {
     <PageLayout 
       loading={loading}
       search={{ placeholder: "Search requisitions...", onSearch: setSearchQuery }}
-      pagination={{ currentPage, totalPages, onPageChange: setCurrentPage }}
+      pagination={showForm || selectedPrDetails ? undefined : { currentPage, totalPages, onPageChange: setCurrentPage }}
     >
       <div className="space-y-6 flex flex-col h-full">
         {!showForm && !selectedPrDetails && (
@@ -210,172 +210,171 @@ export default function PurchaseRequisitions() {
         )}
 
       {showForm && canCreate && (
-        <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden mb-6">
-          <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-3">
+        <div className="bg-white shadow-sm rounded-xl border border-slate-200 flex flex-col flex-1 max-h-[calc(100vh-7rem)] min-h-0 overflow-hidden mb-6">
+          <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-3 shrink-0">
             <button onClick={closeForm} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-colors" title="Back to List">
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h3 className="text-lg font-bold text-slate-800">
-              {editPrId ? 'Edit Draft Requisition' : 'New Item Requisition'}
+              {editPrId ? 'Edit Draft Requisition' : isItemRequisition ? 'New Item Requisition' : 'New Purchase Requisition'}
             </h3>
           </div>
-          <div className="p-6">
-
-          {editPr?.approvals && editPr.approvals.length > 0 && (
-            <div className="mb-6">
-              <h4 className="text-sm font-bold text-slate-800 mb-2">Review & Approval History</h4>
-              <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
-                {editPr.approvals.map((appr: any, idx: number) => (
-                  <div key={idx} className={`p-3 flex flex-col sm:flex-row sm:items-center justify-between text-xs ${appr.status === 'Review' ? 'bg-amber-50/50' : appr.status === 'Rejected' ? 'bg-red-50/50' : 'bg-slate-50/30'} hover:bg-slate-50`}>
-                    <div>
-                      <div className="font-bold text-slate-800">Step {appr.stepOrder}: {appr.roleRequired}</div>
-                      {appr.comments && (
-                        <div className="text-xs text-slate-700 font-medium mt-1 p-2 bg-white rounded border border-slate-100 shadow-sm">
-                          <span className="text-slate-400 mr-1">Note:</span>"{appr.comments}"
+          
+          <div className="p-6 overflow-y-auto flex-1 space-y-6 min-h-0">
+            {editPr?.approvals && editPr.approvals.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm font-bold text-slate-800 mb-2">Review & Approval History</h4>
+                <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
+                  {editPr.approvals.map((appr: any, idx: number) => (
+                    <div key={idx} className={`p-3 flex flex-col sm:flex-row sm:items-center justify-between text-xs ${appr.status === 'Review' ? 'bg-amber-50/50' : appr.status === 'Rejected' ? 'bg-red-50/50' : 'bg-slate-50/30'} hover:bg-slate-50`}>
+                      <div>
+                        <div className="font-bold text-slate-800">Step {appr.stepOrder}: {appr.roleRequired}</div>
+                        {appr.comments && (
+                          <div className="text-xs text-slate-700 font-medium mt-1 p-2 bg-white rounded border border-slate-100 shadow-sm">
+                            <span className="text-slate-400 mr-1">Note:</span>"{appr.comments}"
+                          </div>
+                        )}
+                        <div className="text-[10px] text-slate-400 mt-1">
+                          {new Date(appr.createdAt).toLocaleString()}
                         </div>
-                      )}
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        {new Date(appr.createdAt).toLocaleString()}
+                      </div>
+                      <div className="mt-2 sm:mt-0">
+                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          appr.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                          appr.status === 'Rejected' ? 'bg-red-100 text-red-700' :
+                          appr.status === 'Review' ? 'bg-amber-100 text-amber-700' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {appr.status}
+                        </span>
                       </div>
                     </div>
-                    <div className="mt-2 sm:mt-0">
-                      <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        appr.status === 'Approved' ? 'bg-green-100 text-green-700' :
-                        appr.status === 'Rejected' ? 'bg-red-100 text-red-700' :
-                        appr.status === 'Review' ? 'bg-amber-100 text-amber-700' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
-                        {appr.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <form className="space-y-6">
-            
-            <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Requested By</label>
-                <input value={dbUser?.email?.split('@')[0] || ''} readOnly className="block w-full rounded-md border-slate-200 shadow-sm bg-slate-100 text-slate-500 sm:text-sm border p-2 cursor-not-allowed" />
+            <form id="req-form" className="space-y-6">
+              <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Requested By</label>
+                  <input value={dbUser?.email?.split('@')[0] || ''} readOnly className="block w-full rounded-md border-slate-200 shadow-sm bg-slate-100 text-slate-500 sm:text-sm border p-2 cursor-not-allowed" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Department</label>
+                  <input {...register("department")} readOnly className="block w-full rounded-md border-slate-200 shadow-sm bg-slate-100 text-slate-500 sm:text-sm border p-2 cursor-not-allowed" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Priority</label>
+                  <select {...register("priority")} className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2 bg-white">
+                    <option value="Normal">Normal</option>
+                    <option value="High">High</option>
+                    <option value="Emergency">Emergency</option>
+                  </select>
+                </div>
+                <div className="col-span-3">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Justification</label>
+                  <textarea {...register("justification")} rows={2} required className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2"></textarea>
+                </div>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Department</label>
-                <input {...register("department")} readOnly className="block w-full rounded-md border-slate-200 shadow-sm bg-slate-100 text-slate-500 sm:text-sm border p-2 cursor-not-allowed" />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Priority</label>
-                <select {...register("priority")} className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2 bg-white">
-                  <option value="Normal">Normal</option>
-                  <option value="High">High</option>
-                  <option value="Emergency">Emergency</option>
-                </select>
-              </div>
-              <div className="col-span-3">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Justification</label>
-                <textarea {...register("justification")} rows={2} required className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2"></textarea>
-              </div>
-            </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <h4 className="text-sm font-bold text-slate-800">Requisition Items</h4>
-                <button type="button" onClick={() => append({ itemId: '', itemName: '', category: '', quantity: 1, uom: 'Pcs', estimatedPrice: 0 })} className="text-xs font-bold text-brand-orange hover:text-blue-800">
-                  + Add Row
-                </button>
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-bold text-slate-800">Requisition Items</h4>
+                  <button type="button" onClick={() => append({ itemId: '', itemName: '', category: '', quantity: 1, uom: 'Pcs', estimatedPrice: 0 })} className="text-xs font-bold text-brand-orange hover:text-blue-800">
+                    + Add Row
+                  </button>
+                </div>
+                <div className="border border-slate-200 rounded-lg overflow-x-auto max-w-full shadow-sm">
+                  <table className="w-full min-w-[950px] text-left bg-white border-collapse">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-bold uppercase tracking-widest sticky top-0 z-10">
+                      <tr>
+                        <th className="p-2.5 min-w-[180px]">Category</th>
+                        <th className="p-2.5 min-w-[240px]">Inventory Item</th>
+                        <th className="p-2.5 min-w-[220px]">Item Name (Manual)</th>
+                        <th className="p-2.5 w-24 text-center">Qty</th>
+                        <th className="p-2.5 w-24 text-center">UOM</th>
+                        <th className="p-2.5 w-10 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {fields.map((item, index) => {
+                        const rowCategory = watch(`items.${index}.category`);
+                        const filteredInventory = rowCategory 
+                          ? inventoryItems.filter(i => i.category === rowCategory)
+                          : inventoryItems;
+                        return (
+                          <tr key={item.id}>
+                            <td className="p-2">
+                              <select 
+                                {...register(`items.${index}.category`)}
+                                onChange={(e) => {
+                                  register(`items.${index}.category`).onChange(e);
+                                  handleCategorySelect(index, e.target.value);
+                                }}
+                                className="block w-full rounded border-slate-200 text-xs border p-1.5"
+                              >
+                                <option value="">-- Select Category --</option>
+                                {categories.map(c => (
+                                  <option key={c.id} value={c.name}>{c.name}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="p-2">
+                              <select 
+                                {...register(`items.${index}.itemId`)} 
+                                onChange={(e) => {
+                                  register(`items.${index}.itemId`).onChange(e);
+                                  handleItemSelect(index, e.target.value);
+                                }}
+                                className="block w-full rounded border-slate-200 text-xs border p-1.5"
+                              >
+                                <option value="">-- Custom Item --</option>
+                                {filteredInventory.map(inv => (
+                                  <option key={inv.id} value={inv.id}>
+                                    {inv.itemCode} - {inv.name} {inv.isAdminItem ? '(Admin)' : ''} {inv.isItItem ? '(IT)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="p-2"><input {...register(`items.${index}.itemName`)} required className="block w-full rounded border-slate-200 text-xs border p-1.5" /></td>
+                            <td className="p-2"><input type="number" {...register(`items.${index}.quantity`)} required min="1" className="block w-full rounded border-slate-200 text-xs border p-1.5" /></td>
+                            <td className="p-2"><input {...register(`items.${index}.uom`)} readOnly className="block w-full rounded border-slate-200 bg-slate-50 text-slate-500 text-xs border p-1.5 cursor-not-allowed" /></td>
+                            <td className="p-2 text-center">
+                              <button type="button" onClick={() => remove(index)} className="text-red-400 hover:text-red-600">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left bg-white">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                    <tr>
-                      <th className="p-2">Category</th>
-                      <th className="p-2">Inventory Item</th>
-                      <th className="p-2">Item Name (Manual)</th>
-                      <th className="p-2 w-20">Qty</th>
-                      <th className="p-2 w-24">UOM</th>
-                      <th className="p-2 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {fields.map((item, index) => {
-                      const rowCategory = watch(`items.${index}.category`);
-                      const filteredInventory = rowCategory 
-                        ? inventoryItems.filter(i => i.category === rowCategory)
-                        : inventoryItems;
-                      return (
-                        <tr key={item.id}>
-                          <td className="p-2">
-                            <select 
-                              {...register(`items.${index}.category`)}
-                              onChange={(e) => {
-                                register(`items.${index}.category`).onChange(e);
-                                handleCategorySelect(index, e.target.value);
-                              }}
-                              className="block w-full rounded border-slate-200 text-xs border p-1.5"
-                            >
-                              <option value="">-- Select Category --</option>
-                              {categories.map(c => (
-                                <option key={c.id} value={c.name}>{c.name}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="p-2">
-                            <select 
-                              {...register(`items.${index}.itemId`)} 
-                              onChange={(e) => {
-                                register(`items.${index}.itemId`).onChange(e);
-                                handleItemSelect(index, e.target.value);
-                              }}
-                              className="block w-full rounded border-slate-200 text-xs border p-1.5"
-                            >
-                              <option value="">-- Custom Item --</option>
-                              {filteredInventory.map(inv => (
-                                <option key={inv.id} value={inv.id}>
-                                  {inv.itemCode} - {inv.name} {inv.isAdminItem ? '(Admin)' : ''} {inv.isItItem ? '(IT)' : ''}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="p-2"><input {...register(`items.${index}.itemName`)} required className="block w-full rounded border-slate-200 text-xs border p-1.5" /></td>
-                          <td className="p-2"><input type="number" {...register(`items.${index}.quantity`)} required min="1" className="block w-full rounded border-slate-200 text-xs border p-1.5" /></td>
-                          <td className="p-2"><input {...register(`items.${index}.uom`)} readOnly className="block w-full rounded border-slate-200 bg-slate-50 text-slate-500 text-xs border p-1.5 cursor-not-allowed" /></td>
-                          <td className="p-2 text-center">
-                            <button type="button" onClick={() => remove(index)} className="text-red-400 hover:text-red-600">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            </form>
+          </div>
 
-            <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-              <button type="button" onClick={closeForm} className="px-4 py-2 border border-slate-200 shadow-sm text-sm font-bold rounded text-slate-700 bg-white hover:bg-slate-50 transition-colors">
-                Cancel
-              </button>
-              <button 
-                type="button" 
-                disabled={isSubmitting}
-                onClick={handleSubmit((data) => onSubmit(data, true))}
-                className="px-4 py-2 border border-brand-orange text-brand-orange bg-brand-orange/5 rounded text-sm font-bold hover:bg-brand-orange/10 transition-colors disabled:opacity-50"
-              >
-                {isSubmitting ? 'Saving...' : 'Save as Draft'}
-              </button>
-              <button 
-                type="button" 
-                disabled={isSubmitting}
-                onClick={handleSubmit((data) => onSubmit(data, false))}
-                className="px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors disabled:opacity-50"
-              >
-                {isSubmitting ? 'Submitting...' : 'Submit Request'}
-              </button>
-            </div>
-          </form>
+          <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0 rounded-b-xl sticky bottom-0 z-20">
+            <button type="button" onClick={closeForm} className="px-4 py-2.5 border border-slate-200 shadow-sm text-sm font-bold rounded-lg text-slate-700 bg-white hover:bg-slate-50 transition-colors">
+              Cancel
+            </button>
+            <button 
+              type="button" 
+              disabled={isSubmitting}
+              onClick={handleSubmit((data) => onSubmit(data, true))}
+              className="px-4 py-2.5 border border-brand-orange text-brand-orange bg-brand-orange/5 rounded-lg text-sm font-bold hover:bg-brand-orange/10 transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? 'Saving...' : 'Save as Draft'}
+            </button>
+            <button 
+              type="button" 
+              disabled={isSubmitting}
+              onClick={handleSubmit((data) => onSubmit(data, false))}
+              className="px-5 py-2.5 bg-brand-orange text-white rounded-lg text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? 'Submitting...' : 'Submit Request'}
+            </button>
           </div>
         </div>
       )}
@@ -503,8 +502,8 @@ export default function PurchaseRequisitions() {
               
               <div>
                 <h4 className="text-sm font-bold text-slate-800 mb-3">Requisition Items</h4>
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-left bg-white text-sm">
+                <div className="border border-slate-200 rounded-lg overflow-x-auto">
+                  <table className="w-full min-w-[600px] text-left bg-white text-sm">
                     <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                       <tr>
                         <th className="p-3">Category</th>

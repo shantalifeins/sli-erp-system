@@ -19,6 +19,7 @@ import PrApprovals from '@/src/modules/procurement/pages/PrApprovals';
 import Rfq from '@/src/modules/procurement/pages/Rfq';
 import Cs from '@/src/modules/procurement/pages/Cs';
 import Grn from '@/src/modules/inventory/pages/Grn';
+import WorkOrders from '@/src/modules/procurement/pages/WorkOrders';
 
 import ProcurementReport from '@/src/modules/procurement/pages/ProcurementReport';
 import InvoicesPayments from '@/src/modules/procurement/pages/InvoicesPayments';
@@ -31,6 +32,8 @@ import StockTransferReceive from '@/src/modules/inventory/pages/StockTransferRec
 import WarehouseManager from '@/src/modules/inventory/pages/WarehouseManager';
 import InventoryReport from '@/src/modules/inventory/pages/InventoryReport';
 import RequisitionReport from '@/src/modules/inventory/pages/RequisitionReport';
+import StockReconciliation from '@/src/modules/inventory/pages/StockReconciliation';
+import RejectedItems from '@/src/modules/inventory/pages/RejectedItems';
 
 import Home from '@/src/modules/home/pages/Home';
 import UserPanelTasks from '@/src/modules/userPanel/pages/Tasks';
@@ -69,6 +72,7 @@ export default function App() {
             <Route path="/rfq" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Rfq /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/cs" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Cs /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/po" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PurchaseOrders /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/work-orders" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><WorkOrders /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/vendors" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Vendors /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/procurement-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><ProcurementReport /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/invoices-payments" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><InvoicesPayments /></PluginProtectedRoute></PrivateRoute>} />
@@ -84,6 +88,9 @@ export default function App() {
             <Route path="/grn" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><Grn /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/inventory-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryReport /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/requisition-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><RequisitionReport /></PluginProtectedRoute></PrivateRoute>} />
+            {/* Phase 1 New Routes */}
+            <Route path="/stock-reconciliation" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockReconciliation /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/rejected-items" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><RejectedItems /></PluginProtectedRoute></PrivateRoute>} />
   
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
             <Route path="/admin/organogram" element={<PrivateRoute><OrganogramPage /></PrivateRoute>} />

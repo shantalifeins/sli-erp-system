@@ -141,9 +141,12 @@ export default function PrApprovals() {
       }
       setIsSubmitting(true);
       const token = await getToken();
+      // Zero out prQuantity: fulfillment only issues stock.
+      // PR creation is a separate explicit action via "Create PR" button.
+      const issueOnlyItems = fulfillmentData.map((i: any) => ({ ...i, prQuantity: 0 }));
       await fetchWithAuth(`/api/pr/fulfill/${selectedItem.id}`, token, {
         method: 'POST',
-        body: JSON.stringify({ items: fulfillmentData, warehouseId: selectedWarehouseId })
+        body: JSON.stringify({ items: issueOnlyItems, warehouseId: selectedWarehouseId })
       });
       closeModal();
       loadData();
@@ -230,7 +233,7 @@ export default function PrApprovals() {
     <PageLayout
       loading={loading}
       search={{ placeholder: "Search Requisitions...", onSearch: setSearchQuery }}
-      pagination={getPaginationConfig()}
+      pagination={selectedItem ? undefined : getPaginationConfig()}
     >
     <div className="space-y-6 flex flex-col h-full">
       {!selectedItem && (
@@ -310,8 +313,8 @@ export default function PrApprovals() {
 
       {/* Details View Form */}
       {selectedItem && !actionModal && (
-        <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden flex flex-col flex-1 mb-6">
-            <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50 rounded-t-xl">
+        <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden flex flex-col flex-1 max-h-[calc(100vh-7rem)] min-h-0 mb-6">
+            <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50 rounded-t-xl shrink-0">
               <button onClick={closeModal} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-colors" title="Back to List">
                 <ArrowLeft className="w-5 h-5" />
               </button>
@@ -323,7 +326,7 @@ export default function PrApprovals() {
               </div>
             </div>
 
-            <div className="p-6 flex-1 overflow-y-auto space-y-6">
+            <div className="p-6 flex-1 overflow-y-auto space-y-6 min-h-0">
               {!prCreationMode && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -372,7 +375,7 @@ export default function PrApprovals() {
                     </div>
                   </div>
 
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mb-4">
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-4">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                         <tr>
@@ -480,7 +483,7 @@ export default function PrApprovals() {
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-slate-800 mb-3">Items for Purchase Requisition</h4>
-                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="border border-slate-200 rounded-lg overflow-x-auto">
                       <table className="w-full text-left bg-white text-xs">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                           <tr>
@@ -517,8 +520,7 @@ export default function PrApprovals() {
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  required
-                                  placeholder="0.00"
+                                  placeholder="0.00 (Optional)"
                                   value={item.estimatedPrice}
                                   onChange={e => {
                                     const newData = [...prCreationData.items];
@@ -539,7 +541,7 @@ export default function PrApprovals() {
                 <>
                   <div>
                     <h4 className="text-sm font-bold text-slate-800 mb-3">Requisition Items</h4>
-                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="border border-slate-200 rounded-lg overflow-x-auto">
                       <table className="w-full text-left bg-white text-xs">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                           <tr>
@@ -595,8 +597,8 @@ export default function PrApprovals() {
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3 rounded-b-xl">
-                {!fulfillmentMode && !prCreationMode && selectedItem.status === 'Approved' && selectedItem.deliveryStatus !== 'Fully Delivered' && canCreate && (
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3 rounded-b-xl shrink-0 sticky bottom-0 z-20">
+                {!fulfillmentMode && !prCreationMode && selectedItem.canFulfill && selectedItem.deliveryStatus !== 'Fully Delivered' && canCreate && (
                   <>
                     <button
                       onClick={handleFulfillClick}

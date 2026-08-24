@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
-import jwt from 'jsonwebtoken';
+import jwtPkg from 'jsonwebtoken';
+const jwt = (jwtPkg as any).default || jwtPkg;
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || '';
@@ -44,13 +45,13 @@ export const requireAuth = async (
   try {
     let user;
     
-    // First try offline verification if we have the secret (works for SSO tokens and Supabase tokens)
-    const jwtSecret = process.env.SUPABASE_JWT_SECRET || process.env.VITE_SUPABASE_ANON_KEY;
+    // First try offline verification if we have the secret (works for native JWT tokens, SSO tokens, and Supabase tokens)
+    const jwtSecret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || process.env.VITE_SUPABASE_ANON_KEY;
     if (jwtSecret) {
       try {
         const decoded = jwt.verify(token, jwtSecret) as any;
-        if (decoded && decoded.sub) {
-          user = { id: decoded.sub, email: decoded.email };
+        if (decoded && (decoded.sub || decoded.uid)) {
+          user = { id: decoded.sub || decoded.uid, email: decoded.email };
         }
       } catch (jwtErr) {
         // Fall back to Supabase API if offline verification fails
@@ -58,6 +59,10 @@ export const requireAuth = async (
     }
 
     if (!user) {
+      // If AUTH_MODE is postgres, we do not call Supabase API
+      if (process.env.AUTH_MODE === 'postgres') {
+        return res.status(401).json({ error: 'Unauthorized: Invalid token signature' });
+      }
       const { data, error } = await supabase.auth.getUser(token);
       if (error || !data?.user) {
         throw error || new Error('User not found');

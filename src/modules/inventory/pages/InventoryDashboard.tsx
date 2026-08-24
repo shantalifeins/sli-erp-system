@@ -331,13 +331,31 @@ export default function InventoryDashboard() {
 
       {/* Bottom Row: Low Stock Table + Recent GRNs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Low Stock Alerts Table */}
+        {/* Low Stock Table with Auto-Reorder Button */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-500" />
-            <h3 className="text-sm font-semibold text-slate-700">Low Stock Alerts</h3>
-            {lowStockItems.length > 0 && (
-              <span className="ml-auto bg-red-100 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{lowStockItems.length}</span>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+              <h3 className="text-sm font-semibold text-slate-700">Low Stock Items</h3>
+            </div>
+            {lowStockItems && lowStockItems.length > 0 && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const token = await getToken();
+                    if (!token) return;
+                    const res = await fetchWithAuth('/api/inventory/auto-reorder/generate-pr', token, { method: 'POST' });
+                    alert(`✅ Auto-PR ${res.prNumber} generated with ${res.itemCount} item(s)! Estimated Cost: ${res.estimatedCost}`);
+                    navigate('/item-requisition');
+                  } catch (err: any) {
+                    alert("Auto-reorder failed: " + err.message);
+                  }
+                }}
+                className="px-3 py-1 bg-brand-orange text-white rounded text-xs font-bold hover:bg-[#e06214] transition-colors flex items-center gap-1"
+              >
+                ⚡ 1-Click Auto-Reorder PR
+              </button>
             )}
           </div>
           <div className="max-h-[320px] overflow-y-auto">

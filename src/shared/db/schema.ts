@@ -81,6 +81,7 @@ export const users = pgTable('users', {
   role: text('role').default('Requester'),
   department: text('department'),
   status: text('status').default('Active'), // 'Active' or 'Inactive'
+  passwordHash: text('password_hash'), // Nullable hash for direct PostgreSQL native auth mode
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -188,6 +189,11 @@ export const vendors = pgTable('vendors', {
   contactPerson: text('contact_person'),
   email: text('email'),
   phone: text('phone'),
+  bankName: text('bank_name'),
+  branchName: text('branch_name'),
+  accountName: text('account_name'),
+  accountNumber: text('account_number'),
+  routingNumber: text('routing_number'),
   status: text('status').default('Active'),
   rating: numeric('rating').default('0.0'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -321,6 +327,13 @@ export const quotations = pgTable('quotations', {
   quotedPrice: numeric('quoted_price').notNull(),
   deliveryDays: integer('delivery_days'),
   remarks: text('remarks'),
+  attachmentUrl: text('attachment_url'),
+  vatPercent: numeric('vat_percent').default('0'),
+  vatAmount: numeric('vat_amount').default('0'),
+  taxPercent: numeric('tax_percent').default('0'),
+  taxAmount: numeric('tax_amount').default('0'),
+  totalAmount: numeric('total_amount'),
+  description: text('description'),
 });
 
 // Comparative Statements
@@ -357,6 +370,36 @@ export const purchase_orders = pgTable('purchase_orders', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Work Orders (Generated from Approved CS/PO with pre-print editing & signed upload requirement)
+export const work_orders = pgTable('work_orders', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  woNumber: text('wo_number').notNull().unique(),
+  csId: integer('cs_id').references(() => comparative_statements.id),
+  poId: integer('po_id').references(() => purchase_orders.id),
+  prId: integer('pr_id').references(() => purchase_requisitions.id),
+  vendorId: integer('vendor_id').references(() => vendors.id).notNull(),
+  subject: text('subject'),
+  attnPerson: text('attn_person'),
+  quotationRefNo: text('quotation_ref_no'),
+  quotationDate: timestamp('quotation_date'),
+  deliveryAddress: text('delivery_address'),
+  officeContactName: text('office_contact_name'),
+  officeContactPhone: text('office_contact_phone'),
+  officeContactEmail: text('office_contact_email'),
+  totalAmount: numeric('total_amount'),
+  vatAmount: numeric('vat_amount'),
+  taxAmount: numeric('tax_amount'),
+  grandTotal: numeric('grand_total'),
+  termsConditions: jsonb('terms_conditions'), // JSON array of instruction strings
+  signedFileUrl: text('signed_file_url'),
+  signedUploadedAt: timestamp('signed_uploaded_at'),
+  signedUploadedBy: text('signed_uploaded_by').references(() => users.uid),
+  status: text('status').default('Pending Signed Upload'), // Pending Signed Upload, Signed & Active, Cancelled
+  createdBy: text('created_by').references(() => users.uid),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 // Purchase Order Items
 export const po_items = pgTable('po_items', {
   id: serial('id').primaryKey(),
@@ -387,6 +430,8 @@ export const grn_items = pgTable('grn_items', {
   poItemId: integer('po_item_id').references(() => po_items.id).notNull(),
   quantityReceived: integer('quantity_received').notNull(),
   status: text('status').default('Pending QC'), // Pending QC, Passed, Failed
+  batchNumber: text('batch_number'), // Optional batch number from supplier
+  expiryDate: timestamp('expiry_date'), // Optional expiry date for perishables
 });
 
 // QC Inspections
@@ -399,6 +444,29 @@ export const qc_inspections = pgTable('qc_inspections', {
   remarks: text('remarks'),
   inspectedBy: text('inspected_by').references(() => users.uid),
   inspectedAt: timestamp('inspected_at').defaultNow(),
+  // Phase 1 additions: QC defect tracking
+  defectCategory: text('defect_category'), // Material Defect, Quantity Short, Packaging Damage, Wrong Item, Other
+  defectDescription: text('defect_description'),
+  costOfDefect: numeric('cost_of_defect'),
+});
+
+// Rejected Item Dispositions (Phase 1 - QC failure workflow)
+export const rejected_item_dispositions = pgTable('rejected_item_dispositions', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  qcInspectionId: integer('qc_inspection_id').references(() => qc_inspections.id).notNull(),
+  grnId: integer('grn_id').references(() => grn.id).notNull(),
+  grnItemId: integer('grn_item_id').references(() => grn_items.id).notNull(),
+  itemId: integer('item_id').references(() => inventory_items.id),
+  itemName: text('item_name').notNull(),
+  quantityRejected: integer('quantity_rejected').notNull(),
+  dispositionType: text('disposition_type'), // 'Return_to_Vendor', 'Scrap', 'Rework'
+  status: text('status').default('Pending'), // Pending, In_Process, Completed
+  vendorCreditNoteNumber: text('vendor_credit_note_number'),
+  notes: text('notes'),
+  disposedByUid: text('disposed_by_uid').references(() => users.uid),
+  disposedAt: timestamp('disposed_at'),
+  createdAt: timestamp('created_at').defaultNow(),
 });
 
 // Invoices (3-Way Matching)
@@ -446,8 +514,15 @@ export const inventory_items = pgTable('inventory_items', {
   name: text('name').notNull(),
   category: text('category').notNull(), // Consumable, Fixed Asset, IT Equipment
   quantityInStock: integer('quantity_in_stock').default(0),
+  reservedQuantity: integer('reserved_quantity').default(0), // Phase 1: Soft reservation for pending stock-outs
   uom: text('uom').notNull(),
   reorderLevel: integer('reorder_level').default(0),
+  reorderPoint: integer('reorder_point').default(0), // Phase 1: Trigger point for low-stock alert
+  reorderQuantity: integer('reorder_quantity').default(0), // Phase 1: Default qty to order
+  leadTimeDays: integer('lead_time_days').default(7), // Phase 1: Avg days from order to receipt
+  safetyStockDays: integer('safety_stock_days').default(3), // Phase 1: Buffer days
+  abcClassification: text('abc_classification'), // Phase 1: 'A', 'B', 'C'
+  avgDailyConsumption: numeric('avg_daily_consumption'), // Phase 1: Auto-calculated
   location: text('location'),
   isFixedAsset: boolean('is_fixed_asset').default(false),
   basePrice: numeric('base_price'),
@@ -474,8 +549,12 @@ export const stock_transfers = pgTable('stock_transfers', {
   transferNumber: text('transfer_number').notNull().unique(),
   sourceWarehouseId: integer('source_warehouse_id').references(() => warehouses.id).notNull(),
   destinationWarehouseId: integer('destination_warehouse_id').references(() => warehouses.id).notNull(),
-  status: text('status').default('Pending Approval'), // Pending Approval, Transit, Received
+  status: text('status').default('Pending Approval'), // Pending Approval, In Transit, Received, Cancelled
   requestedBy: text('requested_by').references(() => users.uid),
+  dispatchDate: timestamp('dispatch_date'), // Phase 1: When stock left source warehouse
+  expectedArrivalDate: timestamp('expected_arrival_date'), // Phase 1: Expected receipt date
+  actualArrivalDate: timestamp('actual_arrival_date'), // Phase 1: Actual receipt date
+  notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -518,6 +597,9 @@ export const warehouse_stock = pgTable('warehouse_stock', {
   warehouseId: integer('warehouse_id').references(() => warehouses.id).notNull(),
   itemId: integer('item_id').references(() => inventory_items.id).notNull(),
   quantity: integer('quantity').default(0),
+  reservedQuantity: integer('reserved_quantity').default(0), // Phase 1: Qty reserved for pending approvals
+  batchNumber: text('batch_number'), // Phase 1: Optional batch tracking
+  expiryDate: timestamp('expiry_date'), // Phase 1: Optional expiry tracking
   lastUpdated: timestamp('last_updated').defaultNow(),
 });
 
@@ -615,6 +697,109 @@ export const vendor_evaluations = pgTable('vendor_evaluations', {
   weight: numeric('weight').notNull(), // Percentage weight e.g. 20.0
   score: numeric('score').notNull(), // Score 1-10
   remarks: text('remarks'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// ============================================================
+// Phase 1 New Tables: Stock Reservation, Reconciliation, etc.
+// ============================================================
+
+// Stock Reservations (Soft-lock pending stock-out quantities to prevent over-allocation)
+export const stock_reservations = pgTable('stock_reservations', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  warehouseId: integer('warehouse_id').references(() => warehouses.id).notNull(),
+  itemId: integer('item_id').references(() => inventory_items.id).notNull(),
+  stockOutRequestId: integer('stock_out_request_id').references(() => stock_out_requests.id).notNull(),
+  reservedQty: integer('reserved_qty').notNull(),
+  reservationDate: timestamp('reservation_date').defaultNow(),
+  expiresAt: timestamp('expires_at'), // Auto-expire after 7 days
+  status: text('status').default('Active'), // Active, Approved, Released, Expired
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Physical Stock Counts (Reconciliation module)
+export const physical_stock_counts = pgTable('physical_stock_counts', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  warehouseId: integer('warehouse_id').references(() => warehouses.id).notNull(),
+  countNumber: text('count_number').notNull().unique(), // Auto: PSC-YYYYMMDD-XXXX
+  countType: text('count_type').default('Spot-Check'), // Annual, Cycle, Spot-Check
+  status: text('status').default('Pending'), // Pending, In-Progress, Completed, Approved
+  scheduledDate: timestamp('scheduled_date').notNull(),
+  actualStartDate: timestamp('actual_start_date'),
+  completedDate: timestamp('completed_date'),
+  countingTeam: text('counting_team'), // Comma-separated user names
+  totalItemsCounted: integer('total_items_counted').default(0),
+  totalVariances: integer('total_variances').default(0),
+  totalVarianceValue: numeric('total_variance_value').default('0'),
+  notes: text('notes'),
+  approvedByUid: text('approved_by_uid').references(() => users.uid),
+  approvedAt: timestamp('approved_at'),
+  createdByUid: text('created_by_uid').references(() => users.uid),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Physical Count Details (Line-level count entries)
+export const physical_count_details = pgTable('physical_count_details', {
+  id: serial('id').primaryKey(),
+  countId: integer('count_id').references(() => physical_stock_counts.id).notNull(),
+  itemId: integer('item_id').references(() => inventory_items.id).notNull(),
+  warehouseStockId: integer('warehouse_stock_id').references(() => warehouse_stock.id),
+  systemQty: integer('system_qty').notNull(), // What the system shows
+  physicalQty: integer('physical_qty'), // What was physically counted (null = not yet counted)
+  varianceQty: integer('variance_qty'), // physical - system (auto-calculated)
+  varianceValue: numeric('variance_value'), // varianceQty * basePrice
+  varianceReason: text('variance_reason'), // Theft, Damage, Data Entry Error, Expired, Other
+  adjusted: boolean('adjusted').default(false),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Stock Adjustments (Formal approved corrections after physical count)
+export const stock_adjustments = pgTable('stock_adjustments', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  countId: integer('count_id').references(() => physical_stock_counts.id),
+  itemId: integer('item_id').references(() => inventory_items.id).notNull(),
+  warehouseId: integer('warehouse_id').references(() => warehouses.id).notNull(),
+  adjustmentQty: integer('adjustment_qty').notNull(), // Positive = add, Negative = deduct
+  reason: text('reason').notNull(),
+  adjustedFromQty: integer('adjusted_from_qty').notNull(),
+  adjustedToQty: integer('adjusted_to_qty').notNull(),
+  adjustedByUid: text('adjusted_by_uid').references(() => users.uid).notNull(),
+  approvedByUid: text('approved_by_uid').references(() => users.uid),
+  status: text('status').default('Pending'), // Pending, Approved, Rejected
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Vendor Quality Metrics (Auto-updated after each QC completion)
+export const vendor_quality_metrics = pgTable('vendor_quality_metrics', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  vendorId: integer('vendor_id').references(() => vendors.id).notNull(),
+  evaluationMonth: text('evaluation_month').notNull(), // YYYY-MM format
+  totalGrnCount: integer('total_grn_count').default(0),
+  totalItemsReceived: integer('total_items_received').default(0),
+  totalItemsRejected: integer('total_items_rejected').default(0),
+  rejectionRate: numeric('rejection_rate').default('0'), // Percentage
+  costOfRejections: numeric('cost_of_rejections').default('0'),
+  defectCategories: jsonb('defect_categories'), // { "Material Defect": 3, "Packaging Damage": 1 }
+  qualityScore: numeric('quality_score').default('10'), // 0.00-10.00
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  vendorMonthUnq: uniqueIndex('vendor_month_unq_idx').on(table.vendorId, table.evaluationMonth),
+}));
+
+// Stock Consumption History (For demand forecasting and reorder calculation)
+export const stock_consumption_history = pgTable('stock_consumption_history', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  warehouseId: integer('warehouse_id').references(() => warehouses.id).notNull(),
+  itemId: integer('item_id').references(() => inventory_items.id).notNull(),
+  consumptionDate: text('consumption_date').notNull(), // YYYY-MM-DD
+  consumedQty: integer('consumed_qty').notNull(),
+  referenceId: text('reference_id'), // Stock-out request ID or number
   createdAt: timestamp('created_at').defaultNow(),
 });
 

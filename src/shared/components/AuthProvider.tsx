@@ -70,117 +70,128 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const syncUser = async (currentUser: User | null) => {
-      setUser(currentUser);
-      if (currentUser) {
-        try {
+      let localToken = localStorage.getItem('local_auth_token');
+      try {
+        let token = localToken;
+        if (!token && currentUser) {
           const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
+          token = session?.access_token || null;
+        }
 
-          if (!token) throw new Error('No token found');
+        if (!token) {
+          setUser(null);
+          setDbUser(null);
+          setCompany(null);
+          setPermissions([]);
+          setActivePlugins([]);
+          setAvailableCompanies([]);
+          setIsGlobalSuperAdmin(false);
+          setLoading(false);
+          return;
+        }
 
-          let response = await fetch('/api/auth/sync', {
+        let response = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        let retries = 3;
+        while (!response.ok && response.status >= 500 && retries > 0) {
+          console.warn(`Backend sync failed with ${response.status}, retrying...`);
+          await new Promise(r => setTimeout(r, 1000));
+          response = await fetch('/api/auth/sync', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`
             }
           });
-
-          let retries = 3;
-          while (!response.ok && response.status >= 500 && retries > 0) {
-            console.warn(`Backend sync failed with ${response.status}, retrying...`);
-            await new Promise(r => setTimeout(r, 1000));
-            response = await fetch('/api/auth/sync', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            });
-            retries--;
-          }
-          if (response.ok) {
-            const data = await response.json();
-            setPermissions(data.permissions || []);
-            setAvailableCompanies(data.availableCompanies || []);
-            
-            const isGSA = data.user?.role === 'Super Admin' && !data.user?.companyId;
-            setIsGlobalSuperAdmin(isGSA);
-            
-            let finalCompany = data.company || null;
-            let finalTenantId = data.company?.id || null;
-
-            if (isGSA) {
-              const savedTenant = localStorage.getItem('activeTenantId');
-              if (!savedTenant && data.availableCompanies?.length > 0) {
-                finalTenantId = data.availableCompanies[0].id;
-                finalCompany = data.availableCompanies[0];
-                localStorage.setItem('activeTenantId', finalTenantId);
-              } else if (savedTenant) {
-                const matched = data.availableCompanies?.find((c:any) => c.id === savedTenant);
-                if (matched) {
-                  finalCompany = matched;
-                  finalTenantId = savedTenant;
-                }
-              }
-            } else {
-              localStorage.removeItem('activeTenantId');
-            }
-
-            setCompany(finalCompany);
-            setActiveTenantIdState(finalTenantId);
-
-            // Fetch active plugins in parallel (or you can merge this into /api/auth/sync on backend)
-            try {
-              const headers: any = { 'Authorization': `Bearer ${token}` };
-              const currentTenant = isGSA ? localStorage.getItem('activeTenantId') : null;
-              if (currentTenant) headers['x-tenant-id'] = currentTenant;
-
-              const pluginRes = await fetch('/api/plugins/active', { headers });
-              if (pluginRes.ok) {
-                const pluginData = await pluginRes.json();
-                setActivePlugins(pluginData.plugins || []);
-              }
-            } catch (err) {
-              console.error("Failed to fetch active plugins", err);
-            }
-
-            // Set dbUser last to prevent premature navigation or access denied flashes
-            setDbUser(data.user);
-          } else {
-            console.error('Failed to sync user with backend', response.statusText);
-            if (response.status === 401 || response.status === 403) {
-              setUser(null);
-              setDbUser(null);
-              setCompany(null);
-              setPermissions([]);
-              setActivePlugins([]);
-              // Ensure the dead/rejected session is removed from local storage
-              await supabase.auth.signOut();
-              setAvailableCompanies([]);
-              setIsGlobalSuperAdmin(false);
-            }
-          }
-        } catch (e: any) {
-          console.error('Failed to sync user with backend', e);
-          // Don't auto-logout on network error, but app may crash if dbUser is missing
+          retries--;
         }
-      } else {
-        setDbUser(null);
-        setCompany(null);
-        setPermissions([]);
-        setActivePlugins([]);
-        setAvailableCompanies([]);
-        setIsGlobalSuperAdmin(false);
+
+        if (response.ok) {
+          const data = await response.json();
+          setUser((prev) => prev || ({ id: data.user?.uid, email: data.user?.email } as any));
+          setPermissions(data.permissions || []);
+          setAvailableCompanies(data.availableCompanies || []);
+          
+          const isGSA = data.user?.role === 'Super Admin' && !data.user?.companyId;
+          setIsGlobalSuperAdmin(isGSA);
+          
+          let finalCompany = data.company || null;
+          let finalTenantId = data.company?.id || null;
+
+          if (isGSA) {
+            const savedTenant = localStorage.getItem('activeTenantId');
+            if (!savedTenant && data.availableCompanies?.length > 0) {
+              finalTenantId = data.availableCompanies[0].id;
+              finalCompany = data.availableCompanies[0];
+              localStorage.setItem('activeTenantId', finalTenantId);
+            } else if (savedTenant) {
+              const matched = data.availableCompanies?.find((c:any) => c.id === savedTenant);
+              if (matched) {
+                finalCompany = matched;
+                finalTenantId = savedTenant;
+              }
+            }
+          } else {
+            localStorage.removeItem('activeTenantId');
+          }
+
+          setCompany(finalCompany);
+          setActiveTenantIdState(finalTenantId);
+
+          // Fetch active plugins in parallel
+          try {
+            const headers: any = { 'Authorization': `Bearer ${token}` };
+            const currentTenant = isGSA ? localStorage.getItem('activeTenantId') : null;
+            if (currentTenant) headers['x-tenant-id'] = currentTenant;
+
+            const pluginRes = await fetch('/api/plugins/active', { headers });
+            if (pluginRes.ok) {
+              const pluginData = await pluginRes.json();
+              setActivePlugins(pluginData.plugins || []);
+            }
+          } catch (err) {
+            console.error("Failed to fetch active plugins", err);
+          }
+
+          setDbUser(data.user);
+        } else {
+          console.error('Failed to sync user with backend', response.statusText);
+          if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('local_auth_token');
+            setUser(null);
+            setDbUser(null);
+            setCompany(null);
+            setPermissions([]);
+            setActivePlugins([]);
+            await supabase.auth.signOut();
+            setAvailableCompanies([]);
+            setIsGlobalSuperAdmin(false);
+          }
+        }
+      } catch (e: any) {
+        console.error('Failed to sync user with backend', e);
       }
       setLoading(false);
     };
 
     // Initial session fetch
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      syncUser(session?.user || null);
-    });
+    const localToken = localStorage.getItem('local_auth_token');
+    if (localToken) {
+      syncUser(null);
+    } else {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        syncUser(session?.user || null);
+      });
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      syncUser(session?.user || null);
+      if (!localStorage.getItem('local_auth_token')) {
+        syncUser(session?.user || null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -197,18 +208,55 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: pass,
-    });
-    if (error) throw error;
+    // Check if we are using native PostgreSQL Auth mode or if Supabase fails
+    const authMode = (import.meta as any).env?.VITE_AUTH_MODE;
+    if (authMode === 'postgres') {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: pass })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Authentication failed');
+      }
+      localStorage.setItem('local_auth_token', data.token);
+      window.location.reload();
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: pass,
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      // Fallback to native backend login if Supabase auth fails or is unconfigured
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: pass })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('local_auth_token', data.token);
+        window.location.reload();
+        return;
+      }
+      throw err;
+    }
   };
 
   const signOut = async () => {
+    localStorage.removeItem('local_auth_token');
     await supabase.auth.signOut();
+    window.location.reload();
   };
 
   const getToken = async () => {
+    const localToken = localStorage.getItem('local_auth_token');
+    if (localToken) return localToken;
     if (user) {
       const { data: { session } } = await supabase.auth.getSession();
       return session?.access_token || null;

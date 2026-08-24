@@ -591,17 +591,40 @@ export default function Inbox() {
               </div>
               
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Evaluated Vendors</p>
-                <div className="space-y-2">
-                  {selectedCs.vendors?.map((v: any) => (
-                    <div key={v.id} className={`flex justify-between items-center p-3 rounded-lg border ${v.id === selectedCs.selectedVendorId ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
-                      <span className="font-bold text-slate-700">{v.name}</span>
-                      {v.id === selectedCs.selectedVendorId && (
-                        <span className="text-[10px] bg-brand-orange text-white px-2 py-0.5 rounded uppercase font-bold shadow-sm">Selected</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Evaluated Vendors & Scoring Breakdown</p>
+                {selectedCs.evaluations && selectedCs.evaluations.length > 0 ? (
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-600 border-collapse">
+                      <thead className="bg-slate-100/70 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                        <tr>
+                          <th className="px-3 py-2 border-r border-slate-200">Criteria</th>
+                          <th className="px-3 py-2 border-r border-slate-200 text-center">Score (1-10)</th>
+                          <th className="px-3 py-2">Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedCs.evaluations.map((ev: any) => (
+                          <tr key={ev.id}>
+                            <td className="px-3 py-2 font-semibold border-r border-slate-200">{ev.criteriaName} ({ev.weight}%)</td>
+                            <td className="px-3 py-2 text-center font-bold text-brand-blue border-r border-slate-200">{ev.score}</td>
+                            <td className="px-3 py-2 italic text-slate-500">{ev.remarks || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedCs.vendors?.map((v: any) => (
+                      <div key={v.id} className={`flex justify-between items-center p-3 rounded-lg border ${v.id === selectedCs.selectedVendorId ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
+                        <span className="font-bold text-slate-700">{v.name}</span>
+                        {v.id === selectedCs.selectedVendorId && (
+                          <span className="text-[10px] bg-brand-orange text-white px-2 py-0.5 rounded uppercase font-bold shadow-sm">Selected</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

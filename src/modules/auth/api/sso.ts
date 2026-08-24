@@ -76,6 +76,15 @@ ssoRouter.post('/microsoft', async (req, res) => {
 
     const randomPassword = crypto.randomUUID() + "A1!a";
 
+    if (user) {
+      // Find the user's actual company to ensure they are allowed to use SSO
+      const userCompanyResult = await db.select().from(companies).where(eq(companies.id, user.companyId)).limit(1);
+      const userCompany = userCompanyResult[0];
+      if (!userCompany || !userCompany.isSsoEnabled) {
+         return res.status(403).json({ error: 'SSO is disabled for your company account. Please use the direct Email & Password login.' });
+      }
+    }
+
     if (!user) {
       // Create in GoTrue
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -154,26 +163,8 @@ ssoRouter.post('/microsoft', async (req, res) => {
 
       return res.status(202).json({ status: 'pending', message: 'Account is pending HR approval.' });
     } else {
-      // Try to update the user's password in GoTrue so we can log them in
-      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.uid, { password: randomPassword });
-      
-      if (updateError) {
-        // If it fails, they might not exist in GoTrue yet (old custom JWT users)
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-          email: email,
-          password: randomPassword,
-          email_confirm: true,
-          user_metadata: { name: user.name }
-        });
-        
-        if (authError) {
-           return res.status(500).json({ error: 'Failed to sync existing user: ' + authError.message });
-        }
-        
-        // Update local DB with real GoTrue UID
-        await db.update(users).set({ uid: authData.user.id }).where(eq(users.id, user.id));
-        user.uid = authData.user.id;
-      }
+      // User exists locally. If they somehow don't exist in GoTrue, generateLink will fail later.
+      // We no longer overwrite their password here so they can retain their direct login credentials.
     }
 
     if (user.status === 'Pending HR Approval') {
@@ -184,14 +175,34 @@ ssoRouter.post('/microsoft', async (req, res) => {
       return res.status(403).json({ error: 'Account is suspended.' });
     }
 
-    // NOW generate a REAL Supabase session by signing in!
-    const { data: sessionData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
-      email: email,
-      password: randomPassword
+    // Generate a secure session using a magic link OTP to avoid changing the user's password
+    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: 'magiclink',
+      email: user.email
     });
 
-    if (signInError || !sessionData.session) {
-      return res.status(500).json({ error: 'Failed to generate session: ' + (signInError?.message || 'Unknown error') });
+    if (linkError) {
+      console.error('Failed to generate session link:', linkError.message);
+      return res.status(500).json({ error: 'Failed to generate session link: ' + linkError.message });
+    }
+
+    const otp = linkData.properties?.email_otp;
+    const vType = linkData.properties?.verification_type;
+
+    if (!otp) {
+      return res.status(500).json({ error: 'Failed to extract OTP from session link' });
+    }
+
+    // NOW generate a REAL Supabase session by verifying the OTP
+    const { data: sessionData, error: signInError } = await supabaseAdmin.auth.verifyOtp({
+      email: user.email,
+      token: otp,
+      type: vType as any
+    });
+
+    if (signInError) {
+      console.error("Supabase Login Error:", signInError.message);
+      return res.status(500).json({ error: 'Failed to generate session: ' + signInError.message });
     }
 
     res.json({ 

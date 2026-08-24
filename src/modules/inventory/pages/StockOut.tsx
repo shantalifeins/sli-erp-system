@@ -191,12 +191,14 @@ export default function StockOut() {
                       if (wh && !canManageItem(item, wh.itemType)) return null;
 
                       const stockRecord = warehouseStock.find(ws => ws.warehouseId === parseInt(selectedWarehouse) && ws.itemId === item.id);
-                      const availableQty = stockRecord ? stockRecord.quantity : 0;
-                      if (availableQty <= 0) return null; // Hide items with no stock in this warehouse
-                      
+                      const totalQty = stockRecord ? (stockRecord.quantity || 0) : 0;
+                      const reservedQty = stockRecord ? (stockRecord.reservedQuantity || 0) : 0;
+                      const netAvailable = Math.max(0, totalQty - reservedQty);
+                      if (netAvailable <= 0) return null; // Hide items with no net available stock
+
                       return (
                         <option key={item.id} value={item.id}>
-                          {item.itemCode} - {item.name} {item.isAdminItem ? '(Admin)' : ''} {item.isItItem ? '(IT)' : ''} - Available: {availableQty}
+                          {item.itemCode} - {item.name} {item.isAdminItem ? '(Admin)' : ''} {item.isItItem ? '(IT)' : ''} - Available: {netAvailable} (Total: {totalQty}, Reserved: {reservedQty})
                         </option>
                       );
                     })}

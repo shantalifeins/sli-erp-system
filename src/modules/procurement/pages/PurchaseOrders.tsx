@@ -147,7 +147,7 @@ export default function PurchaseOrders() {
     <PageLayout
       loading={loading}
       search={{ placeholder: "Search POs...", onSearch: setSearchQuery }}
-      pagination={{ currentPage, totalPages, onPageChange: setCurrentPage }}
+      pagination={showGenerateModal ? undefined : { currentPage, totalPages, onPageChange: setCurrentPage }}
     >
     <div className="space-y-6 flex flex-col h-full">
       <div className="flex justify-between items-center">
@@ -240,7 +240,22 @@ export default function PurchaseOrders() {
                   className="block w-full rounded-md border-slate-200 p-2 border bg-white text-sm"
                 >
                   <option value="">Select...</option>
-                  {cssList.map(c => <option key={c.id} value={c.id}>{c.csNumber} (Vendor: {c.selectedVendorName})</option>)}
+                  {cssList.filter(c => {
+                    // Exclude CS records that already have a Purchase Order generated
+                    const hasPo = pos.some(p => p.csId === c.id || p.csNumber === c.csNumber);
+                    return !hasPo;
+                  }).map(c => {
+                    const itemSummary = c.items && c.items.length > 0 
+                      ? ` - ${c.items.map((i: any) => `${i.itemName} (${i.quantity} ${i.uom || 'Pcs'})`).join(', ')}`
+                      : '';
+                    const prText = c.prNumber ? ` (PR: ${c.prNumber})` : '';
+                    const amountText = (c.grandTotal || c.totalAmount) ? ` (${currencySymbol}${Number(c.grandTotal || c.totalAmount).toLocaleString()})` : '';
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {c.csNumber} — Vendor: {c.selectedVendorName}{prText}{itemSummary}{amountText}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -315,7 +330,7 @@ export default function PurchaseOrders() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
                     <button 
                       type="button" 
                       onClick={() => {
@@ -323,13 +338,13 @@ export default function PurchaseOrders() {
                         setSelectedCs(null);
                         setSelectedCsId('');
                       }}
-                      className="px-4 py-2 border border-slate-200 rounded text-sm font-bold text-slate-600"
+                      className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
                     >
                       Cancel
                     </button>
                     <button 
                       type="submit" 
-                      className="px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214]"
+                      className="px-5 py-2.5 bg-brand-orange text-white rounded-lg text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors"
                     >
                       Submit PO for Approval
                     </button>

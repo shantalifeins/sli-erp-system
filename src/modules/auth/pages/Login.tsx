@@ -102,6 +102,10 @@ export default function Login() {
                   clientId: config.clientId,
                   authority: `https://login.microsoftonline.com/${config.tenantId}`,
                   redirectUri: window.location.origin + '/login',
+                },
+                cache: {
+                  cacheLocation: 'localStorage',
+                  storeAuthStateInCookie: true,
                 }
               };
               const msalInstance = new PublicClientApplication(msalConfig);
@@ -128,16 +132,59 @@ export default function Login() {
                     console.error('Set Session Error:', sessionError);
                     throw new Error(`Session Error: ${sessionError.message}`);
                   }
+                  // Clear URL on success
+                  window.history.replaceState({}, document.title, window.location.pathname);
                 }
               }
             }
           })
-          .catch(err => {
+          .catch(async (err) => {
             console.error("MSAL Redirect Error:", err);
-            setError(err.message || 'Failed to process Microsoft redirect');
+            // Clear stuck MSAL state immediately
+            Object.keys(localStorage).forEach(key => { if (key.includes('msal')) localStorage.removeItem(key); });
+            Object.keys(sessionStorage).forEach(key => { if (key.includes('msal')) sessionStorage.removeItem(key); });
+
+            if (err.message && err.message.includes('state_mismatch')) {
+              console.log("Auto-retrying MSAL login due to state mismatch...");
+              if (email) {
+                const domain = email.split('@')[1];
+                try {
+                  const configRes = await fetch(`/api/auth/sso/sso-config?domain=${domain}`);
+                  if (configRes.ok) {
+                    const config = await configRes.json();
+                    const msalConfig = {
+                      auth: {
+                        clientId: config.clientId,
+                        authority: `https://login.microsoftonline.com/${config.tenantId}`,
+                        redirectUri: window.location.origin + '/login',
+                      },
+                      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+                    };
+                    const msalInstance = new PublicClientApplication(msalConfig);
+                    await msalInstance.initialize();
+                    
+                    // Clear any lingering interaction state before redirecting
+                    Object.keys(localStorage).forEach(key => { if (key.includes(config.clientId)) localStorage.removeItem(key); });
+                    Object.keys(sessionStorage).forEach(key => { if (key.includes(config.clientId)) sessionStorage.removeItem(key); });
+
+                    await msalInstance.loginRedirect({
+                      scopes: ["user.read"],
+                      prompt: "select_account",
+                      loginHint: email
+                    });
+                    // DO NOT clear loading state or history if we are redirecting again
+                    return;
+                  }
+                } catch (retryErr) {
+                  console.error("Auto-retry failed", retryErr);
+                }
+              }
+              setError('Login session expired. Please click "Continue with Microsoft" again.');
+            } else {
+              setError(err.message || 'Failed to process Microsoft redirect');
+            }
+            
             setGlobalLoading(false);
-          })
-          .finally(() => {
             window.history.replaceState({}, document.title, window.location.pathname);
           });
       } else {
@@ -148,7 +195,7 @@ export default function Login() {
     }
   }, []);
 
-  const processMicrosoftLogin = async (e?: React.FormEvent) => {
+  const processMicrosoftLogin = async (e?: React.FormEvent, isRetry = false) => {
     if (e) e.preventDefault();
     if (!ssoEmail) {
       setError('Please enter your email address first to use SSO.');
@@ -180,12 +227,24 @@ export default function Login() {
           clientId: clientId,
           authority: `https://login.microsoftonline.com/${tenantId}`,
           redirectUri: window.location.origin + '/login',
+        },
+        cache: {
+          cacheLocation: 'localStorage',
+          storeAuthStateInCookie: true,
         }
       };
       
       const msalInstance = new PublicClientApplication(msalConfig);
       await msalInstance.initialize();
       
+      // Clear any old MSAL state to ensure a clean login and prevent state_mismatch
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('msal') || key.includes(clientId)) localStorage.removeItem(key);
+      });
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.includes('msal') || key.includes(clientId)) sessionStorage.removeItem(key);
+      });
+
       // Redirect the entire page to Microsoft
       await msalInstance.loginRedirect({
         scopes: ["user.read"],
@@ -196,12 +255,21 @@ export default function Login() {
       // We don't need to do anything else here, as the page will redirect.
     } catch (err: any) {
       console.error("MSAL Login Error:", err);
-      if (err.errorCode === 'interaction_in_progress' || err?.message?.includes('interaction_in_progress')) {
-        // Clear MSAL's stuck interaction state from sessionStorage
+      if (err.errorCode === 'interaction_in_progress' || err?.message?.includes('interaction_in_progress') || err?.message?.includes('state_mismatch')) {
+        // Clear MSAL's stuck interaction state from both storages
         Object.keys(sessionStorage).forEach(key => {
           if (key.includes('msal')) sessionStorage.removeItem(key);
         });
-        setError('A previous login attempt got stuck. Please try clicking "Continue" again.');
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('msal')) localStorage.removeItem(key);
+        });
+        
+        if (!isRetry) {
+          console.log("Auto-retrying Microsoft login...");
+          return processMicrosoftLogin(undefined, true);
+        } else {
+          setError('Login session expired. Please refresh the page and try again.');
+        }
       } else {
         setError(err.message || 'Microsoft login failed');
       }
@@ -209,7 +277,6 @@ export default function Login() {
       setShowSsoModal(false);
     }
   };
-
   if (globalLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FAF8F4]">
@@ -240,7 +307,7 @@ export default function Login() {
       setLoading(true);
       setError('');
       if (signInWithEmail) {
-        await signInWithEmail(email, password);
+        await signInWithEmail(email.trim(), password);
       } else {
         throw new Error('signInWithEmail not implemented');
       }

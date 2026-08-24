@@ -315,13 +315,17 @@ export default function StockTransfer() {
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
                         t.status === 'Received' ? 'bg-green-100 text-green-700' :
                         t.status === 'Rejected' ? 'bg-red-100 text-red-700' :
-                        t.status === 'Transit' ? 'bg-blue-100 text-blue-700' :
+                        (t.status === 'Transit' || t.status === 'In Transit') ? 'bg-indigo-100 text-indigo-700' :
                         'bg-amber-100 text-amber-700'
                       }`}>
-                        {t.status}
+                        {(t.status === 'Transit' || t.status === 'In Transit') ? '✈️ In Transit' : t.status}
                       </span>
                     </td>
-                    <td className="p-4 text-slate-500">{new Date(t.createdAt).toLocaleDateString()}</td>
+                    <td className="p-4 text-slate-500 text-xs">
+                      <div>Created: {new Date(t.createdAt).toLocaleDateString()}</div>
+                      {t.dispatchDate && <div className="text-indigo-600 font-medium">Dispatched: {new Date(t.dispatchDate).toLocaleDateString()}</div>}
+                      {t.actualArrivalDate && <div className="text-green-600 font-medium">Arrived: {new Date(t.actualArrivalDate).toLocaleDateString()}</div>}
+                    </td>
                   </tr>
                 ))
               )}

@@ -288,12 +288,17 @@ export default function InvoicesPayments() {
                     className="w-full border border-slate-200 rounded-lg p-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   >
                     <option value="">Select a GRN...</option>
-                    {grns.map(g => {
-                      // Ensure this GRN doesn't already have an invoice
-                      const hasInvoice = invoicesList.some(inv => inv.grnId === g.id);
-                      if (hasInvoice) return null;
+                    {grns.filter(g => {
+                      // Ensure this GRN doesn't already have an invoice generated
+                      const hasInvoice = invoicesList.some(inv => inv.grnId === g.id || inv.grnNumber === g.grnNumber);
+                      return !hasInvoice;
+                    }).map(g => {
+                      const itemSummary = g.items && g.items.length > 0
+                        ? g.items.map((i: any) => `${i.itemName || 'Item'} (${i.passedQty || i.quantityReceived} ${i.uom || 'Pcs'})`).join(', ')
+                        : '';
+                      const label = `${g.grnNumber}${g.vendorName ? ` — Vendor: ${g.vendorName}` : ''}${g.poNumber ? ` (${g.poNumber})` : ''}${itemSummary ? ` - ${itemSummary}` : ''}`;
                       return (
-                        <option key={g.id} value={g.id}>{g.grnNumber}</option>
+                        <option key={g.id} value={g.id}>{label}</option>
                       );
                     })}
                   </select>

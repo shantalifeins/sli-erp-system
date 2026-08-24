@@ -119,7 +119,7 @@ export default function Inventory() {
     <PageLayout 
       loading={loading}
       search={{ placeholder: "Search inventory items...", onSearch: setSearchQuery }}
-      pagination={{ currentPage, totalPages, onPageChange: setCurrentPage }}
+      pagination={showForm ? undefined : { currentPage, totalPages, onPageChange: setCurrentPage }}
     >
       <div className="space-y-6 flex flex-col h-full">
         {!showForm && (
@@ -256,8 +256,18 @@ export default function Inventory() {
               </div>
             </div>
 
-            <div className="mt-6 flex gap-3">
-              <button type="submit" className="bg-brand-orange text-white px-6 py-2 rounded-lg text-sm font-bold shadow hover:bg-brand-orange/90 transition-colors">
+            <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={() => setShowForm(false)} 
+                className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                className="bg-brand-orange text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm hover:bg-[#e06214] transition-colors"
+              >
                 Save Item
               </button>
             </div>
@@ -276,39 +286,60 @@ export default function Inventory() {
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Type</th>
               <th className="px-4 py-3 text-right">Base Price</th>
-              <th className="px-4 py-3 text-right">Stock</th>
+              <th className="px-4 py-3 text-right">Total Stock</th>
+              <th className="px-4 py-3 text-right">Reserved</th>
               <th className="px-4 py-3">Location</th>
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-slate-100">
             {paginatedItems.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center">
+                <td colSpan={8} className="px-4 py-12 text-center">
                   <Box className="mx-auto h-12 w-12 text-slate-300" />
                   <p className="mt-2 text-sm font-medium text-slate-500">No items found in inventory.</p>
                 </td>
               </tr>
             ) : (
-              paginatedItems.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-4 font-mono font-bold">{item.itemCode}</td>
-                  <td className="px-4 py-4 font-medium">{item.name}</td>
-                  <td className="px-4 py-4 text-slate-600">{item.category}</td>
-                  <td className="px-4 py-4">
-                    <div className="flex gap-1 flex-wrap">
-                      {item.isAdminItem && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-bold">ADMIN</span>}
-                      {item.isItItem && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold">IT</span>}
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 text-right font-medium text-slate-700">
-                    {item.basePrice ? `${currencySymbol}${Number(item.basePrice).toLocaleString()}` : '-'}
-                  </td>
-                  <td className="px-4 py-4 text-right font-semibold">
-                    <span className="text-brand-orange">{item.quantityInStock}</span> <span className="text-slate-500 text-xs">{item.uom}</span>
-                  </td>
-                  <td className="px-4 py-4 text-slate-500 text-xs font-bold uppercase">{item.location || '-'}</td>
-                </tr>
-              ))
+              paginatedItems.map((item) => {
+                const isLowStock = item.reorderPoint > 0 && (item.quantityInStock || 0) <= item.reorderPoint;
+                return (
+                  <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${isLowStock ? 'bg-amber-50/20' : ''}`}>
+                    <td className="px-4 py-4 font-mono font-bold">{item.itemCode}</td>
+                    <td className="px-4 py-4 font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{item.name}</span>
+                        {item.abcClassification && (
+                          <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-[9px] font-mono font-bold">
+                            Class {item.abcClassification}
+                          </span>
+                        )}
+                        {isLowStock && (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold">
+                            ⚠️ Low Stock
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{item.category}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex gap-1 flex-wrap">
+                        {item.isAdminItem && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-bold">ADMIN</span>}
+                        {item.isItItem && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold">IT</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right font-medium text-slate-700">
+                      {item.basePrice ? `${currencySymbol}${Number(item.basePrice).toLocaleString()}` : '-'}
+                    </td>
+                    <td className="px-4 py-4 text-right font-semibold">
+                      <span className="text-brand-orange">{item.quantityInStock}</span> <span className="text-slate-500 text-xs">{item.uom}</span>
+                    </td>
+                    <td className="px-4 py-4 text-right font-mono text-slate-600">
+                      {item.reservedQuantity || 0}
+                    </td>
+                    <td className="px-4 py-4 text-slate-500 text-xs font-bold uppercase">{item.location || '-'}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

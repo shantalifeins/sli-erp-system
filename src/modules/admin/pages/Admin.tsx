@@ -109,11 +109,12 @@ export default function Admin() {
       menus: [
         { name: "Dashboard", actions: ["canView"] },
         { name: "Purchase Requisitions", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
-        { name: "RFQ (Quotation)", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Comparative Statement", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
-        { name: "Purchase Orders", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
-        { name: "Invoices & Payments", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
-        { name: "Vendors", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "RFQ (Quotation)", actions: ["canView", "canCreate", "canEdit"] },
+        { name: "Comparative Statement", actions: ["canView", "canCreate", "canEdit", "canApprove"] },
+        { name: "Purchase Orders", actions: ["canView", "canCreate"] },
+        { name: "Work Orders", actions: ["canView"] },
+        { name: "Invoices & Payments", actions: ["canView", "canCreate"] },
+        { name: "Vendors", actions: ["canView", "canCreate", "canEdit"] },
         { name: "Reports", actions: ["canView"] }
       ]
     },
@@ -121,13 +122,15 @@ export default function Admin() {
       module: "Inventory Management",
       menus: [
         { name: "Dashboard", actions: ["canView"] },
-        { name: "Requisition Approval", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
+        { name: "Requisition Approval", actions: ["canView", "canCreate", "canApprove"] },
         { name: "Stock In", actions: ["canView", "canCreate"] },
         { name: "Stock Out", actions: ["canView", "canCreate", "canApprove"] },
-        { name: "Stock Transfer", actions: ["canView", "canCreate", "canApprove"] },
+        { name: "Stock Transfer", actions: ["canView", "canCreate"] },
         { name: "Transfer Receive", actions: ["canView", "canCreate"] },
-        { name: "Goods Receipt (GRN)", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Inventory Items", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Goods Receipt (GRN)", actions: ["canView", "canCreate", "canApprove"] },
+        { name: "Rejected Items", actions: ["canView"] },
+        { name: "Stock Reconciliation", actions: ["canView", "canCreate", "canEdit", "canApprove"] },
+        { name: "Inventory Items", actions: ["canView", "canCreate"] },
         { name: "Warehouses", actions: ["canView", "canCreate", "canEdit"] },
         { name: "Reports", actions: ["canView"] },
         { name: "Requisition Report", actions: ["canView"] }
@@ -138,16 +141,21 @@ export default function Admin() {
       menus: [
         { name: "Dashboard", actions: ["canView"] },
         { name: "System Setting", actions: ["canView", "canEdit"] },
+        { name: "Company Profile", actions: ["canView", "canEdit"] },
         { name: "Branches", actions: ["canView", "canCreate", "canEdit"] },
         { name: "User Setting", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Warehouses", actions: ["canView", "canCreate", "canEdit"] }
+        { name: "Departments", actions: ["canView", "canCreate", "canEdit"] },
+        { name: "Units", actions: ["canView", "canCreate", "canEdit"] },
+        { name: "Designations", actions: ["canView", "canCreate"] },
+        { name: "Warehouses", actions: ["canView", "canCreate", "canEdit"] },
+        { name: "Workflow Engine", actions: ["canView", "canCreate", "canEdit", "canDelete"] }
       ]
     },
     {
       module: "User Panel",
       menus: [
         { name: "User Dashboard", actions: ["canView"] },
-        { name: "Global Tasks", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Global Tasks", actions: ["canView"] },
         { name: "Item Requisitions", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "My Profile", actions: ["canView", "canEdit"] }
       ]
@@ -607,12 +615,27 @@ export default function Admin() {
   };
   
   const toggleModule = (mod: any, checked: boolean) => {
+    const menuNames = mod.menus.map((m: any) => m.name);
     if (checked) {
       setExpandedModules([...expandedModules, mod.module]);
+      // Auto-check all menus under this module
+      setExpandedMenus(prev => [...new Set([...prev, ...menuNames])]);
+      
+      // Auto-check all actions for all menus under this module
+      setTempPermissions(prev => {
+        const next = { ...prev };
+        mod.menus.forEach((menu: any) => {
+          const actionsObj: Record<string, boolean> = {};
+          menu.actions.forEach((act: string) => {
+            actionsObj[act] = true;
+          });
+          next[menu.name] = actionsObj;
+        });
+        return next;
+      });
     } else {
       setExpandedModules(expandedModules.filter(m => m !== mod.module));
-      // Optionally auto-uncheck menus if module is unchecked
-      const menuNames = mod.menus.map((m: any) => m.name);
+      // Auto-uncheck menus if module is unchecked
       setExpandedMenus(expandedMenus.filter(m => !menuNames.includes(m)));
       
       // Clear permissions for these menus
@@ -631,11 +654,17 @@ export default function Admin() {
   const toggleMenu = (menu: any, checked: boolean) => {
     if (checked) {
       setExpandedMenus([...expandedMenus, menu.name]);
-      // Auto-check canView by default when a menu is revealed
-      setTempPermissions(prev => ({
-        ...prev,
-        [menu.name]: { ...prev[menu.name], canView: true }
-      }));
+      // Auto-check all actions under this menu
+      setTempPermissions(prev => {
+        const actionsObj: Record<string, boolean> = {};
+        menu.actions.forEach((act: string) => {
+          actionsObj[act] = true;
+        });
+        return {
+          ...prev,
+          [menu.name]: actionsObj
+        };
+      });
     } else {
       setExpandedMenus(expandedMenus.filter(m => m !== menu.name));
       // Clear permissions for this menu
@@ -727,6 +756,9 @@ export default function Admin() {
   const paginatedWorkflows = filteredWorkflows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const getPaginationConfig = () => {
+    if (showUserForm || showDeptForm || showUnitForm || showDesigForm || showWfForm || editingRole) {
+      return undefined;
+    }
     switch (activeTab) {
       case 'users': return { currentPage, totalPages: totalUserPages, totalItems: filteredUsers.length, onPageChange: setCurrentPage };
       case 'departments': return { currentPage, totalPages: totalDeptPages, totalItems: filteredDepts.length, onPageChange: setCurrentPage };
@@ -758,7 +790,7 @@ export default function Admin() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-slate-800">User</h3>
-              {hasPerm('User Management', 'canCreate') && (
+              {hasPerm('User Setting', 'canCreate') && (
                 <button
                   onClick={() => {
                     setUserFormData({ id: null, email: '', password: '', department: '', role: '', name: '', designation: '', phone: '', supervisorUid: '', branchId: '' });
@@ -1030,7 +1062,7 @@ export default function Admin() {
                     <th className="px-4 py-3">Department & Role</th>
                     <th className="px-4 py-3">Supervisor</th>
                     <th className="px-4 py-3 text-center">Status</th>
-                    {hasPerm('User Management', 'canEdit') && <th className="px-4 py-3 text-right">Actions</th>}
+                    {hasPerm('User Setting', 'canEdit') && <th className="px-4 py-3 text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100">
@@ -1068,7 +1100,7 @@ export default function Admin() {
                           {u.status || 'Active'}
                         </span>
                       </td>
-                      {hasPerm('User Management', 'canEdit') && (
+                      {hasPerm('User Setting', 'canEdit') && (
                         <td className="px-4 py-4 text-right space-x-1">
                           <button
                             onClick={() => handleToggleUserStatus(u)}
