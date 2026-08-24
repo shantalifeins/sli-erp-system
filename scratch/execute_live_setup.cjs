@@ -90,7 +90,7 @@ FRONTEND_URL=https://erp.shantalife.com`;
 
         // Step 7: Create ultra-lightweight Dockerfile using pre-built dist
         console.log('\n--- Step 7: Creating lightweight production Dockerfile ---');
-        const dockerfileContent = `FROM node:18-slim
+        const dockerfileContent = `FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
