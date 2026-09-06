@@ -1,5 +1,9 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
+import WebSocket from 'ws';
+if (typeof (globalThis as any).WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = WebSocket;
+}
 import express from "express";
 import rateLimit from 'express-rate-limit';
 import path from "path";
