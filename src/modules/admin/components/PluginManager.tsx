@@ -16,6 +16,10 @@ const PLUGIN_RULES_SCHEMA: Record<string, any[]> = {
   'hrms': [
     { key: 'max_leave_days', type: 'number', desc: 'Maximum consecutive leave days allowed.' },
     { key: 'auto_approve_leave', type: 'boolean', desc: 'Auto approve leaves if under limit.' }
+  ],
+  'asset-management': [
+    { key: 'default_depreciation_method', type: 'string', desc: 'Default depreciation method for new assets.' },
+    { key: 'auto_tag_prefix', type: 'string', desc: 'Prefix format for auto-generated asset tags.' }
   ]
 };
 
