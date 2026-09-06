@@ -69,9 +69,15 @@ This document defines the strict architecture, security standards, UI convention
 
 ---
 
-## 🚀 7. Environment Branching, Deployment & No-Direct-SSH Directives
-- **Staging / Vercel Environment**: Local development and testing are deployed to Vercel (with user permission) connected to Supabase (`AUTH_MODE=supabase`).
-- **Production Live Server Environment**: Once features are verified on Vercel/local, code is built (`npm run build`) and pushed to Git (`https://github.com/shantalifeins/sli-erp-system.git`).
-- **MCP Server Deployment Only**: Live server deployments MUST occur via MCP deployment tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main` on the live server.
+## 🚀 7. Environment Branching, Feature Isolation & Deployment Directives
+- **Feature Isolation Strategy (Staging / Vercel)**:
+  - All new module development (e.g. Asset Management) MUST be developed on dedicated feature branches (e.g. `feature/asset-management`).
+  - Commits pushed to feature branches automatically trigger **Vercel Preview Deployments** connected to Supabase (`AUTH_MODE=supabase`) for staging review and QA testing.
+  - **Zero Direct Feature Commits to `main`**: Unverified feature code MUST NEVER be committed or pushed directly to `main`.
+- **Production Hotfixes & Maintenance**:
+  - Emergency production fixes/hotfixes for live issues are performed on dedicated hotfix branches or directly on `main` after thorough local audit.
+- **Live Server Deployment (MCP Only)**:
+  - Once a feature is fully tested and verified on Vercel Preview (all phases complete), the feature branch is merged into `main` and pushed to Git (`https://github.com/shantalifeins/sli-erp-system.git`).
+  - Production deployment on the live server (`10.16.49.78`) MUST ONLY occur via MCP server tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main` on the live server.
 - **Strict No-Direct-SSH Mandate**: The AI agent is STRICTLY FORBIDDEN from attempting direct SSH connections, storing server credentials, or executing raw SSH commands. All remote production management MUST strictly use MCP tools under strict action guardrails.
 - **Zero Supabase Installation on Live Server**: The live server runs native PostgreSQL (`AUTH_MODE=postgres`) inside `postgres_prod`. Never install or deploy Supabase services on the live server.

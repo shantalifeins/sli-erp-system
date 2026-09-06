@@ -159,12 +159,14 @@ Located in `src/shared/db/schema.ts`:
 ## 🚀 11. Production Staging, Vercel & Live Server MCP Workflow
 
 ### Environment & Development Lifecycle
-1. **Local & Staging Stage (Vercel + Supabase)**:
-   - Local IDE development & feature testing use `AUTH_MODE=supabase`.
-   - Staging deployments are hosted on Vercel with user permission.
-2. **Production Live Server Stage (Git + MCP Deployment)**:
-   - Production bundle is compiled locally (`npm run build`).
-   - Code is committed and pushed strictly to `https://github.com/shantalifeins/sli-erp-system.git`.
+1. **Feature Development & Staging (Vercel + Supabase)**:
+   - All new module development (e.g. Asset Management) occurs strictly on dedicated feature branches (e.g. `feature/asset-management`).
+   - Commits pushed to `feature/*` branches automatically trigger **Vercel Preview Deployments** (`AUTH_MODE=supabase`) for staging review and QA testing.
+   - **Zero Direct Feature Commits to `main`**: Unverified feature code MUST NEVER be committed or pushed directly to `main`.
+2. **Production Hotfixes & Live Maintenance**:
+   - Emergency production fixes/hotfixes for live issues are performed on dedicated hotfix branches or `main`.
+3. **Production Live Server Stage (Git + MCP Deployment)**:
+   - Once a feature is fully tested and verified on Vercel Preview (all phases complete), the feature branch is merged into `main` and pushed to `https://github.com/shantalifeins/sli-erp-system.git`.
    - Deployment on the live server (`10.16.49.78`) MUST ONLY occur via MCP server tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main`.
    - **No Direct SSH Mandate**: Direct SSH login, raw SSH execution, or storing remote passwords in codebase files is strictly forbidden.
    - **Live Database Isolation**: Runs native PostgreSQL (`AUTH_MODE=postgres`) in `sli_erp_db` inside `postgres_prod`. Supabase is NOT installed on the live server.
