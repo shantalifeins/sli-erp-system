@@ -6679,6 +6679,7 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
     app.use(express.static(distPath));
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) return next();
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

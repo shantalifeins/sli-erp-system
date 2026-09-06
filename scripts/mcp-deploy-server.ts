@@ -41,7 +41,7 @@ export function validateCommand(command: string): { allowed: boolean; reason?: s
  */
 export async function pullAndDeploy(host: string, user: string, branch: string = 'main', sshKeyPath?: string): Promise<string> {
   const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
-  const deployCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "cd /home/iamadmin/sli-erp && git fetch origin && git checkout ${branch} && git reset --hard origin/${branch} && docker build -t sli_erp_app_img . && docker restart sli_erp_app"`;
+  const deployCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "cd /home/iamadmin/sli-erp && git fetch origin && git checkout ${branch} && git reset --hard origin/${branch} && rm -rf dist && docker build --no-cache -t sli_erp_app_img . && docker restart sli_erp_app"`;
   
   const check = validateCommand(deployCmd);
   if (!check.allowed) throw new Error(check.reason);
