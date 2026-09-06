@@ -1,4 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
+import WebSocket from 'ws';
+if (typeof (globalThis as any).WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = WebSocket;
+}
 import { createClient } from '@supabase/supabase-js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';

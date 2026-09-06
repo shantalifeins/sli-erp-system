@@ -5,7 +5,10 @@ import { eq, and, asc } from 'drizzle-orm';
 import { evaluateWorkflowPath } from '../../../shared/lib/bpmnParser.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import WebSocket from 'ws';
+if (typeof (globalThis as any).WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = WebSocket;
+}
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseAdmin = createClient(
