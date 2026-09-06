@@ -4,10 +4,15 @@ import * as schema from './schema.js';
 
 const { Pool } = pg;
 
-const DEFAULT_DATABASE_URL = "postgresql://postgres.lyoozoeryooisqywbfyg:_m%40qU2757EsbdVD@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres";
+const DEFAULT_DATABASE_URL = "postgresql://postgres.lyoozoeryooisqywbfyg:_m%40qU2757EsbdVD@aws-1-ap-northeast-2.pooler.supabase.com:6543/postgres";
 
 export const getConnectionString = () => {
-  return process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
+  let url = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
+  // If connecting to pooler.supabase.com on Vercel/serverless, force port 6543 for transaction pooling mode
+  if (url.includes('pooler.supabase.com:5432')) {
+    url = url.replace('pooler.supabase.com:5432', 'pooler.supabase.com:6543');
+  }
+  return url;
 };
 
 export const createPool = () => {
@@ -20,9 +25,9 @@ export const createPool = () => {
   return new Pool({
     connectionString: dbUrl,
     ssl: isSslDisabled ? false : { rejectUnauthorized: false },
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 15000,
+    max: process.env.VERCEL ? 3 : 10,
+    idleTimeoutMillis: 5000,
+    connectionTimeoutMillis: 5000,
   });
 };
 
