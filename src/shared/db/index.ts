@@ -4,18 +4,25 @@ import * as schema from './schema.js';
 
 const { Pool } = pg;
 
-const isSslDisabled = process.env.DATABASE_URL?.includes('sslmode=disable') ||
-  process.env.DATABASE_URL?.includes('127.0.0.1') ||
-  process.env.DATABASE_URL?.includes('172.17.0.1') ||
-  process.env.DATABASE_URL?.includes('localhost');
+const DEFAULT_DATABASE_URL = "postgresql://postgres.lyoozoeryooisqywbfyg:_m%40qU2757EsbdVD@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres";
+
+export const getConnectionString = () => {
+  return process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
+};
 
 export const createPool = () => {
+  const dbUrl = getConnectionString();
+  const isSslDisabled = dbUrl.includes('sslmode=disable') ||
+    dbUrl.includes('127.0.0.1') ||
+    dbUrl.includes('172.17.0.1') ||
+    dbUrl.includes('localhost');
+
   return new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: isSslDisabled ? false : { rejectUnauthorized: false },
-    max: 20,
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 10000,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 15000,
   });
 };
 
