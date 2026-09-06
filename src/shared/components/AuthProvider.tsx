@@ -208,31 +208,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
-    // Check if we are using native PostgreSQL Auth mode or if Supabase fails
-    const authMode = (import.meta as any).env?.VITE_AUTH_MODE;
-    if (authMode === 'postgres') {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password: pass })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed');
-      }
-      localStorage.setItem('local_auth_token', data.token);
-      window.location.reload();
-      return;
-    }
-
+    // 1. Try direct backend auth first (faster and works even if Supabase DNS is down)
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password: pass,
-      });
-      if (error) throw error;
-    } catch (err: any) {
-      // Fallback to native backend login if Supabase auth fails or is unconfigured
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -244,7 +221,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         window.location.reload();
         return;
       }
-      throw err;
+      const data = await res.json().catch(() => ({}));
+      if (data.error && res.status !== 500) {
+        throw new Error(data.error);
+      }
+    } catch (err: any) {
+      if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('Internal server error')) {
+        throw err;
+      }
+    }
+
+    // 2. Fallback to Supabase Auth if backend endpoint is unavailable
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: pass,
+      });
+      if (error) throw error;
+    } catch (sbErr: any) {
+      if (sbErr.message === 'Failed to fetch' || sbErr.name === 'TypeError') {
+        throw new Error('Authentication server unreachable. Please verify network connection or contact system administrator.');
+      }
+      throw sbErr;
     }
   };
 
