@@ -77,7 +77,7 @@ interface ValuationData {
 export default function AssetReports() {
   const navigate = useNavigate();
   const { getToken } = useAuth();
-  const { currencySymbol } = useCurrency();
+  const currencySymbol = useCurrency();
 
   const [activeTab, setActiveTab] = useState<'register' | 'depreciation' | 'valuation'>('register');
   const [loading, setLoading] = useState<boolean>(false);

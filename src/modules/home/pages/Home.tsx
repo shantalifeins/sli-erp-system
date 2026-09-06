@@ -67,12 +67,13 @@ export default function Home() {
   ];
 
   // Mapping of top-level Home cards to their possible permissions (menus)
+  // Mapping of top-level Home cards to their possible permissions (menus)
   const moduleMenusMap: Record<string, string[]> = {
     'My Panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
     'System Configuration': ['Dashboard', 'Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup'],
     'Procurement': ['Dashboard', 'Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements'],
     'Inventory': ['Dashboard', 'Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup'],
-    'Asset Management': ['Dashboard', 'Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance']
+    'Asset Management': ['Dashboard', 'Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management']
   };
 
 
@@ -80,10 +81,12 @@ export default function Home() {
   const visibleModules = modules.filter(mod => {
     // 1. Check plugin availability
     let hasPlugin = false;
-    if (mod.pluginSlug === 'admin' || mod.pluginSlug === 'user-panel') {
-      hasPlugin = true; // Core modules always available
-    } else {
+    if (mod.pluginSlug === 'admin' || mod.pluginSlug === 'user-panel' || mod.pluginSlug === 'asset-management') {
+      hasPlugin = true; // Core & standard modules available by default
+    } else if (activePlugins && activePlugins.length > 0) {
       hasPlugin = activePlugins.some(p => p.slug === mod.pluginSlug);
+    } else {
+      hasPlugin = true; // Fallback when plugin list is loading
     }
     
     if (!hasPlugin) return false;

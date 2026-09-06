@@ -6522,6 +6522,143 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
     } catch (e) { res.status(500).json({ error: "Failed to fetch expiring items" }); }
   });
 
+  // --- PLUGINS API ENDPOINTS ---
+  app.get("/api/plugins/active", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+
+      // Auto-seed plugins table if missing
+      const allPlugins = await db.select().from(plugins);
+      const pluginSlugs = allPlugins.map(p => p.slug);
+      
+      const defaultPlugins = [
+        { slug: 'procurement', name: 'Procurement', description: 'Manage Item requisitions, orders, and vendors.' },
+        { slug: 'inventory', name: 'Inventory', description: 'Track stock, items, and warehouse management.' },
+        { slug: 'asset-management', name: 'Asset Management', description: 'Fixed asset register, depreciation, and lifecycle.' }
+      ];
+
+      for (const dp of defaultPlugins) {
+        if (!pluginSlugs.includes(dp.slug)) {
+          await db.insert(plugins).values({
+            slug: dp.slug,
+            name: dp.name,
+            description: dp.description,
+            isCore: false
+          }).onConflictDoNothing();
+        }
+      }
+
+      const updatedPlugins = await db.select().from(plugins);
+
+      if (!companyId) {
+        return res.json({ plugins: updatedPlugins });
+      }
+
+      const companyPlugins = await db.select({
+        id: plugins.id,
+        slug: plugins.slug,
+        name: plugins.name,
+        description: plugins.description,
+        status: company_plugins.status,
+        settings: company_plugins.settings
+      })
+      .from(company_plugins)
+      .innerJoin(plugins, eq(company_plugins.pluginId, plugins.id))
+      .where(and(
+        eq(company_plugins.companyId, companyId),
+        eq(company_plugins.status, 'active')
+      ));
+
+      if (companyPlugins.length === 0) {
+        for (const p of updatedPlugins) {
+          await db.insert(company_plugins).values({
+            companyId,
+            pluginId: p.id,
+            status: 'active',
+            settings: {}
+          }).onConflictDoNothing();
+        }
+        return res.json({ plugins: updatedPlugins });
+      }
+
+      // Ensure asset-management plugin is returned
+      const hasAssetPlugin = companyPlugins.some(cp => cp.slug === 'asset-management');
+      if (!hasAssetPlugin) {
+        const assetObj = updatedPlugins.find(p => p.slug === 'asset-management');
+        if (assetObj) {
+          await db.insert(company_plugins).values({
+            companyId,
+            pluginId: assetObj.id,
+            status: 'active',
+            settings: {}
+          }).onConflictDoNothing();
+          companyPlugins.push({
+            id: assetObj.id,
+            slug: assetObj.slug,
+            name: assetObj.name,
+            description: assetObj.description,
+            status: 'active',
+            settings: {}
+          });
+        }
+      }
+
+      res.json({ plugins: companyPlugins });
+    } catch (e: any) {
+      console.error("Failed to fetch active plugins:", e);
+      res.json({
+        plugins: [
+          { slug: 'procurement', name: 'Procurement' },
+          { slug: 'inventory', name: 'Inventory' },
+          { slug: 'asset-management', name: 'Asset Management' }
+        ]
+      });
+    }
+  });
+
+  app.get("/api/plugins/manage", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = (req.query.companyId as string) || (await resolveTenantId(req));
+      const allPlugins = await db.select().from(plugins);
+      if (!companyId) return res.json({ plugins: allPlugins });
+
+      const cPlugins = await db.select().from(company_plugins).where(eq(company_plugins.companyId, companyId));
+      const result = allPlugins.map(p => {
+        const cp = cPlugins.find(c => c.pluginId === p.id);
+        return {
+          ...p,
+          status: cp ? cp.status : 'active',
+          settings: cp ? cp.settings : {}
+        };
+      });
+      res.json({ plugins: result });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/plugins/manage/:id/toggle", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const pluginId = req.params.id;
+      const companyId = (req.query.companyId as string) || (await resolveTenantId(req));
+      const { status } = req.body;
+      if (!companyId) return res.status(400).json({ error: "Missing company context" });
+
+      await db.insert(company_plugins).values({
+        companyId,
+        pluginId,
+        status: status || 'active'
+      }).onConflictDoUpdate({
+        target: [company_plugins.companyId, company_plugins.pluginId],
+        set: { status: status || 'active' }
+      });
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ================================================================
   // END PHASE 1 ROUTES
   // ================================================================
