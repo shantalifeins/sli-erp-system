@@ -46,6 +46,8 @@ The sidebar navigation determines the active module using `path.startsWith()` an
 | **Administration** | `/admin/**` | System Settings (Companies, Workflows), User Settings (Depts, Units, Designations, Roles, Users, Org Chart) |
 | **Procurement** | `/procurement-dashboard`, `/purchase`, `/wo`, `/vendors`, `/rfq`, `/cs`, `/invoices`, `/procurement-report` | Dashboard, Purchase Requisitions, RFQ, Comparative Statement, Purchase Orders, Invoices & Payments, Reports |
 | **Inventory** | `/inventory-dashboard`, `/inventory`, `/grn`, `/qc`, `/stock-*`, `/requisition-list`, `/inventory-report` | Dashboard, Requisition List, Stock In, Stock Out, Stock Transfer, Transfer Receive, Goods Receipt (GRN), Inventory Reports, Inventory Settings |
+| **Asset Management** | `/assets-dashboard`, `/assets`, `/asset-*` | Dashboard, Assets Register, Asset Categories, Depreciation Schedule, Maintenance, Disposals |
+
 
 > [!IMPORTANT]
 > - **Inbox-Based Approvals**: All actionable decisions (Approve, Reject, Send Back) occur directly in **User Panel → Global Inbox** (`/inbox`). Public pages like `/requisition-list` remain read-only.
@@ -62,6 +64,8 @@ Located in `src/shared/db/schema.ts`:
 - **Workflow & Tasks**: `bpmn_definitions` (`documentType` + `companyId`), `document_approvals`, `pr_approvals`, `inbox_tasks` (`referenceType`, `referenceId`, `assignedToRole`, `assignedToUid`, `actionResult`).
 - **Inventory & Warehouse Stock**: `inventory_items` (`isAdminItem`, `isItItem`, `quantityInStock`, `basePrice`), `item_categories`, `warehouse_stock`, `warehouse_managers`, `global_stock_ledger`, `stock_transactions`, `stock_transfers`.
 - **Procurement (P2P)**: `purchase_requisitions`, `pr_items`, `vendors` (includes banking details), `rfqs`, `quotations`, `comparative_statements`, `cs_items`, `vendor_evaluations`, `purchase_orders`, `po_items`, `grn`, `grn_items`, `qc_inspections`, `invoices`, `payments`.
+- **Asset Management (Fixed Assets)**: `asset_categories`, `assets`, `asset_depreciation_schedule`, `asset_transfers`, `asset_maintenance`, `asset_disposals`.
+
 
 ---
 
@@ -156,7 +160,22 @@ Located in `src/shared/db/schema.ts`:
 
 ---
 
-## 🚀 11. Production Staging, Vercel & Live Server MCP Workflow
+## 🏛️ 12. Asset Management Module (Fixed Assets & Financial Lifecycle)
+
+- **Core Asset Register (`/assets`)**: Tracks fixed asset tags (`AST-YYYYMMDD-XXXX`), acquisition cost, salvage value, useful life in months, accumulated depreciation, net book value, branch, department, custodian, GL accounts, and serial numbers.
+- **Category Configuration (`/asset-categories`)**: Manages category depreciation default methods (Straight Line), useful life defaults, and GL account mappings (`assetGlAccount`, `deprGlAccount`, `accumDeprGlAccount`). Auto-seeds default category `CAT-GEN` (`General Fixed Assets`) if none exists during auto-creation.
+- **Procurement Auto-Conversion**: `POST /api/qc/inspection` automatically converts passed fixed assets (`isFixedAsset = true`) into `Draft` asset records with `sourceType: 'GRN'` and acquisition cost populated from PO unit price.
+- **Straight-Line Depreciation Engine (`depreciationEngine.ts`)**: Auto-calculates period depreciation `(Cost - Salvage) / Useful Life` with zero rounding drift adjustments applied to the final schedule period. `POST /api/assets/compute-depreciation` processes posted periods and updates book values.
+- **BPMN Asset Acquisition Workflow**: Dynamic BPMN workflow for `documentType: 'Asset Acquisition'`. Submitting an asset creates pending `inbox_tasks`. Upon final approval, asset is set to `Active` and depreciation schedule rows are generated.
+- **Asset Transfer & Custodian History**: `POST /api/assets/:id/transfer` initiates branch/custodian transfer. `GET /api/assets/:id/transfers` provides custodian transfer timeline history.
+- **Asset Maintenance Tracking (`/asset-maintenance`)**: Logs maintenance records (Preventive, Corrective, Warranty), links vendors, sets asset status to `UnderMaintenance` (preventing double open tasks), and restores status to `Active` upon completion.
+- **Disposal & Write-off Workflow (`/asset-disposal`)**: Manages sale, scrap, write-off, and donation workflows for `documentType: 'Asset Disposal'`. Auto-calculates `gainLoss = saleAmount - currentBookValue`, cancels future `Scheduled` depreciation rows upon approval, and updates asset status to `Disposed` or `Sold`.
+- **Asset Reports & Valuation (`/asset-reports`)**: Provides interactive reports for Asset Register, Depreciation Schedule Summary, and Valuation Summary with Category & Branch breakdowns and CSV data exports.
+- **Physical Verification Audit (`/asset-verification`)**: Manages QR/Barcode physical asset count sessions (`APV-YYYYMMDD-XXXX`), line-by-line condition audits (`Good`, `Damaged`, `NeedsRepair`, `Missing`), branch mismatch tracking (`Misplaced`), and automated missing status finalization.
+
+---
+
+## 🚀 13. Production Staging, Vercel & Live Server MCP Workflow
 
 ### Environment & Development Lifecycle
 1. **Feature Development & Staging (Vercel + Supabase)**:
@@ -170,3 +189,4 @@ Located in `src/shared/db/schema.ts`:
    - Deployment on the live server (`10.16.49.78`) MUST ONLY occur via MCP server tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main`.
    - **No Direct SSH Mandate**: Direct SSH login, raw SSH execution, or storing remote passwords in codebase files is strictly forbidden.
    - **Live Database Isolation**: Runs native PostgreSQL (`AUTH_MODE=postgres`) in `sli_erp_db` inside `postgres_prod`. Supabase is NOT installed on the live server.
+

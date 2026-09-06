@@ -159,8 +159,21 @@ export default function Admin() {
         { name: "Item Requisitions", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "My Profile", actions: ["canView", "canEdit"] }
       ]
+    },
+    {
+      module: "Asset Management",
+      menus: [
+        { name: "Dashboard", actions: ["canView"] },
+        { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Asset Maintenance", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Asset Disposal", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Asset Reports", actions: ["canView"] },
+        { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] }
+      ]
     }
   ];
+
 
   const handlePrintManual = () => {
     const printWindow = window.open('', '_blank');
@@ -1520,7 +1533,8 @@ export default function Admin() {
                       <td className="px-4 py-3 text-slate-500">
                         {['Item Requisition', 'Stock Out', 'Stock Transfer', 'GRN'].includes(w.documentType) ? 'Inventory' : 
                          ['Purchase Requisition', 'CS Evaluation', 'PO'].includes(w.documentType) ? 'Procurement' : 
-                         ['User Registration', 'Profile Data Change Request'].includes(w.documentType) ? 'User Panel' : 'Global'}
+                         ['User Registration', 'Profile Data Change Request'].includes(w.documentType) ? 'User Panel' : 
+                         ['Asset Acquisition', 'Asset Transfer', 'Asset Disposal'].includes(w.documentType) ? 'Asset Management' : 'Global'}
                       </td>
                       <td className="px-4 py-3 text-brand-charcoal">{w.documentType}</td>
                       <td className="px-4 py-3 text-[11px] text-slate-500 leading-relaxed">
@@ -1715,8 +1729,10 @@ export default function Admin() {
                     if (mod.module === "Procurement") return activePlugins.includes("procurement");
                     if (mod.module === "Inventory Management") return activePlugins.includes("inventory");
                     if (mod.module === "User Panel") return activePlugins.includes("user-panel");
+                    if (mod.module === "Asset Management") return activePlugins.includes("asset-management");
                     return true;
                   }).map(mod => (
+
                     <div key={mod.module} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
                       <div className="bg-slate-50 px-4 py-3 flex items-center border-b border-slate-100">
                         <label className="flex items-center gap-3 cursor-pointer select-none">

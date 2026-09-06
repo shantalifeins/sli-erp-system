@@ -203,35 +203,37 @@ export default function WorkflowDesigner() {
     return '';
   };
 
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500">Loading Workflow Canvas...</div>;
+  }
+
   return (
-    <div className="flex flex-col h-[calc(100vh-80px)] bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-      {/* Toolbar */}
-      <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex gap-4 items-center">
+    <div className="h-[calc(100vh-64px)] flex flex-col bg-slate-50">
+      {/* Top Header Bar */}
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between z-10 shadow-sm">
+        <div className="flex items-center gap-4">
           <button 
-            onClick={() => navigate('/admin?tab=workflows')}
-            className="flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors mr-2"
+            onClick={() => navigate('/admin/workflows')}
+            className="text-slate-500 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100 transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Back
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Workflow Name</label>
+          
+          <div className="flex items-center gap-3">
             <input 
-              type="text" 
-              className="border border-slate-200 rounded px-2 py-1.5 text-sm w-48 focus:border-brand-orange focus:ring-1 focus:ring-brand-orange outline-none"
+              type="text"
+              placeholder="Workflow Name (e.g., IT Asset Acquisition Approval)"
+              className="font-bold text-slate-800 border border-slate-200 rounded px-3 py-1.5 text-sm w-72 focus:border-brand-orange outline-none"
               value={name}
               onChange={e => setName(e.target.value)}
             />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Document Type</label>
+            
             <select 
-              className="border border-slate-200 rounded px-2 py-1.5 text-sm w-40 focus:border-brand-orange outline-none"
+              className="border border-slate-200 rounded px-2 py-1.5 text-sm w-48 focus:border-brand-orange outline-none"
               value={documentType}
               onChange={e => setDocumentType(e.target.value)}
             >
-              {['Item Requisition', 'Purchase Requisition', 'CS Evaluation', 'Stock Out', 'Stock Transfer', 'User Registration', 'Profile Data Change Request']
+              {['Item Requisition', 'Purchase Requisition', 'CS Evaluation', 'Stock Out', 'Stock Transfer', 'User Registration', 'Profile Data Change Request', 'Asset Acquisition', 'Asset Transfer', 'Asset Disposal']
                 .filter(opt => !existingDocTypes.includes(opt) || (workflowId && documentType === opt))
                 .map(opt => (
                   <option key={opt} value={opt}>{opt}</option>
@@ -251,8 +253,10 @@ export default function WorkflowDesigner() {
               {documentType === 'CS Evaluation' && "Triggered for vendor selection. You can use gateways to route based on total amount."}
               {documentType === 'Stock Out' && "Triggered when items are issued. Ensures final approval before stock deduction."}
               {documentType === 'Stock Transfer' && "Triggered when transferring items between warehouses. Requires approval before stock is moved."}
-              {documentType === 'User Registration' && "Triggered when a new user registers via SSO. Use this to design the onboarding approval chain."}
-              {!['Item Requisition', 'Purchase Requisition', 'CS Evaluation', 'Stock Out', 'Stock Transfer', 'User Registration'].includes(documentType) && "Use 'User Task' and set ID to role name"}
+              {documentType === 'Asset Acquisition' && "Triggered when a new asset is submitted for acquisition approval."}
+              {documentType === 'Asset Transfer' && "Triggered when an asset transfer request is initiated between custodians or branches."}
+              {documentType === 'Asset Disposal' && "Triggered when an asset disposal or write-off request is submitted."}
+              {!['Item Requisition', 'Purchase Requisition', 'CS Evaluation', 'Stock Out', 'Stock Transfer', 'User Registration', 'Profile Data Change Request', 'Asset Acquisition', 'Asset Transfer', 'Asset Disposal'].includes(documentType) && "Use 'User Task' and set ID to role name"}
             </span>
           </div>
           <button 

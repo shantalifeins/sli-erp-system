@@ -53,6 +53,16 @@ export default function Home() {
       bgColor: 'bg-[#F4F4EB]',
       decoratorColor: 'bg-[#F4F4EB]',
       pluginSlug: 'inventory'
+    },
+    {
+      title: 'Asset Management',
+      description: 'Fixed asset register, depreciation, and lifecycle.',
+      icon: Box,
+      path: '/assets-dashboard',
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50',
+      decoratorColor: 'bg-purple-100',
+      pluginSlug: 'asset-management'
     }
   ];
 
@@ -61,8 +71,10 @@ export default function Home() {
     'My Panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
     'System Configuration': ['Dashboard', 'Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup'],
     'Procurement': ['Dashboard', 'Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements'],
-    'Inventory': ['Dashboard', 'Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup']
+    'Inventory': ['Dashboard', 'Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup'],
+    'Asset Management': ['Dashboard', 'Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance']
   };
+
 
   // Filter modules based on active plugins AND user permissions
   const visibleModules = modules.filter(mod => {

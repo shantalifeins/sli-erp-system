@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode } from 'lucide-react';
+
 import { cn } from '@/src/shared/lib/utils';
 import { useLayoutControl } from '@/src/shared/contexts/LayoutContext';
 
@@ -122,10 +123,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   } else if (path === '/inventory-dashboard' || path === '/requisition-list' || path.startsWith('/requisition-report') || path.startsWith('/inventory') || path.startsWith('/grn') || path.startsWith('/qc') || path.startsWith('/stock') || path.startsWith('/vendors') || path.startsWith('/transfer-receive') || path.startsWith('/rejected-items') || path.startsWith('/stock-reconciliation')) {
     activeModule = 'inventory';
     activeModuleName = 'Inventory Management';
+  } else if (path === '/assets-dashboard' || path.startsWith('/assets') || path.startsWith('/asset-')) {
+    activeModule = 'asset-management';
+    activeModuleName = 'Asset Management';
   } else if (path.startsWith('/admin')) {
     activeModule = 'admin';
     activeModuleName = 'System Configuration';
   }
+
 
   // Define menus for each module
   const procurementMenus = [
@@ -214,12 +219,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'My Profile', href: '/profile', icon: UserIcon, show: isSuperAdmin || getPermission('My Profile')?.canView !== false }, // Allow by default unless explicitly denied
   ].filter(nav => nav.show !== false);
 
+  const assetMenus = [
+    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Dashboard')?.canView },
+    { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
+    { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
+    { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },
+    { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: isSuperAdmin || getPermission('Asset Disposal')?.canView },
+    { name: 'Asset Reports', href: '/asset-reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Asset Reports')?.canView },
+    { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: isSuperAdmin || getPermission('Physical Audit')?.canView },
+  ].filter(nav => nav.show !== false);
+
   // Determine which menu to show
   let currentMenus: any[] = [];
   if (activeModule === 'procurement') currentMenus = procurementMenus;
   else if (activeModule === 'inventory') currentMenus = inventoryMenus;
   else if (activeModule === 'admin') currentMenus = adminMenus;
   else if (activeModule === 'user-panel') currentMenus = userPanelMenus;
+  else if (activeModule === 'asset-management') currentMenus = assetMenus;
+
 
   return (
     <div className="flex h-screen w-full bg-brand-seashell font-sans text-brand-charcoal overflow-hidden">

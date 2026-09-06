@@ -12,6 +12,8 @@ import { vendors, inventory_items, notifications, notification_settings, smtp_se
 import { plugins, companies, company_plugins, units, branches, warehouses, warehouse_managers, vendor_evaluations, stock_transfers, stock_transfer_items, profile_change_requests, work_orders } from './src/shared/db/schema.js';
 // Phase 1 new table imports
 import { stock_reservations, physical_stock_counts, physical_count_details, stock_adjustments, vendor_quality_metrics, stock_consumption_history, rejected_item_dispositions } from './src/shared/db/schema.js';
+import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals } from './src/shared/db/schema.js';
+
 import { eq, desc, and, ne, isNull, or, sql, inArray, like, ilike, getTableColumns } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { getUser } from './src/shared/db/users.js';
@@ -21,6 +23,9 @@ import inventoryReportsRouter from './src/modules/inventory/api/reports.js';
 import procurementReportsRouter from './src/modules/procurement/api/reports.js';
 import ssoRouter from './src/modules/auth/api/sso.js';
 import profileChangeRouter from './src/modules/userPanel/api/profileChange.js';
+import assetsRouter from './src/modules/assets/api/routes.js';
+import assetReportsRouter from './src/modules/assets/api/reports.js';
+
 import { evaluateWorkflowPath } from './src/shared/lib/bpmnParser.js';
 import { hashPassword, verifyPassword, generateAuthToken } from './src/shared/lib/authUtils.js';
 
@@ -185,6 +190,46 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { module: string, ti
     mailSubjectTemplate: "Stock Transfer Approval Required: {{reference}}",
     mailBodyTemplate: "Dear Approver,\n\nA Stock Transfer request {{reference}} has been initiated between warehouses and requires your approval.\n\nPlease log in to the ERP System and check your Global Tasks Inbox to action this transfer.\n\nBest Regards,\nSLI ERP System"
 ,    recipient: "General"
+  },
+  "Asset Acquisition Approval Required": { 
+    module: "Asset Management", 
+    titleTemplate: "Asset Acquisition Approval Required", 
+    bodyTemplate: "Asset {{reference}} requires your approval.",
+    mailSubjectTemplate: "Asset Acquisition Approval Required: {{reference}}",
+    mailBodyTemplate: "Dear Approver,\n\nA new asset acquisition request {{reference}} has been submitted and requires your approval.\n\nPlease log in to the ERP System and check your Global Tasks Inbox to take action.\n\nBest Regards,\nSLI ERP System"
+,    recipient: "Approver"
+  },
+  "Asset Approved": { 
+    module: "Asset Management", 
+    titleTemplate: "Asset Approved", 
+    bodyTemplate: "Asset {{reference}} has been approved and activated.",
+    mailSubjectTemplate: "Asset Approved: {{reference}}",
+    mailBodyTemplate: "Dear User,\n\nYour Asset Acquisition {{reference}} has been approved and activated in the Asset Register.\n\nBest Regards,\nSLI ERP System"
+,    recipient: "Requester"
+  },
+  "Asset Rejected": { 
+    module: "Asset Management", 
+    titleTemplate: "Asset Rejected", 
+    bodyTemplate: "Asset {{reference}} acquisition request has been rejected.",
+    mailSubjectTemplate: "Asset Rejected: {{reference}}",
+    mailBodyTemplate: "Dear User,\n\nYour Asset Acquisition request {{reference}} has been rejected.\n\nBest Regards,\nSLI ERP System"
+,    recipient: "Requester"
+  },
+  "Asset Transfer Approval Required": { 
+    module: "Asset Management", 
+    titleTemplate: "Asset Transfer Approval Required", 
+    bodyTemplate: "Asset Transfer {{reference}} requires your approval.",
+    mailSubjectTemplate: "Asset Transfer Approval Required: {{reference}}",
+    mailBodyTemplate: "Dear Approver,\n\nAn asset transfer request {{reference}} requires your approval.\n\nBest Regards,\nSLI ERP System"
+,    recipient: "Approver"
+  },
+  "Asset Disposal Approval Required": { 
+    module: "Asset Management", 
+    titleTemplate: "Asset Disposal Approval Required", 
+    bodyTemplate: "Asset Disposal {{reference}} requires your approval.",
+    mailSubjectTemplate: "Asset Disposal Approval Required: {{reference}}",
+    mailBodyTemplate: "Dear Approver,\n\nAn asset disposal request {{reference}} requires your approval.\n\nBest Regards,\nSLI ERP System"
+,    recipient: "Approver"
   },
 };
 
@@ -767,7 +812,10 @@ async function startServer() {
 
 // Mount User Panel routes (protected by auth and plugin check)
 app.use('/api/user-panel', requireAuth, checkPlugin('user-panel'), userPanelRoutes);
+app.use('/api/assets/reports', requireAuth, checkPlugin('asset-management'), assetReportsRouter);
+app.use('/api/assets', requireAuth, checkPlugin('asset-management'), assetsRouter);
 app.use('/api/inventory-reports', requireAuth, inventoryReportsRouter);
+
 app.use('/api/procurement-reports', requireAuth, procurementReportsRouter);
 app.use('/api/auth/sso', ssoRouter);
 app.use('/api/profile/change-request', profileChangeRouter);
@@ -3961,6 +4009,63 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         }
       }
 
+      // Auto-create Asset from GRN if item is a Fixed Asset
+      if (newlyPassed > 0 && companyId) {
+        try {
+          const poItemData = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
+          if (poItemData.length > 0) {
+            const invItem = await db.select().from(inventory_items).where(
+              and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, poItemData[0].itemName.trim()))
+            ).limit(1);
+
+            const isFixed = invItem.length > 0 && (invItem[0].isFixedAsset || (invItem[0] as any).category === 'Fixed Asset');
+            if (isFixed) {
+              const existingAsset = await db.select().from(assets).where(
+                and(eq(assets.sourceGrnId, grnId), eq(assets.companyId, companyId), eq(assets.name, poItemData[0].itemName))
+              ).limit(1);
+
+              if (existingAsset.length === 0) {
+                const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
+                const assetCount = await db.select({ count: sql`count(*)` }).from(assets).where(eq(assets.companyId, companyId));
+                const seq = String(Number(assetCount[0].count) + 1).padStart(4, '0');
+
+                let categoryId: string;
+                const existingCategories = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
+                if (existingCategories.length > 0) {
+                  categoryId = existingCategories[0].id;
+                } else {
+                  const [newDefaultCat] = await db.insert(asset_categories).values({
+                    companyId,
+                    name: 'General Fixed Assets',
+                    code: 'CAT-GEN',
+                    defaultDepreciationMethod: 'Straight Line',
+                    defaultUsefulLifeMonths: 36,
+                    status: 'Active'
+                  }).returning();
+                  categoryId = newDefaultCat.id;
+                }
+
+                await db.insert(assets).values({
+                  companyId,
+                  assetCode: `AST-${dateStr}-${seq}`,
+                  name: poItemData[0].itemName,
+                  categoryId,
+                  sourceType: 'GRN',
+                  sourceGrnId: grnId,
+                  acquisitionDate: new Date(),
+                  acquisitionCost: String(poItemData[0].unitPrice || '0.00'),
+                  currentBookValue: String(poItemData[0].unitPrice || '0.00'),
+                  status: 'Draft',
+                  createdByUid: req.user!.uid,
+                });
+              }
+            }
+          }
+        } catch (assetErr) {
+          console.warn('Auto-asset creation from GRN failed (non-fatal):', assetErr);
+        }
+      }
+
       // Update parent GRN status if all items completed
       const allGrnItems = await db.select().from(grn_items).where(eq(grn_items.grnId, grnId));
       const pendingQcItems = allGrnItems.filter(i => i.status === 'Pending QC');
@@ -6383,7 +6488,7 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
   // ================================================================
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL && !process.env.VITEST && process.env.NODE_ENV !== "test") {
     // Hide the import from Vercel's bundler to prevent it from bundling Vite and crashing on Invalid URL
     const viteModule = await new Function("return import('vite')")();
     const createViteServer = viteModule.createServer;
@@ -6407,13 +6512,15 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
     res.send("Nuked");
   });
 
-  if (!process.env.VERCEL) {
+  if (!process.env.VERCEL && !process.env.VITEST && process.env.NODE_ENV !== "test") {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
   }
 }
 
-startServer();
+if (!process.env.VITEST && process.env.NODE_ENV !== "test") {
+  startServer();
+}
 
 export default app;

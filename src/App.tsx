@@ -39,6 +39,14 @@ import Home from '@/src/modules/home/pages/Home';
 import UserPanelTasks from '@/src/modules/userPanel/pages/Tasks';
 import Profile from '@/src/modules/userPanel/pages/Profile';
 import UserDashboard from '@/src/modules/userPanel/pages/UserDashboard';
+
+import AssetDashboard from '@/src/modules/assets/pages/AssetDashboard';
+import Assets from '@/src/modules/assets/pages/Assets';
+import AssetCategories from '@/src/modules/assets/pages/AssetCategories';
+import AssetMaintenance from '@/src/modules/assets/pages/AssetMaintenance';
+import AssetDisposal from '@/src/modules/assets/pages/AssetDisposal';
+import AssetReports from '@/src/modules/assets/pages/AssetReports';
+import AssetVerification from '@/src/modules/assets/pages/AssetVerification';
 import PwaInstallPrompt from '@/src/shared/components/PwaInstallPrompt';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -76,6 +84,20 @@ export default function App() {
             <Route path="/vendors" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Vendors /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/procurement-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><ProcurementReport /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/invoices-payments" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><InvoicesPayments /></PluginProtectedRoute></PrivateRoute>} />
+
+            {/* User Panel Routes */}
+            <Route path="/user-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="user-panel"><UserDashboard /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/my-tasks" element={<PrivateRoute><PluginProtectedRoute pluginSlug="user-panel"><UserPanelTasks /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+
+            {/* Asset Management Routes */}
+            <Route path="/assets-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDashboard /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Assets /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetCategories /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-maintenance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetMaintenance /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-disposal" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDisposal /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetReports /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-verification" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetVerification /></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Inventory Routes */}
             <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryDashboard /></PluginProtectedRoute></PrivateRoute>} />

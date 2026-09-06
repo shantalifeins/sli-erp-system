@@ -791,6 +791,7 @@ export const vendor_quality_metrics = pgTable('vendor_quality_metrics', {
   vendorMonthUnq: uniqueIndex('vendor_month_unq_idx').on(table.vendorId, table.evaluationMonth),
 }));
 
+
 // Stock Consumption History (For demand forecasting and reorder calculation)
 export const stock_consumption_history = pgTable('stock_consumption_history', {
   id: serial('id').primaryKey(),
@@ -802,4 +803,138 @@ export const stock_consumption_history = pgTable('stock_consumption_history', {
   referenceId: text('reference_id'), // Stock-out request ID or number
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// --- Asset Management Domain Tables ---
+
+export const asset_categories = pgTable('asset_categories', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  code: text('code').notNull(),
+  defaultDepreciationMethod: text('default_depreciation_method').default('Straight Line').notNull(),
+  defaultUsefulLifeMonths: integer('default_useful_life_months').default(36).notNull(),
+  defaultSalvagePercent: numeric('default_salvage_percent').default('0.00'),
+  fixedAssetAccount: text('fixed_asset_account'),
+  depreciationAccount: text('depreciation_account'),
+  expenseAccount: text('expense_account'),
+  status: text('status').default('Active').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const assets = pgTable('assets', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  assetCode: text('asset_code').notNull().unique(),
+  name: text('name').notNull(),
+  categoryId: uuid('category_id').references(() => asset_categories.id).notNull(),
+  branchId: integer('branch_id').references(() => branches.id),
+  warehouseId: integer('warehouse_id').references(() => warehouses.id),
+  custodianUid: text('custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  departmentId: integer('department_id').references(() => departments.id),
+  acquisitionDate: timestamp('acquisition_date').notNull(),
+  acquisitionCost: numeric('acquisition_cost').notNull(),
+  salvageValue: numeric('salvage_value').default('0.00').notNull(),
+  depreciationMethod: text('depreciation_method').default('Straight Line').notNull(),
+  usefulLifeMonths: integer('useful_life_months').default(36).notNull(),
+  depreciationStartDate: timestamp('depreciation_start_date'),
+  accumulatedDepreciation: numeric('accumulated_depreciation').default('0.00').notNull(),
+  currentBookValue: numeric('current_book_value').notNull(),
+  status: text('status').default('Draft').notNull(), // Draft, PendingApproval, Active, UnderMaintenance, Disposed, Sold
+  sourceType: text('source_type').default('Manual').notNull(), // Manual, GRN
+  sourceGrnId: integer('source_grn_id').references(() => grn.id),
+  serialNumber: text('serial_number'),
+  qrCode: text('qr_code'),
+  createdByUid: text('created_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const asset_depreciation_schedule = pgTable('asset_depreciation_schedule', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+  periodNumber: integer('period_number').notNull(),
+  periodDate: timestamp('period_date').notNull(),
+  depreciationAmount: numeric('depreciation_amount').notNull(),
+  accumulatedDepreciation: numeric('accumulated_depreciation').notNull(),
+  bookValueAfter: numeric('book_value_after').notNull(),
+  status: text('status').default('Scheduled').notNull(), // Scheduled, Posted, Cancelled
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const asset_transfers = pgTable('asset_transfers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+  fromBranchId: integer('from_branch_id').references(() => branches.id),
+  fromCustodianUid: text('from_custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  toBranchId: integer('to_branch_id').references(() => branches.id),
+  toCustodianUid: text('to_custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  reason: text('reason').notNull(),
+  status: text('status').default('Pending').notNull(), // Pending, Approved, Rejected, Completed
+  requestedBy: text('requested_by').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const asset_maintenance = pgTable('asset_maintenance', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+  maintenanceType: text('maintenance_type').notNull(), // Preventive, Corrective, Warranty
+  vendorId: integer('vendor_id').references(() => vendors.id),
+  cost: numeric('cost').default('0.00').notNull(),
+  scheduledDate: timestamp('scheduled_date').notNull(),
+  completedDate: timestamp('completed_date'),
+  nextDueDate: timestamp('next_due_date'),
+  notes: text('notes'),
+  status: text('status').default('Scheduled').notNull(), // Scheduled, InProgress, Completed, Cancelled
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const asset_disposals = pgTable('asset_disposals', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+  disposalType: text('disposal_type').notNull(), // Sale, Scrap, WriteOff, Donation
+  disposalDate: timestamp('disposal_date').notNull(),
+  saleAmount: numeric('sale_amount').default('0.00').notNull(),
+  bookValueAtDisposal: numeric('book_value_at_disposal').notNull(),
+  gainLoss: numeric('gain_loss').notNull(),
+  approvedByUid: text('approved_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  status: text('status').default('Pending').notNull(), // Pending, Approved, Completed, Rejected
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const asset_physical_verifications = pgTable('asset_physical_verifications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  verificationCode: text('verification_code').notNull().unique(), // Auto: APV-YYYYMMDD-XXXX
+  branchId: integer('branch_id').references(() => branches.id),
+  status: text('status').default('In-Progress').notNull(), // In-Progress, Completed, Cancelled
+  verificationDate: timestamp('verification_date').defaultNow().notNull(),
+  verifiedByUid: text('verified_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  totalAssetsCounted: integer('total_assets_counted').default(0),
+  totalMissing: integer('total_missing').default(0),
+  totalMisplaced: integer('total_misplaced').default(0),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const asset_verification_details = pgTable('asset_verification_details', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  verificationId: uuid('verification_id').references(() => asset_physical_verifications.id, { onDelete: 'cascade' }).notNull(),
+  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }).notNull(),
+  expectedBranchId: integer('expected_branch_id').references(() => branches.id),
+  foundBranchId: integer('found_branch_id').references(() => branches.id),
+  expectedCustodianUid: text('expected_custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  foundCustodianUid: text('found_custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  condition: text('condition').default('Good').notNull(), // Good, Damaged, NeedsRepair, Missing
+  verificationStatus: text('verification_status').default('Unverified').notNull(), // Verified, Misplaced, Missing, Unverified
+  scannedAt: timestamp('scanned_at'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+
 
