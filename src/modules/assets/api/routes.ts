@@ -1015,17 +1015,17 @@ router.post('/:id/submit', requireAuth, checkPlugin('asset-management'), async (
       .values({
         companyId,
         documentType: 'Asset Acquisition',
-        referenceId: id,
-        currentStep: 1,
-        status: 'Pending',
-        assignedToRole: targetRole
+        documentId: 0,
+        stepOrder: 1,
+        roleRequired: targetRole,
+        status: 'Pending'
       })
       .returning();
 
     await db.insert(inbox_tasks).values({
       companyId,
+      category: 'Asset Management',
       referenceType: 'Asset Acquisition',
-      referenceId: id,
       title: `Asset Acquisition Approval: ${assetRecord.name} (${assetRecord.assetCode})`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -1080,8 +1080,7 @@ router.post('/:id/approve', requireAuth, checkPlugin('asset-management'), async 
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Acquisition'),
-          eq(inbox_tasks.referenceId, id)
+          eq(inbox_tasks.referenceType, 'Asset Acquisition')
         )
       );
 
@@ -1092,8 +1091,7 @@ router.post('/:id/approve', requireAuth, checkPlugin('asset-management'), async 
       .where(
         and(
           eq(document_approvals.companyId, companyId),
-          eq(document_approvals.documentType, 'Asset Acquisition'),
-          eq(document_approvals.referenceId, id)
+          eq(document_approvals.documentType, 'Asset Acquisition')
         )
       );
 
@@ -1169,8 +1167,7 @@ router.post('/:id/reject', requireAuth, checkPlugin('asset-management'), async (
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Acquisition'),
-          eq(inbox_tasks.referenceId, id)
+          eq(inbox_tasks.referenceType, 'Asset Acquisition')
         )
       );
 
@@ -1181,8 +1178,7 @@ router.post('/:id/reject', requireAuth, checkPlugin('asset-management'), async (
       .where(
         and(
           eq(document_approvals.companyId, companyId),
-          eq(document_approvals.documentType, 'Asset Acquisition'),
-          eq(document_approvals.referenceId, id)
+          eq(document_approvals.documentType, 'Asset Acquisition')
         )
       );
 
@@ -1276,16 +1272,16 @@ router.post('/:id/transfer', requireAuth, checkPlugin('asset-management'), async
     await db.insert(document_approvals).values({
       companyId,
       documentType: 'Asset Transfer',
-      referenceId: transferRecord.id,
-      currentStep: 1,
-      status: 'Pending',
-      assignedToRole: targetRole
+      documentId: 0,
+      stepOrder: 1,
+      roleRequired: targetRole,
+      status: 'Pending'
     });
 
     await db.insert(inbox_tasks).values({
       companyId,
+      category: 'Asset Management',
       referenceType: 'Asset Transfer',
-      referenceId: transferRecord.id,
       title: `Asset Transfer Request: ${existingAsset.name} (${existingAsset.assetCode})`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -1332,8 +1328,7 @@ router.post('/transfers/:transferId/approve', requireAuth, checkPlugin('asset-ma
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Transfer'),
-          eq(inbox_tasks.referenceId, transferId)
+          eq(inbox_tasks.referenceType, 'Asset Transfer')
         )
       );
 
@@ -1391,8 +1386,7 @@ router.post('/transfers/:transferId/reject', requireAuth, checkPlugin('asset-man
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Transfer'),
-          eq(inbox_tasks.referenceId, transferId)
+          eq(inbox_tasks.referenceType, 'Asset Transfer')
         )
       );
 
