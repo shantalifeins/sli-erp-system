@@ -159,7 +159,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
           setDbUser(data.user);
         } else {
-          console.error('Failed to sync user with backend', response.statusText);
           if (response.status === 401 || response.status === 403) {
             localStorage.removeItem('local_auth_token');
             setUser(null);
@@ -167,9 +166,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setCompany(null);
             setPermissions([]);
             setActivePlugins([]);
-            await supabase.auth.signOut();
+            try { await supabase.auth.signOut(); } catch (e) {}
             setAvailableCompanies([]);
             setIsGlobalSuperAdmin(false);
+          } else {
+            console.warn('Backend sync response:', response.status, response.statusText);
           }
         }
       } catch (e: any) {
