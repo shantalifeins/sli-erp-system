@@ -1035,8 +1035,9 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         permissions = await db.select().from(role_permissions).where(eq(role_permissions.role, user.role || 'Requester'));
       } catch (e) {}
       
-      let company = null;
-      let availableCompanies: any[] = [];
+      const defaultComp = { id: 'default-company-uuid', name: 'SLI ERP HQ', slug: 'sli-erp-hq' };
+      let company: any = defaultComp;
+      let availableCompanies: any[] = [defaultComp];
 
       if (user.companyId) {
         try {
@@ -1046,17 +1047,12 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       } else if (user.role === 'Super Admin') {
         // Global Super Admin
         try {
-          availableCompanies = await db.select().from(companies);
+          const comps = await db.select().from(companies);
+          if (comps.length > 0) {
+            availableCompanies = comps;
+            company = comps[0];
+          }
         } catch (e) {}
-
-        // Ensure at least one company exists
-        if (availableCompanies.length === 0) {
-          const defaultComp = { id: 'default-company-uuid', name: 'SLI ERP HQ', slug: 'sli-erp-hq' };
-          availableCompanies = [defaultComp];
-          company = defaultComp;
-        } else {
-          company = availableCompanies[0];
-        }
       }
 
       res.json({ user, company, permissions, availableCompanies });
@@ -4886,8 +4882,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const settingsMap = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
       res.json(settingsMap);
     } catch (error: any) {
-      console.error("Error fetching settings:", error);
-      res.status(500).json({ error: "Failed to fetch settings" });
+      console.warn("Error fetching settings (returning fallback):", error?.message);
+      res.json({});
     }
   });
 
@@ -4900,8 +4896,9 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
       res.json(settingsMap);
     } catch (error: any) {
-      console.error("Error fetching global settings:", error);
-      res.status(500).json({ error: "Failed to fetch global settings" });
+      console.warn("Error fetching global settings (returning fallback):", error?.message);
+      res.setHeader('Cache-Control', 'no-cache');
+      res.json({});
     }
   });
 
