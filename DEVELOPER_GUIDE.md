@@ -46,7 +46,7 @@ The sidebar navigation determines the active module using `path.startsWith()` an
 | **Administration** | `/admin/**` | System Settings (Companies, Workflows), User Settings (Depts, Units, Designations, Roles, Users, Org Chart) |
 | **Procurement** | `/procurement-dashboard`, `/purchase`, `/wo`, `/vendors`, `/rfq`, `/cs`, `/invoices`, `/procurement-report` | Dashboard, Purchase Requisitions, RFQ, Comparative Statement, Purchase Orders, Invoices & Payments, Reports |
 | **Inventory** | `/inventory-dashboard`, `/inventory`, `/grn`, `/qc`, `/stock-*`, `/requisition-list`, `/inventory-report` | Dashboard, Requisition List, Stock In, Stock Out, Stock Transfer, Transfer Receive, Goods Receipt (GRN), Inventory Reports, Inventory Settings |
-| **Asset Management** | `/assets-dashboard`, `/assets`, `/asset-*` | Dashboard, Assets Register, Asset Categories, Depreciation Schedule, Maintenance, Disposals |
+| **Asset Management** | `/assets-dashboard`, `/assets`, `/asset-*` | Dashboard, Assets Register, Asset Categories, Depreciation Schedule, Maintenance, Disposals, Physical Audit & Verification, Financial Reports |
 
 
 > [!IMPORTANT]
@@ -64,7 +64,7 @@ Located in `src/shared/db/schema.ts`:
 - **Workflow & Tasks**: `bpmn_definitions` (`documentType` + `companyId`), `document_approvals`, `pr_approvals`, `inbox_tasks` (`referenceType`, `referenceId`, `assignedToRole`, `assignedToUid`, `actionResult`).
 - **Inventory & Warehouse Stock**: `inventory_items` (`isAdminItem`, `isItItem`, `quantityInStock`, `basePrice`), `item_categories`, `warehouse_stock`, `warehouse_managers`, `global_stock_ledger`, `stock_transactions`, `stock_transfers`.
 - **Procurement (P2P)**: `purchase_requisitions`, `pr_items`, `vendors` (includes banking details), `rfqs`, `quotations`, `comparative_statements`, `cs_items`, `vendor_evaluations`, `purchase_orders`, `po_items`, `grn`, `grn_items`, `qc_inspections`, `invoices`, `payments`.
-- **Asset Management (Fixed Assets)**: `asset_categories`, `assets`, `asset_depreciation_schedule`, `asset_transfers`, `asset_maintenance`, `asset_disposals`.
+- **Asset Management (Fixed Assets)**: `asset_categories`, `assets`, `asset_depreciation_schedule`, `asset_transfers`, `asset_maintenance`, `asset_disposals`, `asset_physical_verifications`, `asset_verification_details`.
 
 
 ---
