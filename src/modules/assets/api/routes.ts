@@ -1700,16 +1700,16 @@ router.post('/:id/disposal', requireAuth, checkPlugin('asset-management'), async
     await db.insert(document_approvals).values({
       companyId,
       documentType: 'Asset Disposal',
-      referenceId: disposalRecord.id,
-      currentStep: 1,
-      status: 'Pending',
-      assignedToRole: targetRole
+      documentId: 0,
+      stepOrder: 1,
+      roleRequired: targetRole,
+      status: 'Pending'
     });
 
     await db.insert(inbox_tasks).values({
       companyId,
+      category: 'Asset Management',
       referenceType: 'Asset Disposal',
-      referenceId: disposalRecord.id,
       title: `Asset Disposal Request: ${existingAsset.name} (${existingAsset.assetCode}) - ${disposalType}`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -1756,8 +1756,7 @@ router.post('/disposals/:disposalId/approve', requireAuth, checkPlugin('asset-ma
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Disposal'),
-          eq(inbox_tasks.referenceId, disposalId)
+          eq(inbox_tasks.referenceType, 'Asset Disposal')
         )
       );
 
@@ -1830,8 +1829,7 @@ router.post('/disposals/:disposalId/reject', requireAuth, checkPlugin('asset-man
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Disposal'),
-          eq(inbox_tasks.referenceId, disposalId)
+          eq(inbox_tasks.referenceType, 'Asset Disposal')
         )
       );
 
