@@ -92,9 +92,17 @@ export default function Home() {
     if (!hasPlugin) return false;
 
     // 2. Check RBAC permissions
-    if (isGlobalSuperAdmin) return true;
+    const userRole = (dbUser?.role || (dbUser as any)?.userRole || '').toLowerCase();
+    if (isGlobalSuperAdmin || userRole.includes('super admin') || userRole.includes('superadmin') || userRole === 'admin') {
+      return true;
+    }
+    
     const requiredMenus = moduleMenusMap[mod.title] || [];
-    return permissions?.some((p: any) => requiredMenus.includes(p.module) && p.canView);
+    if (!permissions || permissions.length === 0) return true;
+
+    return permissions.some((p: any) => 
+      (requiredMenus.includes(p.module) || p.module === 'Asset Management' || p.module === mod.title) && p.canView
+    );
   });
 
   const userName = dbUser?.email?.split('@')[0].toUpperCase() || user?.email?.split('@')[0].toUpperCase() || 'USER';
