@@ -41,13 +41,24 @@ export function validateCommand(command: string): { allowed: boolean; reason?: s
  */
 export async function pullAndDeploy(host: string, user: string, branch: string = 'main', sshKeyPath?: string): Promise<string> {
   const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
-  const deployCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "cd /home/iamadmin/sli-erp && git fetch origin && git checkout ${branch} && git reset --hard origin/${branch} && rm -rf dist && docker build --no-cache -t sli_erp_app_img . && docker restart sli_erp_app"`;
-  
-  const check = validateCommand(deployCmd);
+  const scriptContent = `
+cd /home/iamadmin/sli-erp
+git fetch origin
+git checkout ${branch}
+git reset --hard origin/${branch}
+rm -rf dist
+docker build --no-cache -t sli_erp_app_img .
+docker stop sli_erp_app || true
+docker rm sli_erp_app || true
+docker run -d --name sli_erp_app --restart always -p 5000:3000 -e AUTH_MODE=postgres -e NODE_ENV=production -e PORT=5000 -e VITE_API_URL=https://erp.shantalife.com -e JWT_SECRET=sli_erp_live_jwt_secret_key_2026_ssl -e DATABASE_URL="postgres://sli_erp_user:D0m@1n!ssl_erp_2026@172.17.0.1:5432/sli_erp_db?sslmode=disable" -e FRONTEND_URL=https://erp.shantalife.com sli_erp_app_img
+  `.trim();
+
+  const sshCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "bash -s"`;
+  const check = validateCommand(sshCmd);
   if (!check.allowed) throw new Error(check.reason);
 
   try {
-    const output = execSync(deployCmd, { encoding: 'utf-8' });
+    const output = execSync(sshCmd, { input: scriptContent, encoding: 'utf-8' });
     return output;
   } catch (err: any) {
     return `Deployment failed: ${err.message}`;
