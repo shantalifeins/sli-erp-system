@@ -3,7 +3,7 @@ import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions } from '../../../shared/db/schema.js';
+import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count } from 'drizzle-orm';
@@ -685,6 +685,96 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
         createdByUid: req.user?.uid || null
       })
       .returning();
+
+    // Inventory Stock Auto-Sync for Direct Asset Entry (if warehouseId specified)
+    if (warehouseId) {
+      const wId = Number(warehouseId);
+      const [existingInvItem] = await db
+        .select()
+        .from(inventory_items)
+        .where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, name.trim())))
+        .limit(1);
+
+      let invItemId: number;
+      if (existingInvItem) {
+        invItemId = existingInvItem.id;
+        await db
+          .update(inventory_items)
+          .set({
+            quantityInStock: (existingInvItem.quantityInStock || 0) + 1,
+            isFixedAsset: true,
+            assetCategoryId: categoryId || existingInvItem.assetCategoryId
+          })
+          .where(eq(inventory_items.id, invItemId));
+      } else {
+        const itemCode = `INV-AST-${Date.now().toString().slice(-4)}`;
+        const [createdInvItem] = await db
+          .insert(inventory_items)
+          .values({
+            companyId,
+            itemCode,
+            name: name.trim(),
+            category: 'Fixed Asset',
+            isFixedAsset: true,
+            assetCategoryId: categoryId || null,
+            quantityInStock: 1,
+            unitOfMeasure: 'pcs',
+            basePrice: String(costNum)
+          })
+          .returning();
+        invItemId = createdInvItem.id;
+      }
+
+      // Update warehouse_stock
+      const [ws] = await db
+        .select()
+        .from(warehouse_stock)
+        .where(and(eq(warehouse_stock.warehouseId, wId), eq(warehouse_stock.itemId, invItemId)))
+        .limit(1);
+
+      if (ws) {
+        await db
+          .update(warehouse_stock)
+          .set({ quantity: (ws.quantity || 0) + 1, lastUpdated: new Date() })
+          .where(eq(warehouse_stock.id, ws.id));
+      } else {
+        await db.insert(warehouse_stock).values({
+          companyId,
+          warehouseId: wId,
+          itemId: invItemId,
+          quantity: 1,
+          lastUpdated: new Date()
+        });
+      }
+
+      // Update global_stock_ledger
+      const [gsl] = await db
+        .select()
+        .from(global_stock_ledger)
+        .where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)))
+        .limit(1);
+
+      if (gsl) {
+        await db
+          .update(global_stock_ledger)
+          .set({
+            totalStockIn: (gsl.totalStockIn || 0) + 1,
+            closingBalance: (gsl.closingBalance || 0) + 1,
+            lastUpdated: new Date()
+          })
+          .where(eq(global_stock_ledger.id, gsl.id));
+      } else {
+        await db.insert(global_stock_ledger).values({
+          companyId,
+          itemId: invItemId,
+          openingBalance: 0,
+          totalStockIn: 1,
+          totalStockOut: 0,
+          closingBalance: 1,
+          lastUpdated: new Date()
+        });
+      }
+    }
 
     return res.status(201).json({ asset: newAsset });
   } catch (error: any) {
