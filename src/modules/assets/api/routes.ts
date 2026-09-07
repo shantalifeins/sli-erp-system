@@ -52,6 +52,7 @@ router.post('/categories', requireAuth, checkPlugin('asset-management'), async (
       defaultDepreciationMethod,
       defaultUsefulLifeMonths,
       defaultSalvagePercent,
+      defaultDecliningRate,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -71,6 +72,7 @@ router.post('/categories', requireAuth, checkPlugin('asset-management'), async (
         defaultDepreciationMethod: defaultDepreciationMethod || 'Straight Line',
         defaultUsefulLifeMonths: defaultUsefulLifeMonths ? Number(defaultUsefulLifeMonths) : 36,
         defaultSalvagePercent: defaultSalvagePercent ? String(defaultSalvagePercent) : '0.00',
+        defaultDecliningRate: defaultDecliningRate !== undefined ? String(defaultDecliningRate) : '0.00',
         fixedAssetAccount: fixedAssetAccount || null,
         depreciationAccount: depreciationAccount || null,
         expenseAccount: expenseAccount || null,
@@ -98,6 +100,7 @@ router.put('/categories/:id', requireAuth, checkPlugin('asset-management'), asyn
       defaultDepreciationMethod,
       defaultUsefulLifeMonths,
       defaultSalvagePercent,
+      defaultDecliningRate,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -112,6 +115,7 @@ router.put('/categories/:id', requireAuth, checkPlugin('asset-management'), asyn
         defaultDepreciationMethod,
         defaultUsefulLifeMonths: defaultUsefulLifeMonths ? Number(defaultUsefulLifeMonths) : undefined,
         defaultSalvagePercent: defaultSalvagePercent !== undefined ? String(defaultSalvagePercent) : undefined,
+        defaultDecliningRate: defaultDecliningRate !== undefined ? String(defaultDecliningRate) : undefined,
         fixedAssetAccount,
         depreciationAccount,
         expenseAccount,
@@ -625,6 +629,7 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
       acquisitionCost,
       salvageValue,
       depreciationMethod,
+      decliningRate,
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
@@ -668,6 +673,7 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
         acquisitionCost: String(costNum),
         salvageValue: String(salvageNum),
         depreciationMethod: depreciationMethod || 'Straight Line',
+        decliningRate: decliningRate !== undefined ? String(decliningRate) : '0.00',
         usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : 36,
         depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : null,
         accumulatedDepreciation: '0.00',
@@ -704,6 +710,7 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
       acquisitionCost,
       salvageValue,
       depreciationMethod,
+      decliningRate,
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
@@ -736,6 +743,7 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
         acquisitionCost: acquisitionCost !== undefined ? String(costNum) : undefined,
         salvageValue: salvageValue !== undefined ? String(salvageValue) : undefined,
         depreciationMethod,
+        decliningRate: decliningRate !== undefined ? String(decliningRate) : undefined,
         usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : undefined,
         depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : undefined,
         currentBookValue: updatedBookValue,
@@ -781,11 +789,12 @@ router.post('/:id/activate', requireAuth, checkPlugin('asset-management'), async
     const acquisitionCost = Number(existingAsset.acquisitionCost || 0);
     const salvageValue = Number(existingAsset.salvageValue || 0);
     const usefulLifeMonths = Number(existingAsset.usefulLifeMonths || 36);
+    const decliningRate = Number(existingAsset.decliningRate || 0);
     const startDate = existingAsset.depreciationStartDate ? new Date(existingAsset.depreciationStartDate) : new Date(existingAsset.acquisitionDate || new Date());
 
     // Generate schedule periods using chosen method engine
     const scheduleItems = existingAsset.depreciationMethod === 'Declining Balance'
-      ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate)
+      ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate, decliningRate)
       : calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
 
     // Delete any existing schedule rows for this asset (re-activation protection)

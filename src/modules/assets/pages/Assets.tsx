@@ -40,6 +40,7 @@ export default function Assets() {
     acquisitionCost: '',
     salvageValue: '0.00',
     depreciationMethod: 'Straight Line',
+    decliningRate: '0.00',
     usefulLifeMonths: 36,
     serialNumber: '',
     status: 'Active'
@@ -88,6 +89,7 @@ export default function Assets() {
       acquisitionCost: '',
       salvageValue: '0.00',
       depreciationMethod: 'Straight Line',
+      decliningRate: '0.00',
       usefulLifeMonths: 36,
       serialNumber: '',
       status: 'Active'
@@ -108,6 +110,7 @@ export default function Assets() {
       acquisitionCost: asset.acquisitionCost || '',
       salvageValue: asset.salvageValue || '0.00',
       depreciationMethod: asset.depreciationMethod || 'Straight Line',
+      decliningRate: asset.decliningRate || '0.00',
       usefulLifeMonths: asset.usefulLifeMonths || 36,
       serialNumber: asset.serialNumber || '',
       status: asset.status || 'Active'
@@ -228,6 +231,7 @@ export default function Assets() {
                       ...formData,
                       categoryId: e.target.value,
                       depreciationMethod: cat?.defaultDepreciationMethod || formData.depreciationMethod,
+                      decliningRate: cat?.defaultDecliningRate || formData.decliningRate,
                       usefulLifeMonths: cat?.defaultUsefulLifeMonths || formData.usefulLifeMonths
                     });
                   }}
@@ -355,6 +359,25 @@ export default function Assets() {
                   <option value="None">None (Non-Depreciating)</option>
                 </select>
               </div>
+
+              {formData.depreciationMethod === 'Declining Balance' && (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Annual Declining Rate (% per year)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    value={formData.decliningRate}
+                    onChange={(e) => setFormData({ ...formData, decliningRate: e.target.value })}
+                    placeholder="0 = Auto (Double Declining)"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Leave at 0 to use auto-calculated double declining rate.</p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">

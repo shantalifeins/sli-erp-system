@@ -58,6 +58,8 @@ router.get('/register', requireAuth, checkPlugin('asset-management'), async (req
         acquisitionCost: assets.acquisitionCost,
         salvageValue: assets.salvageValue,
         usefulLifeMonths: assets.usefulLifeMonths,
+        depreciationMethod: assets.depreciationMethod,
+        decliningRate: assets.decliningRate,
         accumulatedDepreciation: assets.accumulatedDepreciation,
         currentBookValue: assets.currentBookValue,
         status: assets.status,

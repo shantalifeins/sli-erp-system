@@ -185,14 +185,14 @@ export default function Inventory() {
         )}
 
       {showForm && canCreate && (
-        <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden mb-6">
-          <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-3">
+        <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden mb-6 max-h-[85vh] flex flex-col">
+          <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-3 shrink-0">
             <button onClick={() => setShowForm(false)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-colors" title="Back to List">
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h3 className="text-lg font-bold text-slate-800">New Inventory Item</h3>
           </div>
-          <div className="p-6">
+          <div className="p-6 overflow-y-auto flex-1">
           <form onSubmit={handleSubmit} className="space-y-4 max-w-3xl">
             <div className="grid grid-cols-2 gap-4">
               <div>

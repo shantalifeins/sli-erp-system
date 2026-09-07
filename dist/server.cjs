@@ -918,6 +918,7 @@ var asset_categories = (0, import_pg_core.pgTable)("asset_categories", {
   defaultDepreciationMethod: (0, import_pg_core.text)("default_depreciation_method").default("Straight Line").notNull(),
   defaultUsefulLifeMonths: (0, import_pg_core.integer)("default_useful_life_months").default(36).notNull(),
   defaultSalvagePercent: (0, import_pg_core.numeric)("default_salvage_percent").default("0.00"),
+  defaultDecliningRate: (0, import_pg_core.numeric)("default_declining_rate").default("0.00"),
   fixedAssetAccount: (0, import_pg_core.text)("fixed_asset_account"),
   depreciationAccount: (0, import_pg_core.text)("depreciation_account"),
   expenseAccount: (0, import_pg_core.text)("expense_account"),
@@ -939,6 +940,7 @@ var assets = (0, import_pg_core.pgTable)("assets", {
   acquisitionCost: (0, import_pg_core.numeric)("acquisition_cost").notNull(),
   salvageValue: (0, import_pg_core.numeric)("salvage_value").default("0.00").notNull(),
   depreciationMethod: (0, import_pg_core.text)("depreciation_method").default("Straight Line").notNull(),
+  decliningRate: (0, import_pg_core.numeric)("declining_rate").default("0.00"),
   usefulLifeMonths: (0, import_pg_core.integer)("useful_life_months").default(36).notNull(),
   depreciationStartDate: (0, import_pg_core.timestamp)("depreciation_start_date"),
   accumulatedDepreciation: (0, import_pg_core.numeric)("accumulated_depreciation").default("0.00").notNull(),
@@ -2223,7 +2225,7 @@ function calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLife
   }
   return schedule;
 }
-function calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate) {
+function calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate, annualRatePercent) {
   if (usefulLifeMonths <= 0 || acquisitionCost < 0 || salvageValue < 0 || acquisitionCost < salvageValue) {
     throw new Error("Invalid depreciation parameters");
   }
@@ -2233,7 +2235,9 @@ function calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, useful
   }
   const usefulLifeYears = usefulLifeMonths / 12;
   let annualRate = 0;
-  if (salvageValue > 0) {
+  if (annualRatePercent && annualRatePercent > 0) {
+    annualRate = annualRatePercent / 100;
+  } else if (salvageValue > 0) {
     annualRate = 1 - Math.pow(salvageValue / acquisitionCost, 1 / usefulLifeYears);
   } else {
     annualRate = Math.min(2 / Math.max(usefulLifeYears, 1), 0.5);
@@ -2293,6 +2297,7 @@ router5.post("/categories", requireAuth, checkPlugin("asset-management"), async 
       defaultDepreciationMethod,
       defaultUsefulLifeMonths,
       defaultSalvagePercent,
+      defaultDecliningRate,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -2308,6 +2313,7 @@ router5.post("/categories", requireAuth, checkPlugin("asset-management"), async 
       defaultDepreciationMethod: defaultDepreciationMethod || "Straight Line",
       defaultUsefulLifeMonths: defaultUsefulLifeMonths ? Number(defaultUsefulLifeMonths) : 36,
       defaultSalvagePercent: defaultSalvagePercent ? String(defaultSalvagePercent) : "0.00",
+      defaultDecliningRate: defaultDecliningRate !== void 0 ? String(defaultDecliningRate) : "0.00",
       fixedAssetAccount: fixedAssetAccount || null,
       depreciationAccount: depreciationAccount || null,
       expenseAccount: expenseAccount || null,
@@ -2330,6 +2336,7 @@ router5.put("/categories/:id", requireAuth, checkPlugin("asset-management"), asy
       defaultDepreciationMethod,
       defaultUsefulLifeMonths,
       defaultSalvagePercent,
+      defaultDecliningRate,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -2341,6 +2348,7 @@ router5.put("/categories/:id", requireAuth, checkPlugin("asset-management"), asy
       defaultDepreciationMethod,
       defaultUsefulLifeMonths: defaultUsefulLifeMonths ? Number(defaultUsefulLifeMonths) : void 0,
       defaultSalvagePercent: defaultSalvagePercent !== void 0 ? String(defaultSalvagePercent) : void 0,
+      defaultDecliningRate: defaultDecliningRate !== void 0 ? String(defaultDecliningRate) : void 0,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -2693,6 +2701,7 @@ router5.post("/", requireAuth, checkPlugin("asset-management"), async (req, res)
       acquisitionCost,
       salvageValue,
       depreciationMethod,
+      decliningRate,
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
@@ -2724,6 +2733,7 @@ router5.post("/", requireAuth, checkPlugin("asset-management"), async (req, res)
       acquisitionCost: String(costNum),
       salvageValue: String(salvageNum),
       depreciationMethod: depreciationMethod || "Straight Line",
+      decliningRate: decliningRate !== void 0 ? String(decliningRate) : "0.00",
       usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : 36,
       depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : null,
       accumulatedDepreciation: "0.00",
@@ -2755,6 +2765,7 @@ router5.put("/:id", requireAuth, checkPlugin("asset-management"), async (req, re
       acquisitionCost,
       salvageValue,
       depreciationMethod,
+      decliningRate,
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
@@ -2777,6 +2788,7 @@ router5.put("/:id", requireAuth, checkPlugin("asset-management"), async (req, re
       acquisitionCost: acquisitionCost !== void 0 ? String(costNum) : void 0,
       salvageValue: salvageValue !== void 0 ? String(salvageValue) : void 0,
       depreciationMethod,
+      decliningRate: decliningRate !== void 0 ? String(decliningRate) : void 0,
       usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : void 0,
       depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : void 0,
       currentBookValue: updatedBookValue,
@@ -2805,8 +2817,9 @@ router5.post("/:id/activate", requireAuth, checkPlugin("asset-management"), asyn
     const acquisitionCost = Number(existingAsset.acquisitionCost || 0);
     const salvageValue = Number(existingAsset.salvageValue || 0);
     const usefulLifeMonths = Number(existingAsset.usefulLifeMonths || 36);
+    const decliningRate = Number(existingAsset.decliningRate || 0);
     const startDate = existingAsset.depreciationStartDate ? new Date(existingAsset.depreciationStartDate) : new Date(existingAsset.acquisitionDate || /* @__PURE__ */ new Date());
-    const scheduleItems = existingAsset.depreciationMethod === "Declining Balance" ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate) : calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
+    const scheduleItems = existingAsset.depreciationMethod === "Declining Balance" ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate, decliningRate) : calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
     await db.delete(asset_depreciation_schedule).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_depreciation_schedule.assetId, id), (0, import_drizzle_orm10.eq)(asset_depreciation_schedule.companyId, companyId)));
     const dbScheduleRows = scheduleItems.map((item) => ({
       companyId,
@@ -3508,6 +3521,8 @@ router6.get("/register", requireAuth, checkPlugin("asset-management"), async (re
       acquisitionCost: assets.acquisitionCost,
       salvageValue: assets.salvageValue,
       usefulLifeMonths: assets.usefulLifeMonths,
+      depreciationMethod: assets.depreciationMethod,
+      decliningRate: assets.decliningRate,
       accumulatedDepreciation: assets.accumulatedDepreciation,
       currentBookValue: assets.currentBookValue,
       status: assets.status,
@@ -3681,6 +3696,8 @@ var supabaseAdmin2 = (0, import_supabase_js3.createClient)(
 );
 var app = (0, import_express8.default)();
 db.execute(import_drizzle_orm12.sql`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS asset_category_id UUID REFERENCES asset_categories(id);`).catch((err) => console.warn("Auto-migration asset_category_id non-fatal warning:", err));
+db.execute(import_drizzle_orm12.sql`ALTER TABLE asset_categories ADD COLUMN IF NOT EXISTS default_declining_rate NUMERIC DEFAULT '0.00';`).catch((err) => console.warn("Auto-migration default_declining_rate non-fatal warning:", err));
+db.execute(import_drizzle_orm12.sql`ALTER TABLE assets ADD COLUMN IF NOT EXISTS declining_rate NUMERIC DEFAULT '0.00';`).catch((err) => console.warn("Auto-migration declining_rate non-fatal warning:", err));
 var DEFAULT_NOTIFICATION_TEMPLATES = {
   "User Created": {
     module: "Administration",
@@ -8974,6 +8991,8 @@ async function startServer() {
       res.status(500).json({ error: e.message });
     }
   });
+  app.use("/api/assets/reports", reports_default3);
+  app.use("/api/assets", routes_default2);
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL && !process.env.VITEST && process.env.NODE_ENV !== "test") {
     const viteModule = await new Function("return import('vite')")();
     const createViteServer = viteModule.createServer;

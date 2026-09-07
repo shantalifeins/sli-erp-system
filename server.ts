@@ -53,6 +53,10 @@ export const app = express();
 // Ensure asset_category_id column exists on inventory_items table
 db.execute(sql`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS asset_category_id UUID REFERENCES asset_categories(id);`)
   .catch(err => console.warn('Auto-migration asset_category_id non-fatal warning:', err));
+db.execute(sql`ALTER TABLE asset_categories ADD COLUMN IF NOT EXISTS default_declining_rate NUMERIC DEFAULT '0.00';`)
+  .catch(err => console.warn('Auto-migration default_declining_rate non-fatal warning:', err));
+db.execute(sql`ALTER TABLE assets ADD COLUMN IF NOT EXISTS declining_rate NUMERIC DEFAULT '0.00';`)
+  .catch(err => console.warn('Auto-migration declining_rate non-fatal warning:', err));
 
 export const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { module: string, titleTemplate: string, bodyTemplate: string, mailSubjectTemplate?: string, mailBodyTemplate?: string, recipient?: string }> = {
   "User Created": { 
@@ -6671,6 +6675,10 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
       res.status(500).json({ error: e.message });
     }
   });
+
+  // Asset Management Domain Routers
+  app.use('/api/assets/reports', assetReportsRouter);
+  app.use('/api/assets', assetsRouter);
 
   // ================================================================
   // END PHASE 1 ROUTES

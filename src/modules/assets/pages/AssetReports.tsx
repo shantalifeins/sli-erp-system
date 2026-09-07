@@ -31,6 +31,8 @@ interface AssetRegisterItem {
   acquisitionCost: string;
   salvageValue: string;
   usefulLifeMonths: number;
+  depreciationMethod?: string;
+  decliningRate?: string;
   accumulatedDepreciation: string;
   currentBookValue: string;
   status: string;
@@ -361,6 +363,7 @@ export default function AssetReports() {
                   <th className="py-3 px-4">Asset Code</th>
                   <th className="py-3 px-4">Name</th>
                   <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Method & Rate</th>
                   <th className="py-3 px-4">Branch / Dept</th>
                   <th className="py-3 px-4">Custodian</th>
                   <th className="py-3 px-4 text-right">Acq. Cost</th>
@@ -372,7 +375,7 @@ export default function AssetReports() {
               <tbody className="divide-y divide-slate-100">
                 {registerData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                    <td colSpan={10} className="py-8 text-center text-slate-400">
                       No matching asset records found.
                     </td>
                   </tr>
@@ -391,6 +394,21 @@ export default function AssetReports() {
                         )}
                       </td>
                       <td className="py-3 px-4 text-slate-600">{asset.categoryName || '-'}</td>
+                      <td className="py-3 px-4 text-slate-600 font-medium text-xs">
+                        {asset.depreciationMethod === 'Declining Balance' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-semibold">
+                            DB {Number(asset.decliningRate || 0) > 0 ? `(${asset.decliningRate}%)` : '(Auto)'}
+                          </span>
+                        ) : asset.depreciationMethod === 'None' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                            Non-Depr
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+                            Straight Line
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 text-slate-600">
                         {asset.branchName || 'Head Office'}
                         {asset.departmentName && (

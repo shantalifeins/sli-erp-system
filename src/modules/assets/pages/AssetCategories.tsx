@@ -18,6 +18,7 @@ export default function AssetCategories() {
     defaultDepreciationMethod: 'Straight Line',
     defaultUsefulLifeMonths: 36,
     defaultSalvagePercent: '0.00',
+    defaultDecliningRate: '0.00',
     fixedAssetAccount: '',
     depreciationAccount: '',
     expenseAccount: '',
@@ -50,6 +51,7 @@ export default function AssetCategories() {
       defaultDepreciationMethod: 'Straight Line',
       defaultUsefulLifeMonths: 36,
       defaultSalvagePercent: '0.00',
+      defaultDecliningRate: '0.00',
       fixedAssetAccount: '',
       depreciationAccount: '',
       expenseAccount: '',
@@ -66,6 +68,7 @@ export default function AssetCategories() {
       defaultDepreciationMethod: category.defaultDepreciationMethod || 'Straight Line',
       defaultUsefulLifeMonths: category.defaultUsefulLifeMonths || 36,
       defaultSalvagePercent: category.defaultSalvagePercent || '0.00',
+      defaultDecliningRate: category.defaultDecliningRate || '0.00',
       fixedAssetAccount: category.fixedAssetAccount || '',
       depreciationAccount: category.depreciationAccount || '',
       expenseAccount: category.expenseAccount || '',
@@ -208,6 +211,25 @@ export default function AssetCategories() {
                   <option value="None">None (Non-Depreciating)</option>
                 </select>
               </div>
+
+              {formData.defaultDepreciationMethod === 'Declining Balance' && (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Default Declining Rate (% per year)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    value={formData.defaultDecliningRate}
+                    onChange={(e) => setFormData({ ...formData, defaultDecliningRate: e.target.value })}
+                    placeholder="0 = Auto (Double Declining)"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Default % rate pre-filled when registering new assets in this category.</p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">

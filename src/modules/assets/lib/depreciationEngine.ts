@@ -61,7 +61,8 @@ export function calculateDecliningBalanceSchedule(
   acquisitionCost: number,
   salvageValue: number,
   usefulLifeMonths: number,
-  startDate: Date
+  startDate: Date,
+  annualRatePercent?: number
 ): SchedulePeriod[] {
   if (usefulLifeMonths <= 0 || acquisitionCost < 0 || salvageValue < 0 || acquisitionCost < salvageValue) {
     throw new Error('Invalid depreciation parameters');
@@ -73,9 +74,11 @@ export function calculateDecliningBalanceSchedule(
   }
 
   const usefulLifeYears = usefulLifeMonths / 12;
-  // Calculate annual rate (using Diminishing Value / Declining Balance formula)
+  // Calculate annual rate (using custom % rate if provided, else auto formula)
   let annualRate = 0;
-  if (salvageValue > 0) {
+  if (annualRatePercent && annualRatePercent > 0) {
+    annualRate = annualRatePercent / 100;
+  } else if (salvageValue > 0) {
     annualRate = 1 - Math.pow(salvageValue / acquisitionCost, 1 / usefulLifeYears);
   } else {
     // Standard double-declining rate (2 / years) capped at 0.5

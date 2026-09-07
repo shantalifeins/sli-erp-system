@@ -49,6 +49,8 @@ This document defines the strict architecture, security standards, UI convention
 - **Asset Management & Depreciation**:
   - `isFixedAsset=true` inventory items auto-match `assetCategoryId` based on Item Category name token similarity.
   - Asset activation (`/api/assets/:id/activate`) auto-generates depreciation schedules using `Straight Line` or `Declining Balance` engine based on `depreciationMethod`.
+  - **Declining Balance Custom Rate**: `defaultDecliningRate` on categories pre-populates `decliningRate` on assets. The depreciation engine uses custom rate % when `decliningRate > 0` and falls back to double-declining auto-formula when 0.
+  - **Asset Router Mount Order**: In `server.ts`, specialized sub-routers (e.g. `assetReportsRouter` mounted on `/api/assets/reports`) MUST be mounted BEFORE `assetsRouter` (`/api/assets`) to prevent `/:id` route collision.
 
 ---
 
