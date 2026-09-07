@@ -1,6 +1,7 @@
 import { db } from './index.js';
 import { users } from './schema.js';
-import { ilike } from 'drizzle-orm';
+import { eq, ilike } from 'drizzle-orm';
+import crypto from 'crypto';
 
 export async function getUser(uid: string, email: string) {
   // First, check if the user exists by UID
@@ -13,7 +14,10 @@ export async function getUser(uid: string, email: string) {
   if (email) {
     const byEmail = await db.select().from(users).where(ilike(users.email, email.trim()));
     if (byEmail.length > 0) {
-      const effectiveUid = uid || byEmail[0].uid || `user-${byEmail[0].id}`;
+      let effectiveUid = uid || byEmail[0].uid;
+      if (!effectiveUid) {
+        effectiveUid = crypto.randomUUID();
+      }
       if (byEmail[0].uid !== effectiveUid) {
         const updated = await db.update(users)
           .set({ uid: effectiveUid })
@@ -28,7 +32,7 @@ export async function getUser(uid: string, email: string) {
   // Allow initial super admin creators to login automatically
   const lowerEmail = (email || '').toLowerCase().trim();
   if (lowerEmail === 'jetitbd@gmail.com' || lowerEmail === 'shantalifeins@gmail.com') {
-    const effectiveUid = uid || `superadmin-${Date.now()}`;
+    const effectiveUid = uid || crypto.randomUUID();
     const newAdmin = await db.insert(users).values({ uid: effectiveUid, email: lowerEmail, role: 'Super Admin' }).returning();
     return newAdmin[0];
   }

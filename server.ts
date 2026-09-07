@@ -974,7 +974,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       }
 
       if (!user.uid) {
-        user.uid = user.id ? `user-${user.id}` : `usr-${Date.now()}`;
+        user.uid = crypto.randomUUID();
         try {
           await db.update(users).set({ uid: user.uid }).where(eq(users.id, user.id));
         } catch (e) {}

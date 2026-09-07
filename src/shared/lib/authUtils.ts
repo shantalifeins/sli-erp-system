@@ -26,7 +26,7 @@ export function verifyPassword(password: string, storedHash: string): boolean {
  */
 export function generateAuthToken(user: { id?: number; uid?: string | null; email: string; companyId?: string | null; role?: string | null }): string {
   const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || process.env.VITE_SUPABASE_ANON_KEY || 'sli_erp_secret_key_2026';
-  const effectiveUid = user.uid || (user.id ? `user-${user.id}` : user.email);
+  const effectiveUid = user.uid || crypto.randomUUID();
   return jwt.sign(
     {
       sub: effectiveUid,
