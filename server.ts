@@ -5925,6 +5925,13 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         if (!hasAccess) {
           return res.status(403).json({ error: "Forbidden: You are not assigned to manage the source warehouse or an item type within." });
         }
+
+        // Fixed Asset Safeguard: Block Fixed Assets from Inventory Stock Transfer
+        const targetItems = await db.select().from(inventory_items).where(inArray(inventory_items.id, itemIds));
+        const fixedAssetItem = targetItems.find((i: any) => i.isFixedAsset);
+        if (fixedAssetItem) {
+          return res.status(400).json({ error: `Item '${fixedAssetItem.name}' is a Fixed Asset. Fixed Assets must be transferred via the Asset Management module.` });
+        }
       }
 
       // Check stock availability

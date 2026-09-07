@@ -216,6 +216,7 @@ export default function StockTransfer() {
                     >
                       <option value="">Select Item...</option>
                       {items.map(item => {
+                        if (item.isFixedAsset) return null; // Fixed assets are transferred via Asset Management module
                         const wh = warehouses.find(w => w.id === parseInt(sourceWarehouse));
                         if (wh && !canManageItem(item, wh.itemType)) return null;
 
