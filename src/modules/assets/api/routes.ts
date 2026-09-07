@@ -718,7 +718,7 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
             isFixedAsset: true,
             assetCategoryId: categoryId || null,
             quantityInStock: 1,
-            unitOfMeasure: 'pcs',
+            uom: 'pcs',
             basePrice: String(costNum)
           })
           .returning();
@@ -1424,7 +1424,7 @@ router.get('/transfers', requireAuth, checkPlugin('asset-management'), async (re
       .select({
         id: asset_transfers.id,
         assetId: asset_transfers.assetId,
-        assetTag: assets.assetTag,
+        assetTag: assets.assetCode,
         assetName: assets.name,
         fromBranchId: asset_transfers.fromBranchId,
         toBranchId: asset_transfers.toBranchId,
