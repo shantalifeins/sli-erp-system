@@ -6,7 +6,7 @@ import { resolveTenantId } from '../../../shared/lib/tenant.js';
 import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
-import { eq, ne, and, desc, sql, ilike, or, count } from 'drizzle-orm';
+import { eq, ne, and, desc, sql, ilike, or, count, isNull } from 'drizzle-orm';
 
 const router = Router();
 
