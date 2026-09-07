@@ -1031,6 +1031,7 @@ router.post('/:id/submit', requireAuth, checkPlugin('asset-management'), async (
         documentId: 0,
         stepOrder: 1,
         roleRequired: targetRole,
+        assigneeValue: id,
         status: 'Pending'
       })
       .returning();
@@ -1039,6 +1040,8 @@ router.post('/:id/submit', requireAuth, checkPlugin('asset-management'), async (
       companyId,
       category: 'Asset Management',
       referenceType: 'Asset Acquisition',
+      referenceId: 0,
+      actionLink: id,
       title: `Asset Acquisition Approval: ${assetRecord.name} (${assetRecord.assetCode})`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -1093,7 +1096,8 @@ router.post('/:id/approve', requireAuth, checkPlugin('asset-management'), async 
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Acquisition')
+          eq(inbox_tasks.referenceType, 'Asset Acquisition'),
+          eq(inbox_tasks.actionLink, id)
         )
       );
 
@@ -1104,7 +1108,8 @@ router.post('/:id/approve', requireAuth, checkPlugin('asset-management'), async 
       .where(
         and(
           eq(document_approvals.companyId, companyId),
-          eq(document_approvals.documentType, 'Asset Acquisition')
+          eq(document_approvals.documentType, 'Asset Acquisition'),
+          eq(document_approvals.assigneeValue, id)
         )
       );
 
@@ -1182,7 +1187,8 @@ router.post('/:id/reject', requireAuth, checkPlugin('asset-management'), async (
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Acquisition')
+          eq(inbox_tasks.referenceType, 'Asset Acquisition'),
+          eq(inbox_tasks.actionLink, id)
         )
       );
 
@@ -1193,7 +1199,8 @@ router.post('/:id/reject', requireAuth, checkPlugin('asset-management'), async (
       .where(
         and(
           eq(document_approvals.companyId, companyId),
-          eq(document_approvals.documentType, 'Asset Acquisition')
+          eq(document_approvals.documentType, 'Asset Acquisition'),
+          eq(document_approvals.assigneeValue, id)
         )
       );
 
@@ -1290,6 +1297,7 @@ router.post('/:id/transfer', requireAuth, checkPlugin('asset-management'), async
       documentId: 0,
       stepOrder: 1,
       roleRequired: targetRole,
+      assigneeValue: transferRecord.id,
       status: 'Pending'
     });
 
@@ -1297,6 +1305,8 @@ router.post('/:id/transfer', requireAuth, checkPlugin('asset-management'), async
       companyId,
       category: 'Asset Management',
       referenceType: 'Asset Transfer',
+      referenceId: 0,
+      actionLink: transferRecord.id,
       title: `Asset Transfer Request: ${existingAsset.name} (${existingAsset.assetCode})`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -1311,6 +1321,44 @@ router.post('/:id/transfer', requireAuth, checkPlugin('asset-management'), async
   } catch (error: any) {
     console.error('POST /api/assets/:id/transfer error:', error);
     return res.status(500).json({ error: error.message || 'Failed to submit asset transfer' });
+  }
+});
+
+// GET /api/assets/transfers/:transferId — Get single transfer
+router.get('/transfers/:transferId', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { transferId } = req.params;
+
+    const [transferRecord] = await db
+      .select({
+        id: asset_transfers.id,
+        assetId: asset_transfers.assetId,
+        fromBranchId: asset_transfers.fromBranchId,
+        toBranchId: asset_transfers.toBranchId,
+        fromCustodianUid: asset_transfers.fromCustodianUid,
+        toCustodianUid: asset_transfers.toCustodianUid,
+        reason: asset_transfers.reason,
+        status: asset_transfers.status,
+        createdAt: asset_transfers.createdAt,
+        assetCode: assets.assetCode,
+        assetName: assets.name
+      })
+      .from(asset_transfers)
+      .leftJoin(assets, eq(asset_transfers.assetId, assets.id))
+      .where(and(eq(asset_transfers.id, transferId), eq(asset_transfers.companyId, companyId)))
+      .limit(1);
+
+    if (!transferRecord) {
+      return res.status(404).json({ error: 'Transfer not found' });
+    }
+
+    return res.json(transferRecord);
+  } catch (error: any) {
+    console.error('GET /api/assets/transfers/:transferId error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset transfer' });
   }
 });
 
@@ -1343,7 +1391,20 @@ router.post('/transfers/:transferId/approve', requireAuth, checkPlugin('asset-ma
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Transfer')
+          eq(inbox_tasks.referenceType, 'Asset Transfer'),
+          eq(inbox_tasks.actionLink, transferId)
+        )
+      );
+
+    // Update document_approvals status
+    await db
+      .update(document_approvals)
+      .set({ status: 'Approved', updatedAt: new Date() })
+      .where(
+        and(
+          eq(document_approvals.companyId, companyId),
+          eq(document_approvals.documentType, 'Asset Transfer'),
+          eq(document_approvals.assigneeValue, transferId)
         )
       );
 
@@ -1401,7 +1462,20 @@ router.post('/transfers/:transferId/reject', requireAuth, checkPlugin('asset-man
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Transfer')
+          eq(inbox_tasks.referenceType, 'Asset Transfer'),
+          eq(inbox_tasks.actionLink, transferId)
+        )
+      );
+
+    // Update document_approvals status
+    await db
+      .update(document_approvals)
+      .set({ status: 'Rejected', updatedAt: new Date() })
+      .where(
+        and(
+          eq(document_approvals.companyId, companyId),
+          eq(document_approvals.documentType, 'Asset Transfer'),
+          eq(document_approvals.assigneeValue, transferId)
         )
       );
 
@@ -1712,6 +1786,7 @@ router.post('/:id/disposal', requireAuth, checkPlugin('asset-management'), async
       documentId: 0,
       stepOrder: 1,
       roleRequired: targetRole,
+      assigneeValue: disposalRecord.id,
       status: 'Pending'
     });
 
@@ -1719,6 +1794,8 @@ router.post('/:id/disposal', requireAuth, checkPlugin('asset-management'), async
       companyId,
       category: 'Asset Management',
       referenceType: 'Asset Disposal',
+      referenceId: 0,
+      actionLink: disposalRecord.id,
       title: `Asset Disposal Request: ${existingAsset.name} (${existingAsset.assetCode}) - ${disposalType}`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -1733,6 +1810,44 @@ router.post('/:id/disposal', requireAuth, checkPlugin('asset-management'), async
   } catch (error: any) {
     console.error('POST /api/assets/:id/disposal error:', error);
     return res.status(500).json({ error: error.message || 'Failed to submit asset disposal' });
+  }
+});
+
+// GET /api/assets/disposals/:disposalId — Get single disposal
+router.get('/disposals/:disposalId', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { disposalId } = req.params;
+
+    const [disposalRecord] = await db
+      .select({
+        id: asset_disposals.id,
+        assetId: asset_disposals.assetId,
+        disposalType: asset_disposals.disposalType,
+        disposalDate: asset_disposals.disposalDate,
+        saleAmount: asset_disposals.saleAmount,
+        bookValueAtDisposal: asset_disposals.bookValueAtDisposal,
+        gainLoss: asset_disposals.gainLoss,
+        status: asset_disposals.status,
+        createdAt: asset_disposals.createdAt,
+        assetCode: assets.assetCode,
+        assetName: assets.name
+      })
+      .from(asset_disposals)
+      .leftJoin(assets, eq(asset_disposals.assetId, assets.id))
+      .where(and(eq(asset_disposals.id, disposalId), eq(asset_disposals.companyId, companyId)))
+      .limit(1);
+
+    if (!disposalRecord) {
+      return res.status(404).json({ error: 'Disposal not found' });
+    }
+
+    return res.json(disposalRecord);
+  } catch (error: any) {
+    console.error('GET /api/assets/disposals/:disposalId error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset disposal' });
   }
 });
 
@@ -1765,7 +1880,20 @@ router.post('/disposals/:disposalId/approve', requireAuth, checkPlugin('asset-ma
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Disposal')
+          eq(inbox_tasks.referenceType, 'Asset Disposal'),
+          eq(inbox_tasks.actionLink, disposalId)
+        )
+      );
+
+    // Update document_approvals status
+    await db
+      .update(document_approvals)
+      .set({ status: 'Approved', updatedAt: new Date() })
+      .where(
+        and(
+          eq(document_approvals.companyId, companyId),
+          eq(document_approvals.documentType, 'Asset Disposal'),
+          eq(document_approvals.assigneeValue, disposalId)
         )
       );
 
@@ -1838,7 +1966,20 @@ router.post('/disposals/:disposalId/reject', requireAuth, checkPlugin('asset-man
       .where(
         and(
           eq(inbox_tasks.companyId, companyId),
-          eq(inbox_tasks.referenceType, 'Asset Disposal')
+          eq(inbox_tasks.referenceType, 'Asset Disposal'),
+          eq(inbox_tasks.actionLink, disposalId)
+        )
+      );
+
+    // Update document_approvals status
+    await db
+      .update(document_approvals)
+      .set({ status: 'Rejected', updatedAt: new Date() })
+      .where(
+        and(
+          eq(document_approvals.companyId, companyId),
+          eq(document_approvals.documentType, 'Asset Disposal'),
+          eq(document_approvals.assigneeValue, disposalId)
         )
       );
 

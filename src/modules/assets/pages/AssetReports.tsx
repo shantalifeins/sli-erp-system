@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
+import { fetchWithAuth } from '@/src/shared/lib/api';
 
 interface AssetRegisterItem {
   id: string;
@@ -28,51 +29,57 @@ interface AssetRegisterItem {
   departmentName: string;
   custodianName: string;
   acquisitionDate: string;
-  acquisitionCost: string;
-  salvageValue: string;
+  acquisitionCost: number;
+  salvageValue: number;
   usefulLifeMonths: number;
-  depreciationMethod?: string;
-  decliningRate?: string;
-  accumulatedDepreciation: string;
-  currentBookValue: string;
+  depreciationMethod: string;
+  decliningRate?: number;
+  accumulatedDepreciation: number;
+  currentBookValue: number;
   status: string;
   sourceType: string;
-  serialNumber: string;
+  serialNumber?: string;
 }
 
 interface DepreciationScheduleItem {
-  id: string;
+  id: number;
   assetId: string;
   assetCode: string;
   assetName: string;
   categoryName: string;
   periodNumber: number;
   periodDate: string;
-  depreciationAmount: string;
-  accumulatedDepreciation: string;
-  bookValueAfter: string;
+  depreciationAmount: number;
+  accumulatedDepreciation: number;
+  bookValueAfter: number;
   status: string;
 }
 
-interface ValuationData {
+interface DepreciationReportData {
+  schedule: DepreciationScheduleItem[];
   summary: {
-    totalAssetsCount: number;
-    totalAcquisitionCost: string;
-    totalAccumulatedDepreciation: string;
-    totalNetBookValue: string;
+    totalPosted: string;
+    totalScheduled: string;
+    totalPeriods: number;
   };
-  byCategory: {
+}
+
+interface ValuationData {
+  totalAcquisitionCost: number;
+  totalAccumulatedDepreciation: number;
+  totalNetBookValue: number;
+  categoryBreakdown: {
     categoryName: string;
     count: number;
-    cost: string;
-    accum: string;
-    nbv: string;
+    cost: number;
+    accum: number;
+    nbv: number;
   }[];
-  byBranch: {
+  branchBreakdown: {
     branchName: string;
     count: number;
-    cost: string;
-    nbv: string;
+    cost: number;
+    nbv: number;
   }[];
 }
 
@@ -82,21 +89,16 @@ export default function AssetReports() {
   const currencySymbol = useCurrency();
 
   const [activeTab, setActiveTab] = useState<'register' | 'depreciation' | 'valuation'>('register');
-  const [loading, setLoading] = useState<boolean>(false);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
+
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filter States
-  const [search, setSearch] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
-
-  // Report Data
   const [registerData, setRegisterData] = useState<AssetRegisterItem[]>([]);
-  const [depreciationData, setDepreciationData] = useState<{
-    schedule: DepreciationScheduleItem[];
-    summary: { totalPosted: string; totalScheduled: string; totalPeriods: number };
-  }>({ schedule: [], summary: { totalPosted: '0', totalScheduled: '0', totalPeriods: 0 } });
+  const [depreciationData, setDepreciationData] = useState<DepreciationReportData | null>(null);
   const [valuationData, setValuationData] = useState<ValuationData | null>(null);
 
   // Fetch Categories for filter dropdown
@@ -104,13 +106,8 @@ export default function AssetReports() {
     async function fetchCategories() {
       try {
         const token = await getToken();
-        const res = await fetch('/api/assets/categories', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCategories(data.categories || []);
-        }
+        const data = await fetchWithAuth('/api/assets/categories', token);
+        setCategories(data.categories || []);
       } catch (err) {
         console.error('Failed to load categories', err);
       }
@@ -130,29 +127,17 @@ export default function AssetReports() {
         if (statusFilter) params.append('status', statusFilter);
         if (selectedCategory) params.append('categoryId', selectedCategory);
 
-        const res = await fetch(`/api/assets/reports/register?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Failed to fetch Asset Register');
-        const data = await res.json();
+        const data = await fetchWithAuth(`/api/assets/reports/register?${params.toString()}`, token);
         setRegisterData(data.register || []);
       } else if (activeTab === 'depreciation') {
         const params = new URLSearchParams();
         if (statusFilter) params.append('status', statusFilter);
         if (selectedCategory) params.append('categoryId', selectedCategory);
 
-        const res = await fetch(`/api/assets/reports/depreciation?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Failed to fetch Depreciation Report');
-        const data = await res.json();
+        const data = await fetchWithAuth(`/api/assets/reports/depreciation?${params.toString()}`, token);
         setDepreciationData(data);
       } else if (activeTab === 'valuation') {
-        const res = await fetch('/api/assets/reports/valuation', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok) throw new Error('Failed to fetch Valuation Summary');
-        const data = await res.json();
+        const data = await fetchWithAuth('/api/assets/reports/valuation', token);
         setValuationData(data);
       }
     } catch (err: any) {

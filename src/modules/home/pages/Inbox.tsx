@@ -31,6 +31,11 @@ export default function Inbox() {
   const [selectedProfileChange, setSelectedProfileChange] = useState<any | null>(null);
   const [profileChangeEdit, setProfileChangeEdit] = useState<any>({});
 
+  // Asset Management task states
+  const [selectedAssetAcquisition, setSelectedAssetAcquisition] = useState<any | null>(null);
+  const [selectedAssetTransfer, setSelectedAssetTransfer] = useState<any | null>(null);
+  const [selectedAssetDisposal, setSelectedAssetDisposal] = useState<any | null>(null);
+
   
   // For SSO User Approval
   const [roles, setRoles] = useState<any[]>([]);
@@ -154,6 +159,48 @@ export default function Inbox() {
       } catch (error) {
         console.error("Failed to load Profile Change details:", error);
       }
+    } else if (task.referenceType === 'Asset Acquisition') {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithAuth(`/api/assets/${task.actionLink}`, token);
+        if (res && res.id) {
+          setSelectedAssetAcquisition(res);
+          setSelectedTask(task);
+        } else {
+          alert("Could not load Asset Acquisition details.");
+        }
+      } catch (error) {
+        console.error("Failed to load Asset Acquisition details:", error);
+      }
+    } else if (task.referenceType === 'Asset Transfer') {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithAuth(`/api/assets/transfers/${task.actionLink}`, token);
+        if (res && res.id) {
+          setSelectedAssetTransfer(res);
+          setSelectedTask(task);
+        } else {
+          alert("Could not load Asset Transfer details.");
+        }
+      } catch (error) {
+        console.error("Failed to load Asset Transfer details:", error);
+      }
+    } else if (task.referenceType === 'Asset Disposal') {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithAuth(`/api/assets/disposals/${task.actionLink}`, token);
+        if (res && res.id) {
+          setSelectedAssetDisposal(res);
+          setSelectedTask(task);
+        } else {
+          alert("Could not load Asset Disposal details.");
+        }
+      } catch (error) {
+        console.error("Failed to load Asset Disposal details:", error);
+      }
     } else {
       if (task.actionLink) {
         navigate(task.actionLink);
@@ -212,9 +259,24 @@ export default function Inbox() {
 
   const pendingCount = tasks.filter(t => t.status === 'Pending').length;
 
+  const clearAllSelections = () => {
+    setSelectedPr(null);
+    setSelectedStockOut(null);
+    setSelectedCs(null);
+    setSelectedSt(null);
+    setSelectedSsoUser(null);
+    setSelectedProfileChange(null);
+    setSelectedAssetAcquisition(null);
+    setSelectedAssetTransfer(null);
+    setSelectedAssetDisposal(null);
+    setSelectedTask(null);
+    setActionModal(null);
+    setComments('');
+  };
+
   return (
     <PageLayout loading={loading} search={{ placeholder: "Search inbox tasks...", onSearch: setSearchQuery }}>
-      {!selectedPr && !selectedStockOut && !selectedCs && !selectedSt && !selectedSsoUser && !selectedProfileChange && (
+      {!selectedPr && !selectedStockOut && !selectedCs && !selectedSt && !selectedSsoUser && !selectedProfileChange && !selectedAssetAcquisition && !selectedAssetTransfer && !selectedAssetDisposal && (
       <div className="flex flex-col md:flex-row h-[calc(100vh-8rem)] bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         
         {/* Left Sidebar */}
@@ -357,13 +419,7 @@ export default function Inbox() {
         <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden flex flex-col flex-1">
           <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50">
             <button 
-              onClick={() => { setSelectedPr(null);
-                setSelectedStockOut(null);
-                setSelectedCs(null);
-                setSelectedSt(null);
-                setSelectedSsoUser(null);
-                setSelectedProfileChange(null);
-                setSelectedTask(null); }}
+              onClick={clearAllSelections}
               className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
               title="Back to Inbox"
             >
@@ -785,8 +841,119 @@ export default function Inbox() {
         </div>
       )}
 
+      {/* Asset Acquisition Review View */}
+      {selectedAssetAcquisition && selectedTask && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 h-[calc(100vh-8rem)]">
+          <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
+            <button 
+              onClick={clearAllSelections}
+              className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+              title="Back to Inbox"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Asset Acquisition Approval: {selectedAssetAcquisition.assetTag || selectedAssetAcquisition.name}</h2>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">Task: {selectedTask.title}</p>
+            </div>
+          </div>
+          <div className="p-6 flex-1 overflow-y-auto space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Asset Name</span> <span className="font-semibold text-gray-900">{selectedAssetAcquisition.name}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Asset Tag</span> <span className="font-semibold text-slate-800">{selectedAssetAcquisition.assetTag || 'Pending Tagging'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Category</span> <span className="font-semibold text-slate-800">{selectedAssetAcquisition.categoryName || 'N/A'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Acquisition Cost</span> <span className="font-semibold text-emerald-600">{currencySymbol}{Number(selectedAssetAcquisition.acquisitionCost || 0).toLocaleString()}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Depreciation Method</span> <span className="font-semibold text-slate-800">{selectedAssetAcquisition.depreciationMethod || 'Straight Line'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Useful Life</span> <span className="font-semibold text-slate-800">{selectedAssetAcquisition.usefulLifeMonths || 36} months</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Serial Number</span> <span className="font-semibold text-slate-800">{selectedAssetAcquisition.serialNumber || 'N/A'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Model Number</span> <span className="font-semibold text-slate-800">{selectedAssetAcquisition.modelNumber || 'N/A'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Status</span> <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">{selectedAssetAcquisition.status}</span></div>
+            </div>
+          </div>
+          
+          {selectedTask.status === 'Pending' && (
+            <div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+              <button onClick={() => setActionModal('Rejected')} className="px-4 py-2 border border-red-300 text-red-700 font-bold text-sm rounded bg-red-50 hover:bg-red-100">Reject Acquisition</button>
+              <button onClick={() => setActionModal('Approved')} className="px-4 py-2 bg-green-600 text-white font-bold text-sm rounded hover:bg-green-700">Approve & Activate Asset</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Asset Transfer Review View */}
+      {selectedAssetTransfer && selectedTask && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 h-[calc(100vh-8rem)]">
+          <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
+            <button 
+              onClick={clearAllSelections}
+              className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+              title="Back to Inbox"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Asset Transfer Approval: {selectedAssetTransfer.transferNumber || 'Transfer'}</h2>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">Task: {selectedTask.title}</p>
+            </div>
+          </div>
+          <div className="p-6 flex-1 overflow-y-auto space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Asset Name</span> <span className="font-semibold text-gray-900">{selectedAssetTransfer.assetName || selectedAssetTransfer.assetId}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Transfer Type</span> <span className="font-semibold text-slate-800">{selectedAssetTransfer.transferType || 'Inter-Branch'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Destination Branch</span> <span className="font-semibold text-slate-800">{selectedAssetTransfer.toBranchName || 'N/A'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Destination Dept</span> <span className="font-semibold text-slate-800">{selectedAssetTransfer.toDepartment || 'N/A'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Status</span> <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">{selectedAssetTransfer.status}</span></div>
+              <div className="col-span-3"><span className="text-gray-500 block text-xs font-bold uppercase mb-1">Reason / Notes</span> <p className="text-sm bg-white p-3 rounded border border-slate-200">{selectedAssetTransfer.reason || 'N/A'}</p></div>
+            </div>
+          </div>
+          
+          {selectedTask.status === 'Pending' && (
+            <div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+              <button onClick={() => setActionModal('Rejected')} className="px-4 py-2 border border-red-300 text-red-700 font-bold text-sm rounded bg-red-50 hover:bg-red-100">Reject Transfer</button>
+              <button onClick={() => setActionModal('Approved')} className="px-4 py-2 bg-green-600 text-white font-bold text-sm rounded hover:bg-green-700">Approve Transfer</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Asset Disposal Review View */}
+      {selectedAssetDisposal && selectedTask && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 h-[calc(100vh-8rem)]">
+          <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
+            <button 
+              onClick={clearAllSelections}
+              className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+              title="Back to Inbox"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Asset Disposal Approval: {selectedAssetDisposal.disposalNumber || 'Disposal'}</h2>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">Task: {selectedTask.title}</p>
+            </div>
+          </div>
+          <div className="p-6 flex-1 overflow-y-auto space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Asset Name</span> <span className="font-semibold text-gray-900">{selectedAssetDisposal.assetName || selectedAssetDisposal.assetId}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Disposal Type</span> <span className="font-semibold text-slate-800">{selectedAssetDisposal.disposalType}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Disposal Date</span> <span className="font-semibold text-slate-800">{selectedAssetDisposal.disposalDate ? new Date(selectedAssetDisposal.disposalDate).toLocaleDateString() : 'N/A'}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Sale / Recovered Value</span> <span className="font-semibold text-emerald-600">{currencySymbol}{Number(selectedAssetDisposal.saleAmount || 0).toLocaleString()}</span></div>
+              <div><span className="text-gray-500 block text-xs font-bold uppercase">Status</span> <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">{selectedAssetDisposal.status}</span></div>
+              <div className="col-span-3"><span className="text-gray-500 block text-xs font-bold uppercase mb-1">Disposal Reason / Notes</span> <p className="text-sm bg-white p-3 rounded border border-slate-200">{selectedAssetDisposal.notes || selectedAssetDisposal.reason || 'N/A'}</p></div>
+            </div>
+          </div>
+          
+          {selectedTask.status === 'Pending' && (
+            <div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+              <button onClick={() => setActionModal('Rejected')} className="px-4 py-2 border border-red-300 text-red-700 font-bold text-sm rounded bg-red-50 hover:bg-red-100">Reject Disposal</button>
+              <button onClick={() => setActionModal('Approved')} className="px-4 py-2 bg-green-600 text-white font-bold text-sm rounded hover:bg-green-700">Approve Disposal</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Decision Submission Modal */}
-      {(actionModal && (selectedPr || selectedStockOut || selectedCs || selectedSt || selectedSsoUser)) && (
+      {(actionModal && (selectedPr || selectedStockOut || selectedCs || selectedSt || selectedSsoUser || selectedAssetAcquisition || selectedAssetTransfer || selectedAssetDisposal)) && (
         <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200">
             <div className={`p-4 border-b font-bold text-md ${
@@ -805,7 +972,7 @@ export default function Inbox() {
                   onChange={(e) => setComments(e.target.value)}
                   className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-brand-orange outline-none focus:ring-1 focus:ring-brand-orange"
                   rows={3}
-                  placeholder="e.g. Please clarify estimated cost"
+                  placeholder="e.g. Please clarify details"
                 />
               </div>
               
@@ -822,12 +989,17 @@ export default function Inbox() {
                     try {
                       setActionLoading(true);
                       const token = await getToken();
-                      await fetchWithAuth(
-                        selectedPr ? `/api/pr/approvals/${selectedPr.id}` : 
+                      const endpoint = selectedPr ? `/api/pr/approvals/${selectedPr.id}` : 
                         selectedCs ? `/api/cs/approvals/${selectedCs.id}` : 
                         selectedSt ? `/api/stock-transfers/${selectedSt.id}/submit-approval` : 
                         selectedSsoUser ? `/api/auth/sso/approve-user` :
-                        `/api/inventory/stock-out/approvals/${selectedStockOut.id}`,
+                        selectedStockOut ? `/api/inventory/stock-out/approvals/${selectedStockOut.id}` :
+                        selectedAssetAcquisition ? `/api/assets/${selectedAssetAcquisition.id}/${actionModal === 'Approved' ? 'approve' : 'reject'}` :
+                        selectedAssetTransfer ? `/api/assets/transfers/${selectedAssetTransfer.id}/${actionModal === 'Approved' ? 'approve' : 'reject'}` :
+                        `/api/assets/disposals/${selectedAssetDisposal.id}/${actionModal === 'Approved' ? 'approve' : 'reject'}`;
+
+                      await fetchWithAuth(
+                        endpoint,
                         token, 
                         {
                           method: 'POST',
@@ -847,15 +1019,7 @@ export default function Inbox() {
                           })
                         }
                       );
-                      setActionModal(null);
-                      setComments('');
-                      setSelectedPr(null);
-                setSelectedStockOut(null);
-                setSelectedCs(null);
-                setSelectedSt(null);
-                setSelectedSsoUser(null);
-                setSelectedProfileChange(null);
-                setSelectedTask(null);
+                      clearAllSelections();
                       loadData();
                     } catch (err: any) {
                       alert("Action failed: " + err.message);
