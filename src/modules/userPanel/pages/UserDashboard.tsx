@@ -10,6 +10,7 @@ export default function UserDashboard() {
   const userName = dbUser?.email?.split('@')[0].toUpperCase() || user?.email?.split('@')[0].toUpperCase() || 'USER';
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
+  const [myAssets, setMyAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -17,8 +18,12 @@ export default function UserDashboard() {
       try {
         const token = await getToken();
         if (!token) return;
-        const result = await fetchWithAuth('/api/user-panel/dashboard', token);
+        const [result, assetsResult] = await Promise.all([
+          fetchWithAuth('/api/user-panel/dashboard', token),
+          fetchWithAuth('/api/assets/my-assets', token).catch(() => ({ assets: [] }))
+        ]);
         setData(result);
+        setMyAssets(assetsResult.assets || []);
       } catch (err) {
         console.error('Failed to load user dashboard:', err);
       } finally {
@@ -224,6 +229,59 @@ export default function UserDashboard() {
                 );
               })}
             </div>
+          </section>
+          <section>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Box className="w-4 h-4 text-slate-400" />
+              My Assigned Fixed Assets ({myAssets.length})
+            </h2>
+            {myAssets.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 text-center text-slate-400 text-sm">
+                No fixed assets currently assigned to your account.
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <tr>
+                        <th className="p-4">Asset Tag</th>
+                        <th className="p-4">Description</th>
+                        <th className="p-4">Category</th>
+                        <th className="p-4">Location</th>
+                        <th className="p-4 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {myAssets.map((asset) => (
+                        <tr key={asset.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-4 font-mono text-xs font-bold text-purple-600">
+                            {asset.assetCode}
+                          </td>
+                          <td className="p-4 font-medium text-slate-900">
+                            {asset.name}
+                            {asset.serialNumber && (
+                              <span className="block text-xs text-slate-400 font-normal">SN: {asset.serialNumber}</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-slate-600">
+                            {asset.categoryName || 'General'}
+                          </td>
+                          <td className="p-4 text-slate-600 text-xs">
+                            {asset.branchName || 'HQ'}
+                          </td>
+                          <td className="p-4 text-center">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              {asset.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </section>
         </div>
       </div>

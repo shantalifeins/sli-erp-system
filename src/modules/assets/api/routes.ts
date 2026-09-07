@@ -450,13 +450,53 @@ router.put('/verifications/:id/complete', requireAuth, checkPlugin('asset-manage
 // 2. FIXED ASSETS CRUD
 // ==========================================
 
+// GET /api/assets/my-assets — List assets assigned to current user
+router.get('/my-assets', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing tenant context' });
+
+    const userUid = req.user?.uid;
+    if (!userUid) return res.json({ assets: [] });
+
+    const myAssets = await db
+      .select({
+        id: assets.id,
+        assetCode: assets.assetCode,
+        name: assets.name,
+        categoryName: asset_categories.name,
+        branchName: branches.name,
+        departmentName: departments.name,
+        acquisitionDate: assets.acquisitionDate,
+        acquisitionCost: assets.acquisitionCost,
+        currentBookValue: assets.currentBookValue,
+        status: assets.status,
+        serialNumber: assets.serialNumber
+      })
+      .from(assets)
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .leftJoin(branches, eq(assets.branchId, branches.id))
+      .leftJoin(departments, eq(assets.departmentId, departments.id))
+      .where(and(
+        eq(assets.companyId, companyId),
+        eq(assets.custodianUid, userUid)
+      ))
+      .orderBy(desc(assets.createdAt));
+
+    return res.json({ assets: myAssets });
+  } catch (err: any) {
+    console.error('GET /api/assets/my-assets error:', err);
+    return res.status(500).json({ error: 'Failed to fetch my assets' });
+  }
+});
+
 // GET /api/assets — List assets with filtering and pagination
 router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
-    const { categoryId, branchId, warehouseId, departmentId, status, search, page = '1', limit = '50' } = req.query;
+    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, page = '1', limit = '50' } = req.query;
 
     const conditions = [eq(assets.companyId, companyId)];
 
@@ -471,6 +511,13 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
     }
     if (departmentId && !isNaN(Number(departmentId))) {
       conditions.push(eq(assets.departmentId, Number(departmentId)));
+    }
+    if (custodianUid && typeof custodianUid === 'string') {
+      if (custodianUid === 'unassigned') {
+        conditions.push(isNull(assets.custodianUid));
+      } else {
+        conditions.push(eq(assets.custodianUid, custodianUid));
+      }
     }
     if (status && typeof status === 'string') {
       conditions.push(eq(assets.status, status));
@@ -828,7 +875,7 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
         categoryId,
         branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
         warehouseId: warehouseId !== undefined ? (warehouseId ? Number(warehouseId) : null) : undefined,
-        custodianUid: custodianUid !== undefined ? custodianUid : undefined,
+        custodianUid: custodianUid !== undefined ? (custodianUid ? custodianUid : null) : undefined,
         departmentId: departmentId !== undefined ? (departmentId ? Number(departmentId) : null) : undefined,
         acquisitionCost: acquisitionCost !== undefined ? String(costNum) : undefined,
         salvageValue: salvageValue !== undefined ? String(salvageValue) : undefined,

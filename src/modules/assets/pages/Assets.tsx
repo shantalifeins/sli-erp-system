@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
-import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText } from 'lucide-react';
+import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2 } from 'lucide-react';
 
 export default function Assets() {
   const navigate = useNavigate();
@@ -27,8 +27,12 @@ export default function Assets() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedCustodian, setSelectedCustodian] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedQrAsset, setSelectedQrAsset] = useState<any>(null);
+  const [assigningAsset, setAssigningAsset] = useState<any>(null);
+  const [newCustodianUid, setNewCustodianUid] = useState('');
+  const [isAssigning, setIsAssigning] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -61,18 +65,18 @@ export default function Assets() {
       if (!token) return;
 
       const [assetsRes, catRes, branchRes, deptRes, userRes] = await Promise.all([
-        fetchWithAuth(`/api/assets?search=${encodeURIComponent(searchQuery)}&categoryId=${selectedCategory}&branchId=${selectedBranch}&status=${selectedStatus}`, token),
+        fetchWithAuth(`/api/assets?search=${encodeURIComponent(searchQuery)}&categoryId=${selectedCategory}&branchId=${selectedBranch}&custodianUid=${selectedCustodian}&status=${selectedStatus}`, token),
         fetchWithAuth('/api/assets/categories', token),
         fetchWithAuth('/api/branches', token).catch(() => ({ branches: [] })),
         fetchWithAuth('/api/departments', token).catch(() => ({ departments: [] })),
-        fetchWithAuth('/api/users', token).catch(() => ({ users: [] }))
+        fetchWithAuth('/api/users', token).catch(() => ([]))
       ]);
 
       setAssetsList(assetsRes.assets || []);
       setCategories(catRes.categories || []);
       setBranches(branchRes.branches || branchRes || []);
       setDepartments(deptRes.departments || deptRes || []);
-      setUsersList(userRes.users || userRes || []);
+      setUsersList(Array.isArray(userRes) ? userRes : (userRes?.users || userRes?.data || []));
     } catch (err) {
       console.error('Failed to load asset register data:', err);
     } finally {
@@ -82,7 +86,27 @@ export default function Assets() {
 
   useEffect(() => {
     loadData();
-  }, [getToken, searchQuery, selectedCategory, selectedBranch, selectedStatus]);
+  }, [getToken, searchQuery, selectedCategory, selectedBranch, selectedCustodian, selectedStatus]);
+
+  const handleQuickAssign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assigningAsset) return;
+    try {
+      setIsAssigning(true);
+      const token = await getToken();
+      if (!token) return;
+      await fetchWithAuth(`/api/assets/${assigningAsset.id}`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ custodianUid: newCustodianUid || null })
+      });
+      setAssigningAsset(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to reassign custodian');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
 
   const handleOpenCreate = () => {
     setEditingAsset(null);
@@ -299,7 +323,7 @@ export default function Assets() {
                 >
                   <option value="">Unassigned Custodian</option>
                   {Array.isArray(usersList) && usersList.map((u: any) => (
-                    <option key={u.uid || u.id} value={u.uid}>
+                    <option key={u.uid || u.id} value={u.uid || String(u.id)}>
                       {u.name || u.email} ({u.designation || u.role || 'Staff'})
                     </option>
                   ))}
@@ -492,6 +516,20 @@ export default function Assets() {
               </select>
 
               <select
+                value={selectedCustodian}
+                onChange={(e) => setSelectedCustodian(e.target.value)}
+                className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              >
+                <option value="">All Custodians</option>
+                <option value="unassigned">Unassigned Only</option>
+                {Array.isArray(usersList) && usersList.map((u: any) => (
+                  <option key={u.uid || u.id} value={u.uid || String(u.id)}>
+                    {u.name || u.email}
+                  </option>
+                ))}
+              </select>
+
+              <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
                 className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -599,13 +637,25 @@ export default function Assets() {
                           <QrCode className="w-4 h-4" />
                         </button>
                         {canEdit && (
-                          <button
-                            onClick={() => handleOpenEdit(asset)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit Asset"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => {
+                                setAssigningAsset(asset);
+                                setNewCustodianUid(asset.custodianUid || '');
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Assign / Reassign Custodian Employee"
+                            >
+                              <UserCheck className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenEdit(asset)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit Asset"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -695,6 +745,68 @@ export default function Assets() {
                 Print Sticker
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Assign Custodian Modal */}
+      {assigningAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-base">
+                <UserCheck className="w-5 h-5 text-indigo-600" />
+                <span>Assign Custodian</span>
+              </div>
+              <button
+                onClick={() => setAssigningAsset(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-4">
+              Assign or reassign custodian employee for <strong className="text-slate-800">{assigningAsset.name}</strong> ({assigningAsset.assetCode}).
+            </p>
+
+            <form onSubmit={handleQuickAssign} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Select Custodian Employee
+                </label>
+                <select
+                  value={newCustodianUid}
+                  onChange={(e) => setNewCustodianUid(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                >
+                  <option value="">Unassigned (In Warehouse / General)</option>
+                  {Array.isArray(usersList) && usersList.map((u: any) => (
+                    <option key={u.uid || u.id} value={u.uid || String(u.id)}>
+                      {u.name || u.email} ({u.designation || u.role || 'Staff'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAssigningAsset(null)}
+                  className="px-4 py-2 text-slate-600 text-xs font-semibold hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAssigning}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isAssigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+                  <span>Save Assignment</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

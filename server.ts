@@ -832,8 +832,8 @@ app.use('/api/procurement-reports', requireAuth, procurementReportsRouter);
 app.use('/api/auth/sso', ssoRouter);
 app.use('/api/profile/change-request', profileChangeRouter);
 
-// ─── User Profile API ───────────────────────────────────────────────────────
-// GET /api/profile – current user's profile
+// â”€â”€â”€ User Profile API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// GET /api/profile â€“ current user's profile
 app.get('/api/profile', requireAuth, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -859,7 +859,7 @@ app.get('/api/profile', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// PUT /api/profile – update basic details
+// PUT /api/profile â€“ update basic details
 app.put('/api/profile', requireAuth, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -875,7 +875,7 @@ app.put('/api/profile', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// PUT /api/profile/avatar – update avatar URL (base64 or URL string)
+// PUT /api/profile/avatar â€“ update avatar URL (base64 or URL string)
 app.put('/api/profile/avatar', requireAuth, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -892,7 +892,7 @@ app.put('/api/profile/avatar', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// PUT /api/profile/password – change password via Supabase Admin
+// PUT /api/profile/password â€“ change password via Supabase Admin
 app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -910,7 +910,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
-// ────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // --- Legacy API Routes ---
   
@@ -1088,7 +1088,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const existing = await db.select().from(plugins).where(eq(plugins.slug, p.slug));
         if (existing.length === 0) {
           await db.insert(plugins).values(p);
-          console.log(`✅ Seeded plugin: ${p.name}`);
+          console.log(`âœ… Seeded plugin: ${p.name}`);
         }
       }
     } catch (err) {
@@ -3966,24 +3966,85 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             });
           }
 
-          // 3. Update global_stock_ledger
-          const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
-          if (gsl.length > 0) {
-            await db.update(global_stock_ledger).set({
-              totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
-              closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
-              lastUpdated: new Date()
-            }).where(eq(global_stock_ledger.id, gsl[0].id));
-          } else {
-            await db.insert(global_stock_ledger).values({
-              companyId,
-              itemId: invItemId,
-              openingBalance: 0,
-              totalStockIn: newlyPassed,
-              totalStockOut: 0,
-              closingBalance: newlyPassed,
-              lastUpdated: new Date()
-            });
+            // 3. Update global_stock_ledger
+            const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
+            if (gsl.length > 0) {
+              await db.update(global_stock_ledger).set({
+                totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
+                closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
+                lastUpdated: new Date()
+              }).where(eq(global_stock_ledger.id, gsl[0].id));
+            } else {
+              await db.insert(global_stock_ledger).values({
+                companyId,
+                itemId: invItemId,
+                openingBalance: 0,
+                totalStockIn: newlyPassed,
+                totalStockOut: 0,
+                closingBalance: newlyPassed,
+                lastUpdated: new Date()
+              });
+            }
+
+            // 4. Auto-register Fixed Asset & Auto-assign Custodian if item is a Fixed Asset
+            try {
+              const currentInv = await db.select().from(inventory_items).where(eq(inventory_items.id, invItemId)).limit(1);
+              const isFixed = currentInv[0]?.isFixedAsset || poItem[0]?.category === 'Fixed Asset' || (currentInv[0]?.category && currentInv[0].category.toLowerCase().includes('asset'));
+
+              if (isFixed) {
+                // Trace PO -> PR -> Original IR / Requester
+                let requesterUid: string | null = null;
+                const parentPo = await db.select().from(purchase_orders).where(eq(purchase_orders.id, poItem[0].poId)).limit(1);
+                if (parentPo.length > 0 && parentPo[0].prId) {
+                  const parentPr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPo[0].prId)).limit(1);
+                  if (parentPr.length > 0) {
+                    if (parentPr[0].sourceIrId) {
+                      const originalIr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPr[0].sourceIrId)).limit(1);
+                      if (originalIr.length > 0) {
+                        requesterUid = originalIr[0].createdBy;
+                      }
+                    }
+                    if (!requesterUid) {
+                      requesterUid = parentPr[0].createdBy;
+                    }
+                  }
+                }
+
+                // Match or find asset category
+                let assetCatId = currentInv[0]?.assetCategoryId;
+                if (!assetCatId) {
+                  const catList = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
+                  if (catList.length > 0) {
+                    assetCatId = catList[0].id;
+                  }
+                }
+
+                if (assetCatId) {
+                  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+                  for (let k = 0; k < newlyPassed; k++) {
+                    const assetCode = `AST-IR-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
+                    await db.insert(assets).values({
+                      companyId,
+                      assetCode,
+                      name: poItem[0].itemName.trim(),
+                      categoryId: assetCatId,
+                      warehouseId,
+                      custodianUid: requesterUid || null,
+                      acquisitionDate: new Date(),
+                      acquisitionCost: String(poItem[0].unitPrice || '0.00'),
+                      salvageValue: '0.00',
+                      currentBookValue: String(poItem[0].unitPrice || '0.00'),
+                      status: 'Active',
+                      sourceType: 'GRN',
+                      sourceGrnId: grnId,
+                      createdByUid: req.user.uid
+                    });
+                  }
+                }
+              }
+            } catch (assetErr) {
+              console.error('Error auto-registering asset on QC pass:', assetErr);
+            }
           }
         }
       }
@@ -4904,12 +4965,12 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-  // Global branding settings (login page logo & favicon — not tied to any company)
+  // Global branding settings (login page logo & favicon â€” not tied to any company)
   app.get("/api/settings/global", async (_req, res) => {
     try {
       const settings = await db.select().from(system_settings).where(isNull(system_settings.companyId));
       const settingsMap = settings.reduce((acc: any, s: any) => ({ ...acc, [s.key]: s.value }), {});
-      // Cache for 5 minutes — login page branding rarely changes
+      // Cache for 5 minutes â€” login page branding rarely changes
       res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
       res.json(settingsMap);
     } catch (error: any) {
@@ -5643,7 +5704,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
               for (const admin of superAdmins) {
                 await db.insert(notifications).values({
                   userId: admin.uid,
-                  title: `⚠️ Low Stock Alert: ${item[0].name}`,
+                  title: `âš ï¸ Low Stock Alert: ${item[0].name}`,
                   message: `Stock level (${newQty} ${item[0].uom}) has dropped to or below reorder point (${item[0].reorderPoint}). Please initiate a Purchase Requisition.`,
                   type: 'WARNING',
                   link: '/inventory',
@@ -5832,7 +5893,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-﻿  // ==========================================
+ï»¿  // ==========================================
   // STOCK TRANSFERS
   // ==========================================
   
