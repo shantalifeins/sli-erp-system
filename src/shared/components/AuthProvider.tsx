@@ -205,17 +205,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (localToken) {
       syncUser(null);
     } else {
-      supabase.auth.getSession().then(({ data }) => {
-        syncUser(data?.session?.user || null);
-      }).catch((err) => {
-        console.warn('Supabase getSession failed, clearing stale auth state:', err);
-        clearStaleSupabaseKeys();
-        syncUser(null);
-      });
+      setLoading(false);
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!localStorage.getItem('local_auth_token')) {
+      if (!localStorage.getItem('local_auth_token') && session?.user) {
         syncUser(session?.user || null);
       }
     });
