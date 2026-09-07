@@ -46,6 +46,7 @@ import AssetSchedule from '@/src/modules/assets/pages/AssetSchedule';
 import AssetCategories from '@/src/modules/assets/pages/AssetCategories';
 import AssetMaintenance from '@/src/modules/assets/pages/AssetMaintenance';
 import AssetDisposal from '@/src/modules/assets/pages/AssetDisposal';
+import AssetTransfers from '@/src/modules/assets/pages/AssetTransfers';
 import AssetReports from '@/src/modules/assets/pages/AssetReports';
 import AssetVerification from '@/src/modules/assets/pages/AssetVerification';
 import PwaInstallPrompt from '@/src/shared/components/PwaInstallPrompt';
@@ -96,6 +97,8 @@ export default function App() {
             <Route path="/assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Assets /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-schedule/:id" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetSchedule /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetCategories /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-transfers" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetTransfers /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/assets/transfers" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetTransfers /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-maintenance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetMaintenance /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-disposal" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDisposal /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetReports /></PluginProtectedRoute></PrivateRoute>} />

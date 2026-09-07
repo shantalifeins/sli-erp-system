@@ -167,6 +167,7 @@ export default function Admin() {
         { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Depreciation Schedule", actions: ["canView", "canCreate"] },
+        { name: "Asset Transfers", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Maintenance", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Asset Disposal", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] },

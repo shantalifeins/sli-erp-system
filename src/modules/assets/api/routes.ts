@@ -1324,6 +1324,52 @@ router.post('/:id/transfer', requireAuth, checkPlugin('asset-management'), async
   }
 });
 
+// GET /api/assets/transfers — List all asset transfers for company
+router.get('/transfers', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const transfersList = await db
+      .select({
+        id: asset_transfers.id,
+        assetId: asset_transfers.assetId,
+        assetTag: assets.assetTag,
+        assetName: assets.name,
+        fromBranchId: asset_transfers.fromBranchId,
+        toBranchId: asset_transfers.toBranchId,
+        fromCustodianUid: asset_transfers.fromCustodianUid,
+        toCustodianUid: asset_transfers.toCustodianUid,
+        reason: asset_transfers.reason,
+        status: asset_transfers.status,
+        createdAt: asset_transfers.createdAt,
+      })
+      .from(asset_transfers)
+      .leftJoin(assets, eq(asset_transfers.assetId, assets.id))
+      .where(eq(asset_transfers.companyId, companyId))
+      .orderBy(desc(asset_transfers.createdAt));
+
+    const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
+    const allUsers = await db.select().from(users).where(eq(users.companyId, companyId));
+
+    const branchMap = new Map(allBranches.map(b => [b.id, b.name]));
+    const userMap = new Map(allUsers.map(u => [u.uid, u.name]));
+
+    const enhancedTransfers = transfersList.map(t => ({
+      ...t,
+      fromBranchName: t.fromBranchId ? branchMap.get(t.fromBranchId) || 'N/A' : 'Head Office',
+      toBranchName: t.toBranchId ? branchMap.get(t.toBranchId) || 'N/A' : 'N/A',
+      fromCustodianName: t.fromCustodianUid ? userMap.get(t.fromCustodianUid) || 'N/A' : 'Unassigned',
+      toCustodianName: t.toCustodianUid ? userMap.get(t.toCustodianUid) || 'N/A' : 'Unassigned',
+    }));
+
+    return res.json({ transfers: enhancedTransfers });
+  } catch (error: any) {
+    console.error('GET /api/assets/transfers error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset transfers' });
+  }
+});
+
 // GET /api/assets/transfers/:transferId — Get single transfer
 router.get('/transfers/:transferId', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
