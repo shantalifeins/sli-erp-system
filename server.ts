@@ -973,7 +973,15 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
+      if (!user.uid) {
+        user.uid = user.id ? `user-${user.id}` : `usr-${Date.now()}`;
+        try {
+          await db.update(users).set({ uid: user.uid }).where(eq(users.id, user.id));
+        } catch (e) {}
+      }
+
       const token = generateAuthToken({
+        id: user.id,
         uid: user.uid,
         email: user.email,
         companyId: user.companyId,

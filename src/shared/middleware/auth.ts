@@ -60,7 +60,7 @@ export const requireAuth = async (
     for (const secret of secretsToTry) {
       try {
         const decoded = jwt.verify(token, secret) as any;
-        if (decoded && (decoded.sub || decoded.uid)) {
+        if (decoded && (decoded.sub || decoded.uid || decoded.email)) {
           user = { id: decoded.sub || decoded.uid, email: decoded.email };
           break;
         }
@@ -74,20 +74,7 @@ export const requireAuth = async (
       try {
         const decoded = jwt.decode(token) as any;
         if (decoded && (decoded.sub || decoded.uid || decoded.email)) {
-          const searchUid = decoded.sub || decoded.uid;
-          const searchEmail = decoded.email;
-          
-          let dbCheck;
-          if (searchUid) {
-            dbCheck = await db.select().from(users).where(eq(users.uid, searchUid)).limit(1);
-          }
-          if ((!dbCheck || !dbCheck.length) && searchEmail) {
-            dbCheck = await db.select().from(users).where(ilike(users.email, searchEmail)).limit(1);
-          }
-
-          if (dbCheck && dbCheck.length > 0) {
-            user = { id: dbCheck[0].uid, email: dbCheck[0].email };
-          }
+          user = { id: decoded.sub || decoded.uid, email: decoded.email };
         }
       } catch (decErr) {}
     }
@@ -98,25 +85,34 @@ export const requireAuth = async (
         try {
           const { data, error } = await supabase.auth.getUser(token);
           if (data?.user) {
-            user = data.user;
+            user = { id: data.user.id, email: data.user.email };
           }
         } catch (sbErr) {}
       }
     }
 
-    if (!user) {
+    if (!user || (!user.id && !user.email)) {
       return res.status(401).json({ error: 'Unauthorized: Invalid token signature or user not found' });
     }
     
-    const dbUserResult = await db.select().from(users).where(eq(users.uid, user.id)).limit(1);
+    let dbUserResult: any[] = [];
+    if (user.id) {
+      dbUserResult = await db.select().from(users).where(eq(users.uid, user.id)).limit(1);
+    }
+    if ((!dbUserResult || !dbUserResult.length) && user.email) {
+      dbUserResult = await db.select().from(users).where(ilike(users.email, user.email)).limit(1);
+    }
+
     const dbUser = dbUserResult[0];
     if (dbUser && dbUser.status === 'Inactive') {
       return res.status(403).json({ error: 'Access Denied: Your account is suspended.' });
     }
 
+    const finalUid = dbUser?.uid || user.id || (dbUser?.id ? `user-${dbUser.id}` : user.email);
+
     req.user = { 
-      uid: user.id, 
-      email: user.email,
+      uid: finalUid, 
+      email: dbUser?.email || user.email,
       companyId: dbUser?.companyId,
       role: dbUser?.role
     };

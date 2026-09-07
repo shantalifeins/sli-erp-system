@@ -238,7 +238,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (res.ok) {
         const data = await res.json();
         localStorage.setItem('local_auth_token', data.token);
-        window.location.reload();
+        await syncUser(null);
         return;
       }
       const data = await res.json().catch(() => ({}));
