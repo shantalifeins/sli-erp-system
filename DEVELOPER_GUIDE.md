@@ -49,7 +49,7 @@ The `Layout` component provides both a side navigation bar and a **Top Module Na
 | **Administration** | `/admin/**` | System Settings (Companies, Workflows), User Settings (Depts, Units, Designations, Roles, Users, Org Chart) |
 | **Procurement** | `/procurement-dashboard`, `/purchase`, `/wo`, `/vendors`, `/rfq`, `/cs`, `/invoices`, `/procurement-report` | Dashboard, Purchase Requisitions, RFQ, Comparative Statement, Purchase Orders, Invoices & Payments, Reports |
 | **Inventory** | `/inventory-dashboard`, `/inventory`, `/grn`, `/qc`, `/stock-*`, `/requisition-list`, `/inventory-report` | Dashboard, Requisition List, Stock In, Stock Out, Stock Transfer, Transfer Receive, Goods Receipt (GRN), Inventory Reports, Inventory Settings |
-| **Asset Management** | `/assets-dashboard`, `/assets`, `/asset-*` | Dashboard, Assets Register, Asset Categories, Depreciation Schedule, Maintenance, Disposals, Physical Audit & Verification, Financial Reports |
+| **Asset Management** | `/assets-dashboard`, `/assets`, `/asset-*` | Dashboard, Assets Register, Asset Categories, Asset Transfers (`/asset-transfers`), Depreciation Schedule, Maintenance, Disposals, Physical Audit & Verification, Financial Reports |
 
 
 > [!IMPORTANT]
