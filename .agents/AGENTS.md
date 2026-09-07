@@ -46,6 +46,9 @@ This document defines the strict architecture, security standards, UI convention
   - Stock updates (`quantityInStock`, `warehouse_stock`, `global_stock_ledger`) calculate incremental additions: `newlyPassed = passedQty - previousPassedTotal`.
 - **PR Deduplication**: Recalculate pending items as `quantity - deliveredQuantity - prCreatedQuantity` when creating new PRs from partially fulfilled requisitions.
 - **Warehouse Manager Scoping**: Non-admin warehouse managers are mapped in `warehouse_managers` and can only manage assigned warehouses and item types (Admin, IT, Both).
+- **Asset Management & Depreciation**:
+  - `isFixedAsset=true` inventory items auto-match `assetCategoryId` based on Item Category name token similarity.
+  - Asset activation (`/api/assets/:id/activate`) auto-generates depreciation schedules using `Straight Line` or `Declining Balance` engine based on `depreciationMethod`.
 
 ---
 
