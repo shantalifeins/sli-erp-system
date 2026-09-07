@@ -69,13 +69,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
+    const clearStaleSupabaseKeys = () => {
+      try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+            localStorage.removeItem(key);
+          }
+        }
+      } catch {}
+    };
+
     const syncUser = async (currentUser: User | null) => {
       let localToken = localStorage.getItem('local_auth_token');
       try {
         let token = localToken;
         if (!token && currentUser) {
-          const { data: { session } } = await supabase.auth.getSession();
-          token = session?.access_token || null;
+          try {
+            const { data } = await supabase.auth.getSession();
+            token = data?.session?.access_token || null;
+          } catch (e) {
+            token = null;
+          }
         }
 
         if (!token) {
@@ -161,6 +176,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         } else {
           if (response.status === 401 || response.status === 403) {
             localStorage.removeItem('local_auth_token');
+            clearStaleSupabaseKeys();
             setUser(null);
             setDbUser(null);
             setCompany(null);
@@ -175,6 +191,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       } catch (e: any) {
         console.error('Failed to sync user with backend', e);
+        setUser(null);
+        setDbUser(null);
+        setCompany(null);
+        setPermissions([]);
+        setActivePlugins([]);
       }
       setLoading(false);
     };
@@ -184,8 +205,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (localToken) {
       syncUser(null);
     } else {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        syncUser(session?.user || null);
+      supabase.auth.getSession().then(({ data }) => {
+        syncUser(data?.session?.user || null);
+      }).catch((err) => {
+        console.warn('Supabase getSession failed, clearing stale auth state:', err);
+        clearStaleSupabaseKeys();
+        syncUser(null);
       });
     }
 
