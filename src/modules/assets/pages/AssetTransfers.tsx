@@ -66,10 +66,10 @@ export default function AssetTransfers() {
         fetchWithAuth('/api/users?status=Active', token)
       ]);
 
-      setTransfers(transfersRes.transfers || []);
-      setAssets(assetsRes.assets || []);
-      setBranches(branchesRes || []);
-      setUsers(usersRes || []);
+      setTransfers(transfersRes?.transfers || []);
+      setAssets(assetsRes?.assets || []);
+      setBranches(Array.isArray(branchesRes) ? branchesRes : (branchesRes?.branches || []));
+      setUsers(Array.isArray(usersRes) ? usersRes : (usersRes?.users || usersRes?.data || []));
     } catch (err) {
       console.error('Failed to load asset transfers data:', err);
     } finally {
@@ -338,7 +338,7 @@ export default function AssetTransfers() {
                   options={assets
                     .filter(a => a.status === 'Active')
                     .map(a => ({
-                      label: `${a.assetTag ? `[${a.assetTag}] ` : ''}${a.name}`,
+                      label: `${(a.assetCode || a.assetTag) ? `[${a.assetCode || a.assetTag}] ` : ''}${a.name}`,
                       value: a.id
                     }))}
                   value={selectedAssetId}
@@ -375,7 +375,7 @@ export default function AssetTransfers() {
                   >
                     <option value="">No custodian change</option>
                     {users.map(u => (
-                      <option key={u.uid} value={u.uid}>{u.name} ({u.role || 'User'})</option>
+                      <option key={u.uid || u.id} value={u.uid || String(u.id)}>{u.name || u.email} ({u.role || u.designation || 'User'})</option>
                     ))}
                   </select>
                 </div>

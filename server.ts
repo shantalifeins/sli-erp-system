@@ -1233,7 +1233,13 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       }
       if (!companyId) return res.json([]);
 
-      const allUsers = await db.select().from(users).where(eq(users.companyId, companyId)).orderBy(desc(users.createdAt));
+      const { status } = req.query;
+      const conditions = [eq(users.companyId, companyId)];
+      if (status && typeof status === 'string' && status.trim() !== '') {
+        conditions.push(ilike(users.status, status.trim()));
+      }
+
+      const allUsers = await db.select().from(users).where(and(...conditions)).orderBy(desc(users.createdAt));
       res.json(allUsers);
     } catch (error: any) {
       res.status(500).json({ error: "Failed to fetch users" });
@@ -1326,6 +1332,10 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/branches", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.json([]);
 
       const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId)).orderBy(branches.name);
