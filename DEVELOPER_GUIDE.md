@@ -35,12 +35,15 @@ Welcome to the **SLI ERP System**! This comprehensive guide provides developers 
 
 ---
 
-## 🧭 3. Navigation & Module Sidebar Routing
+### Sidebar Matching & Top Module Navigation Tabs (`Layout.tsx`)
+The `Layout` component provides both a side navigation bar and a **Top Module Navigation Tabs** bar (placed directly below the main header) for rapid horizontal module switching without returning to the main dashboard menu.
 
-### Sidebar Matching Rule (`Layout.tsx`)
-The sidebar navigation determines the active module using `path.startsWith()` and exact string checks. Sub-routes MUST be covered to prevent sidebars from disappearing:
+#### Top Module Navigation Bar Features:
+- **Dynamic Permission Filtering**: Module tabs (`My Panel`, `System Configuration`, `Procurement`, `Inventory`, `Asset Management`) are filtered based on user permissions and tenant active plugins (identical permission mapping to `Home.tsx`).
+- **Active State Highlighting**: The active module is highlighted with custom themed borders (`border-[#F37021]` for Procurement, `border-[#9F9C30]` for Inventory, `border-purple-600` for Asset Management, `border-indigo-500` for My Panel, `border-slate-700` for System Config) and soft focus rings.
+- **Space-Efficient Design**: Compact horizontal scrollable bar (`py-2`) to maximize screen area for page content while leaving the sidebar "Back to Modules" button fully operational.
 
-| Module | Active Route Matching | Sidebar Items |
+| Module | Active Route Matching | Sidebar & Top Tab Items |
 | :--- | :--- | :--- |
 | **User Panel** | `/user-dashboard`, `/inbox`, `/my-tasks`, `/item-requisition`, `/profile` | Dashboard, Global Tasks (`/inbox`), Item Requisitions, My Profile |
 | **Administration** | `/admin/**` | System Settings (Companies, Workflows), User Settings (Depts, Units, Designations, Roles, Users, Org Chart) |

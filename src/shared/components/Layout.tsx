@@ -72,7 +72,7 @@ function SidebarGroup({ item, pathname, search, closeSidebar }: { key?: React.Ke
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { signOut, user, dbUser, permissions, company, activeTenantId, setActiveTenantId, availableCompanies, isGlobalSuperAdmin } = useAuth();
+  const { signOut, user, dbUser, permissions, company, activeTenantId, setActiveTenantId, availableCompanies, isGlobalSuperAdmin, activePlugins } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { globalLoading, searchConfig, paginationConfig } = useLayoutControl();
@@ -102,8 +102,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-
-
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const getPermission = (modName: string) => permissions?.find((p: any) => p.module === modName);
   const hasOtherModules = isGlobalSuperAdmin || permissions?.some((p: any) => !['Global Tasks', 'Item Requisitions', 'My Profile'].includes(p.module) && p.canView);
@@ -130,6 +128,93 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     activeModule = 'admin';
     activeModuleName = 'System Configuration';
   }
+
+  // Top Module Navigation Tabs configuration
+  const moduleMenusMap: Record<string, string[]> = {
+    'user-panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
+    'admin': ['Dashboard', 'Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup'],
+    'procurement': ['Dashboard', 'Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements'],
+    'inventory': ['Dashboard', 'Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval'],
+    'asset-management': ['Dashboard', 'Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management']
+  };
+
+  const allModuleTabs = [
+    {
+      slug: 'user-panel',
+      title: 'My Panel',
+      path: '/user-dashboard',
+      icon: LayoutList,
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-50',
+      activeBorder: 'border-indigo-500 text-indigo-950',
+      activeRing: 'ring-2 ring-indigo-500/20'
+    },
+    {
+      slug: 'admin',
+      title: 'System Configuration',
+      path: '/admin',
+      icon: Shield,
+      color: 'text-slate-700',
+      bgColor: 'bg-slate-100',
+      activeBorder: 'border-slate-700 text-slate-900',
+      activeRing: 'ring-2 ring-slate-500/20'
+    },
+    {
+      slug: 'procurement',
+      title: 'Procurement',
+      path: '/procurement-dashboard',
+      icon: ShoppingCart,
+      color: 'text-[#F37021]',
+      bgColor: 'bg-[#FFF3EC]',
+      activeBorder: 'border-[#F37021] text-brand-charcoal',
+      activeRing: 'ring-2 ring-brand-orange/20'
+    },
+    {
+      slug: 'inventory',
+      title: 'Inventory',
+      path: '/inventory-dashboard',
+      icon: Box,
+      color: 'text-[#9F9C30]',
+      bgColor: 'bg-[#F4F4EB]',
+      activeBorder: 'border-[#9F9C30] text-slate-900',
+      activeRing: 'ring-2 ring-[#9F9C30]/20'
+    },
+    {
+      slug: 'asset-management',
+      title: 'Asset Management',
+      path: '/assets-dashboard',
+      icon: Layers,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50',
+      activeBorder: 'border-purple-600 text-purple-950',
+      activeRing: 'ring-2 ring-purple-500/20'
+    }
+  ];
+
+  const visibleModuleTabs = allModuleTabs.filter(mod => {
+    let hasPlugin = false;
+    if (mod.slug === 'admin' || mod.slug === 'user-panel' || mod.slug === 'asset-management') {
+      hasPlugin = true;
+    } else if (activePlugins && activePlugins.length > 0) {
+      hasPlugin = activePlugins.some(p => p.slug === mod.slug);
+    } else {
+      hasPlugin = true;
+    }
+    
+    if (!hasPlugin) return false;
+
+    const userRole = (dbUser?.role || (dbUser as any)?.userRole || '').toLowerCase();
+    if (isGlobalSuperAdmin || userRole.includes('super admin') || userRole.includes('superadmin') || userRole === 'admin') {
+      return true;
+    }
+    
+    const requiredMenus = moduleMenusMap[mod.slug] || [];
+    if (!permissions || permissions.length === 0) return true;
+
+    return permissions.some((p: any) => 
+      (requiredMenus.includes(p.module) || p.module === 'Asset Management' || p.module === mod.title) && p.canView
+    );
+  });
 
 
   // Define menus for each module
@@ -384,6 +469,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {/* Top Horizontal Module Switcher Bar */}
+        {visibleModuleTabs.length > 0 && (
+          <div className="bg-slate-100/80 border-b border-slate-200/80 px-4 sm:px-8 py-2 flex items-center gap-2 sm:gap-3 overflow-x-auto scrollbar-none shrink-0 z-10">
+            {visibleModuleTabs.map((mod) => {
+              const Icon = mod.icon;
+              const isActive = activeModule === mod.slug;
+              return (
+                <Link
+                  key={mod.slug}
+                  to={mod.path}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3.5 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 shrink-0 border whitespace-nowrap shadow-xs",
+                    isActive
+                      ? cn("bg-white shadow-sm border-2 font-bold", mod.activeBorder, mod.activeRing)
+                      : "bg-white/70 text-slate-600 border-slate-200/90 hover:bg-white hover:text-slate-900 hover:border-slate-300 hover:shadow-sm"
+                  )}
+                >
+                  <div className={cn("w-6 h-6 sm:w-6.5 sm:h-6.5 rounded-lg flex items-center justify-center shrink-0 transition-colors", mod.bgColor, mod.color)}>
+                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </div>
+                  <span>{mod.title}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
         <div className="flex-1 p-8 overflow-y-auto relative">
           {globalLoading && (
             <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
