@@ -4047,7 +4047,6 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             }
           }
         }
-      }
 
       // Auto-create vendor_quality_metrics for supplier quality rating
       try {
