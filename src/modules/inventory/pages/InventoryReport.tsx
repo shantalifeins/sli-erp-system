@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Download, FileText, ArrowLeft, Filter } from 'lucide-react';
+import { Download, FileText, ArrowLeft, Filter, Eye, X } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -13,6 +13,7 @@ export default function InventoryReport() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewRow, setViewRow] = useState<any>(null);
   
   // Filter states
   const [startDate, setStartDate] = useState('');
@@ -329,6 +330,7 @@ export default function InventoryReport() {
                       {col.label}
                     </th>
                   ))}
+                  <th className="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-200 text-center whitespace-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -342,17 +344,70 @@ export default function InventoryReport() {
                             : row[col.key] || <span className="text-slate-300">-</span>}
                         </td>
                       ))}
+                      <td className="p-3 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => setViewRow(row)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-xs font-bold transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> View
+                        </button>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={columns.filter(c => c.visible).length} className="p-8 text-center text-slate-400 font-medium">
+                    <td colSpan={columns.filter(c => c.visible).length + 1} className="p-8 text-center text-slate-400 font-medium">
                       No data found for the selected criteria.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Inventory Transaction Detail View Modal */}
+      {viewRow && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">
+                  Inventory Transaction Detail
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">Ref: {viewRow.referenceId || 'N/A'}</p>
+              </div>
+              <button 
+                onClick={() => setViewRow(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Transaction Type</span><span className="font-semibold text-brand-orange">{viewRow.transactionType || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Item Name</span><span className="font-semibold text-slate-800">{viewRow.itemName || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Item Code</span><span className="font-semibold text-slate-800">{viewRow.itemCode || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Category</span><span className="font-semibold text-slate-800">{viewRow.category || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Warehouse</span><span className="font-semibold text-slate-800">{viewRow.warehouseName || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Vendor</span><span className="font-semibold text-slate-800">{viewRow.vendorName || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Quantity</span><span className="font-bold text-slate-900 text-base">{viewRow.quantity || 0} {viewRow.uom || ''}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Performed By</span><span className="font-semibold text-slate-800">{viewRow.performedByName || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Date</span><span className="font-semibold text-slate-800">{viewRow.createdAt ? new Date(viewRow.createdAt).toLocaleDateString() : 'N/A'}</span></div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setViewRow(null)}
+                className="px-5 py-2 bg-slate-800 text-white font-bold text-sm rounded shadow-sm hover:bg-slate-900"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

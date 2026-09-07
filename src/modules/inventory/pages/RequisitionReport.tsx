@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Download, FileText, ArrowLeft, Filter, Search } from 'lucide-react';
+import { Download, FileText, ArrowLeft, Filter, Search, Eye, X } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -83,6 +83,7 @@ export default function RequisitionReport() {
   const initialDeliveryStatus = queryParams.get('deliveryStatus') === 'All' ? '' : (queryParams.get('deliveryStatus') || '');
   const [status, setStatus] = useState(initialStatus);
   const [deliveryStatus, setDeliveryStatus] = useState(initialDeliveryStatus);
+  const [viewRow, setViewRow] = useState<any>(null);
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const hasPermission = isSuperAdmin || permissions.some(p => p.permission === 'Requisition Report' && p.canView);
@@ -437,12 +438,13 @@ export default function RequisitionReport() {
                   {columns.filter(c => c.visible).map(col => (
                     <th key={col.key} className="p-4 font-bold text-slate-500">{col.label}</th>
                   ))}
+                  <th className="p-4 font-bold text-slate-500 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredReportData.length === 0 ? (
                   <tr>
-                    <td colSpan={columns.filter(c => c.visible).length} className="px-6 py-12 text-center">
+                    <td colSpan={columns.filter(c => c.visible).length + 1} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <FileText className="w-12 h-12 text-slate-300 mb-3" />
                         <p className="text-slate-500 font-medium text-lg">No requisitions found</p>
@@ -492,6 +494,14 @@ export default function RequisitionReport() {
                         )}
                       </td>
                     ))}
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => setViewRow(row)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-orange/10 hover:bg-brand-orange/20 text-brand-orange rounded text-xs font-bold transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> View
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -506,6 +516,79 @@ export default function RequisitionReport() {
             <p className="text-slate-500 text-sm max-w-md">
               Select your filters above and click "Generate Report" to view requisition data.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Requisition Detail View Modal */}
+      {viewRow && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">
+                  Requisition Detail: {viewRow.prNumber || 'Requisition'}
+                </h3>
+                <p className="text-xs text-slate-500">Requestor: {viewRow.requestor || 'N/A'}</p>
+              </div>
+              <button 
+                onClick={() => setViewRow(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">PR Number</span><span className="font-semibold text-slate-800">{viewRow.prNumber || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Requestor</span><span className="font-semibold text-slate-800">{viewRow.requestor || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Department</span><span className="font-semibold text-slate-800">{viewRow.department || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Priority</span><span className="font-semibold text-slate-800">{viewRow.priority || 'Normal'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Status</span><span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">{viewRow.status}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Delivery Status</span><span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-800">{viewRow.deliveryStatus}</span></div>
+                <div className="col-span-3"><span className="text-slate-400 block text-xs font-bold uppercase mb-1">Justification</span><p className="text-sm bg-white p-3 rounded border border-slate-200">{viewRow.justification || 'N/A'}</p></div>
+              </div>
+
+              {viewRow.items && viewRow.items.length > 0 && (
+                <div>
+                  <h4 className="font-bold text-slate-800 text-sm mb-2">Requested Items</h4>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs bg-white">
+                      <thead className="bg-slate-50 border-b text-slate-500 font-bold uppercase">
+                        <tr>
+                          <th className="p-2.5">Item Name</th>
+                          <th className="p-2.5 text-right">Requested Qty</th>
+                          <th className="p-2.5 text-right">Delivered Qty</th>
+                          <th className="p-2.5 text-right">PR Created Qty</th>
+                          <th className="p-2.5">UOM</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {viewRow.items.map((it: any, i: number) => (
+                          <tr key={i}>
+                            <td className="p-2.5 font-semibold text-slate-800">{it.itemName}</td>
+                            <td className="p-2.5 text-right font-medium">{it.quantity}</td>
+                            <td className="p-2.5 text-right text-emerald-600 font-semibold">{it.deliveredQuantity || 0}</td>
+                            <td className="p-2.5 text-right text-indigo-600 font-semibold">{it.prCreatedQuantity || 0}</td>
+                            <td className="p-2.5 text-slate-500">{it.uom}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setViewRow(null)}
+                className="px-5 py-2 bg-slate-800 text-white font-bold text-sm rounded shadow-sm hover:bg-slate-900"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

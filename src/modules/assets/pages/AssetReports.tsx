@@ -14,7 +14,9 @@ import {
   Calendar, 
   CheckCircle2, 
   Clock, 
-  AlertCircle
+  AlertCircle,
+  Eye,
+  X
 } from 'lucide-react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
@@ -100,6 +102,9 @@ export default function AssetReports() {
   const [registerData, setRegisterData] = useState<AssetRegisterItem[]>([]);
   const [depreciationData, setDepreciationData] = useState<DepreciationReportData | null>(null);
   const [valuationData, setValuationData] = useState<ValuationData | null>(null);
+
+  const [viewAsset, setViewAsset] = useState<any>(null);
+  const [viewDepr, setViewDepr] = useState<any>(null);
 
   // Fetch Categories for filter dropdown
   useEffect(() => {
@@ -355,12 +360,13 @@ export default function AssetReports() {
                   <th className="py-3 px-4 text-right">Accum. Depr.</th>
                   <th className="py-3 px-4 text-right">Net Book Value</th>
                   <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {registerData.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <td colSpan={11} className="py-8 text-center text-slate-400">
                       No matching asset records found.
                     </td>
                   </tr>
@@ -419,6 +425,14 @@ export default function AssetReports() {
                           {asset.status}
                         </span>
                       </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => setViewAsset(asset)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-orange/10 hover:bg-brand-orange/20 text-brand-orange rounded text-xs font-bold transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> View
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -429,14 +443,14 @@ export default function AssetReports() {
       )}
 
       {/* TAB 2: DEPRECIATION SCHEDULE REPORT */}
-      {activeTab === 'depreciation' && (
+      {activeTab === 'depreciation' && depreciationData && (
         <div className="space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase">Total Posted Depr.</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">
+                <p className="text-2xl font-bold text-emerald-600 mt-1">
                   {currencySymbol}{Number(depreciationData.summary.totalPosted || 0).toLocaleString()}
                 </p>
               </div>
@@ -484,12 +498,13 @@ export default function AssetReports() {
                     <th className="py-3 px-4 text-right">Accum. Depr.</th>
                     <th className="py-3 px-4 text-right">Book Value After</th>
                     <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {depreciationData.schedule.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-slate-400">
+                      <td colSpan={10} className="py-8 text-center text-slate-400">
                         No depreciation schedule entries found.
                       </td>
                     </tr>
@@ -523,6 +538,14 @@ export default function AssetReports() {
                           }`}>
                             {item.status}
                           </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => setViewDepr(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-orange/10 hover:bg-brand-orange/20 text-brand-orange rounded text-xs font-bold transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> View
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -626,6 +649,102 @@ export default function AssetReports() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Asset Detail View Modal */}
+      {viewAsset && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">
+                  Asset Register Details: {viewAsset.name}
+                </h3>
+                <p className="text-xs text-brand-orange font-mono">Code: {viewAsset.assetCode}</p>
+              </div>
+              <button 
+                onClick={() => setViewAsset(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Asset Name</span><span className="font-semibold text-slate-900">{viewAsset.name}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Asset Code</span><span className="font-semibold text-brand-orange font-mono">{viewAsset.assetCode}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Category</span><span className="font-semibold text-slate-800">{viewAsset.categoryName || 'Uncategorized'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Acquisition Date</span><span className="font-semibold text-slate-800">{viewAsset.acquisitionDate ? new Date(viewAsset.acquisitionDate).toLocaleDateString() : 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Acquisition Cost</span><span className="font-bold text-slate-900">{currencySymbol}{Number(viewAsset.acquisitionCost || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Salvage Value</span><span className="font-semibold text-slate-800">{currencySymbol}{Number(viewAsset.salvageValue || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Useful Life</span><span className="font-semibold text-slate-800">{viewAsset.usefulLifeMonths || 36} months</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Depreciation Method</span><span className="font-semibold text-slate-800">{viewAsset.depreciationMethod} {Number(viewAsset.decliningRate || 0) > 0 ? `(${viewAsset.decliningRate}%)` : ''}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Accum. Depreciation</span><span className="font-semibold text-slate-800">{currencySymbol}{Number(viewAsset.accumulatedDepreciation || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Net Book Value</span><span className="font-bold text-emerald-600 text-base">{currencySymbol}{Number(viewAsset.currentBookValue || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Branch / Dept</span><span className="font-semibold text-slate-800">{viewAsset.branchName || 'Head Office'} {viewAsset.departmentName ? `(${viewAsset.departmentName})` : ''}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Custodian</span><span className="font-semibold text-slate-800">{viewAsset.custodianName || 'Unassigned'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Serial Number</span><span className="font-semibold text-slate-800">{viewAsset.serialNumber || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Source</span><span className="font-semibold text-slate-800">{viewAsset.sourceType || 'Manual'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Status</span><span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">{viewAsset.status}</span></div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setViewAsset(null)}
+                className="px-5 py-2 bg-slate-800 text-white font-bold text-sm rounded shadow-sm hover:bg-slate-900"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Depreciation Schedule Entry View Modal */}
+      {viewDepr && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">
+                  Depreciation Period #{viewDepr.periodNumber} Details
+                </h3>
+                <p className="text-xs text-brand-orange font-mono">Asset Code: {viewDepr.assetCode}</p>
+              </div>
+              <button 
+                onClick={() => setViewDepr(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Asset Name</span><span className="font-semibold text-slate-900">{viewDepr.assetName}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Asset Code</span><span className="font-semibold text-brand-orange font-mono">{viewDepr.assetCode}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Category</span><span className="font-semibold text-slate-800">{viewDepr.categoryName || 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Period Number</span><span className="font-bold text-slate-800">{viewDepr.periodNumber}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Period Date</span><span className="font-semibold text-slate-800">{viewDepr.periodDate ? new Date(viewDepr.periodDate).toLocaleDateString() : 'N/A'}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Period Depreciation</span><span className="font-bold text-slate-900">{currencySymbol}{Number(viewDepr.depreciationAmount || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Accumulated Depr.</span><span className="font-semibold text-slate-800">{currencySymbol}{Number(viewDepr.accumulatedDepreciation || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Book Value After</span><span className="font-bold text-emerald-600 text-base">{currencySymbol}{Number(viewDepr.bookValueAfter || 0).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs font-bold uppercase">Status</span><span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-800">{viewDepr.status}</span></div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setViewDepr(null)}
+                className="px-5 py-2 bg-slate-800 text-white font-bold text-sm rounded shadow-sm hover:bg-slate-900"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
