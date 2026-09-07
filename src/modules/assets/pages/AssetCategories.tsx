@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { Layers, Plus, Search, Edit3, Trash2, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function AssetCategories() {
+  const navigate = useNavigate();
   const { getToken, dbUser, permissions } = useAuth();
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const categoryPerms = permissions?.find((p: any) => p.module === 'Asset Categories') || {};
@@ -16,6 +18,8 @@ export default function AssetCategories() {
   const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const [formData, setFormData] = useState({
     name: '',
@@ -133,15 +137,13 @@ export default function AssetCategories() {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-3">
-          {showForm && (
-            <button
-              onClick={() => setShowForm(false)}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Back to List"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
+          <button
+            onClick={() => showForm ? setShowForm(false) : navigate('/asset-dashboard')}
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            title={showForm ? "Back to List" : "Back to Dashboard"}
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
             <Layers className="w-6 h-6" />
           </div>
@@ -369,7 +371,7 @@ export default function AssetCategories() {
                     </td>
                   </tr>
                 ) : (
-                  filteredCategories.map((cat) => (
+                  filteredCategories.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((cat) => (
                     <tr key={cat.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="px-6 py-4 font-mono font-semibold text-blue-600 text-xs">
                         {cat.code}
@@ -419,6 +421,35 @@ export default function AssetCategories() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {!showForm && Math.ceil(filteredCategories.length / itemsPerPage) > 1 && (
+        <div className="flex items-center justify-between bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-sm text-slate-500">
+            Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+            <span className="font-semibold text-slate-700">{Math.min(currentPage * itemsPerPage, filteredCategories.length)}</span> of{' '}
+            <span className="font-semibold text-slate-700">{filteredCategories.length}</span> entries
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              Previous
+            </button>
+            <span className="text-xs font-semibold text-slate-600 px-2">
+              Page {currentPage} of {Math.ceil(filteredCategories.length / itemsPerPage)}
+            </span>
+            <button
+              disabled={currentPage === Math.ceil(filteredCategories.length / itemsPerPage)}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredCategories.length / itemsPerPage)))}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              Next
+            </button>
           </div>
         </div>
       )}

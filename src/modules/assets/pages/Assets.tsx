@@ -23,12 +23,14 @@ export default function Assets() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters
+  // Filters & Pagination
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedQrAsset, setSelectedQrAsset] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Form State
   const [showForm, setShowForm] = useState(false);
@@ -170,15 +172,13 @@ export default function Assets() {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-3">
-          {showForm && (
-            <button
-              onClick={() => setShowForm(false)}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Back to List"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
+          <button
+            onClick={() => showForm ? setShowForm(false) : navigate('/asset-dashboard')}
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            title={showForm ? "Back to List" : "Back to Dashboard"}
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
             <Box className="w-6 h-6" />
           </div>
@@ -522,18 +522,18 @@ export default function Assets() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-slate-400">
-                      Loading fixed assets register...
+                    <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                      Loading asset records...
                     </td>
                   </tr>
                 ) : assetsList.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-slate-400">
-                      No assets found. Click "Register Asset" to add one.
+                    <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                      No fixed assets found.
                     </td>
                   </tr>
                 ) : (
-                  assetsList.map((asset) => (
+                  assetsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((asset) => (
                     <tr key={asset.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="px-6 py-4 font-mono font-semibold text-purple-600 text-xs">
                         {asset.assetCode}
@@ -613,6 +613,35 @@ export default function Assets() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {!showForm && Math.ceil(assetsList.length / itemsPerPage) > 1 && (
+        <div className="flex items-center justify-between bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-sm">
+          <p className="text-sm text-slate-500">
+            Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+            <span className="font-semibold text-slate-700">{Math.min(currentPage * itemsPerPage, assetsList.length)}</span> of{' '}
+            <span className="font-semibold text-slate-700">{assetsList.length}</span> entries
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              Previous
+            </button>
+            <span className="text-xs font-semibold text-slate-600 px-2">
+              Page {currentPage} of {Math.ceil(assetsList.length / itemsPerPage)}
+            </span>
+            <button
+              disabled={currentPage === Math.ceil(assetsList.length / itemsPerPage)}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(assetsList.length / itemsPerPage)))}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              Next
+            </button>
           </div>
         </div>
       )}

@@ -63,6 +63,10 @@ export default function AssetVerification() {
   const [startNotes, setStartNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
+
   // Active Session Detail View
   const [activeSession, setActiveSession] = useState<VerificationSession | null>(null);
   const [sessionDetails, setSessionDetails] = useState<VerificationDetail[]>([]);
@@ -256,7 +260,7 @@ export default function AssetVerification() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => activeSession ? setActiveSession(null) : navigate('/assets')}
+            onClick={() => activeSession ? setActiveSession(null) : navigate('/asset-dashboard')}
             className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
             title="Back"
           >
@@ -307,63 +311,99 @@ export default function AssetVerification() {
       )}
 
       {/* VIEW 1: SESSIONS LIST */}
-      {!activeSession && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                <tr>
-                  <th className="py-3 px-4">Audit Code</th>
-                  <th className="py-3 px-4">Branch</th>
-                  <th className="py-3 px-4">Auditor</th>
-                  <th className="py-3 px-4 text-center">Counted</th>
-                  <th className="py-3 px-4 text-center">Missing</th>
-                  <th className="py-3 px-4 text-center">Misplaced</th>
-                  <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sessions.length === 0 ? (
+      {!activeSession && (() => {
+        const totalPages = Math.ceil(sessions.length / itemsPerPage);
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const paginatedSessions = sessions.slice(startIndex, startIndex + itemsPerPage);
+
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400">
-                      No physical verification audit sessions found. Click "New Audit Session" to start.
-                    </td>
+                    <th className="py-3 px-4">Audit Code</th>
+                    <th className="py-3 px-4">Branch</th>
+                    <th className="py-3 px-4">Auditor</th>
+                    <th className="py-3 px-4 text-center">Counted</th>
+                    <th className="py-3 px-4 text-center">Missing</th>
+                    <th className="py-3 px-4 text-center">Misplaced</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-right">Action</th>
                   </tr>
-                ) : (
-                  sessions.map((s) => (
-                    <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 font-mono font-medium text-brand-orange">
-                        {s.verificationCode}
-                      </td>
-                      <td className="py-3 px-4 text-slate-700">{s.branchName || 'All Branches'}</td>
-                      <td className="py-3 px-4 text-slate-600">{s.verifiedByName || 'System'}</td>
-                      <td className="py-3 px-4 text-center font-semibold text-slate-800">{s.totalAssetsCounted}</td>
-                      <td className="py-3 px-4 text-center font-semibold text-rose-600">{s.totalMissing}</td>
-                      <td className="py-3 px-4 text-center font-semibold text-amber-600">{s.totalMisplaced}</td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          s.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {s.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => openSessionDetail(s)}
-                          className="px-3 py-1.5 text-xs font-medium text-brand-orange bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
-                        >
-                          Open Session
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sessions.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-400">
+                        No physical verification audit sessions found. Click "New Audit Session" to start.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    paginatedSessions.map((s) => (
+                      <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 font-mono font-medium text-brand-orange">
+                          {s.verificationCode}
+                        </td>
+                        <td className="py-3 px-4 text-slate-700">{s.branchName || 'All Branches'}</td>
+                        <td className="py-3 px-4 text-slate-600">{s.verifiedByName || 'System'}</td>
+                        <td className="py-3 px-4 text-center font-semibold text-slate-800">{s.totalAssetsCounted}</td>
+                        <td className="py-3 px-4 text-center font-semibold text-rose-600">{s.totalMissing}</td>
+                        <td className="py-3 px-4 text-center font-semibold text-amber-600">{s.totalMisplaced}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            s.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {s.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => openSessionDetail(s)}
+                            className="px-3 py-1.5 text-xs font-medium text-brand-orange bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
+                          >
+                            Open Session
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                <div className="text-sm text-slate-500">
+                  Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                  <span className="font-medium">{Math.min(startIndex + itemsPerPage, sessions.length)}</span> of{' '}
+                  <span className="font-medium">{sessions.length}</span> results
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-slate-600 px-2 font-medium">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* VIEW 2: ACTIVE SESSION AUDIT WORKSPACE */}
       {activeSession && (
