@@ -4,7 +4,12 @@ import { fetchWithAuth } from '@/src/shared/lib/api';
 import { Layers, Plus, Search, Edit3, Trash2, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function AssetCategories() {
-  const { getToken } = useAuth();
+  const { getToken, dbUser, permissions } = useAuth();
+  const isSuperAdmin = dbUser?.role === 'Super Admin';
+  const categoryPerms = permissions?.find((p: any) => p.module === 'Asset Categories') || {};
+  const canCreate = isSuperAdmin || categoryPerms.canCreate;
+  const canEdit = isSuperAdmin || categoryPerms.canEdit;
+  const canDelete = isSuperAdmin || categoryPerms.canDelete;
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -146,7 +151,7 @@ export default function AssetCategories() {
           </div>
         </div>
 
-        {!showForm && (
+        {!showForm && canCreate && (
           <button
             onClick={handleOpenCreate}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-sm transition-colors"
@@ -389,21 +394,25 @@ export default function AssetCategories() {
                           {cat.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button
-                          onClick={() => handleOpenEdit(cat)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Edit Category"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(cat.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          title="Delete Category"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                        {canEdit && (
+                          <button
+                            onClick={() => handleOpenEdit(cat)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Category"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(cat.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Delete Category"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

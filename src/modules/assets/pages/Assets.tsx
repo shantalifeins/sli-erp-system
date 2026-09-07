@@ -7,8 +7,14 @@ import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar,
 
 export default function Assets() {
   const navigate = useNavigate();
-  const { getToken } = useAuth();
+  const { getToken, dbUser, permissions } = useAuth();
   const currencySymbol = useCurrency();
+
+  const isSuperAdmin = dbUser?.role === 'Super Admin';
+  const assetPerms = permissions?.find((p: any) => p.module === 'Assets Register') || {};
+  const canCreate = isSuperAdmin || assetPerms.canCreate;
+  const canEdit = isSuperAdmin || assetPerms.canEdit;
+  const canApprove = isSuperAdmin || assetPerms.canApprove;
 
   const [assetsList, setAssetsList] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -182,7 +188,7 @@ export default function Assets() {
           </div>
         </div>
 
-        {!showForm && (
+        {!showForm && canCreate && (
           <button
             onClick={handleOpenCreate}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-sm transition-colors"
@@ -568,7 +574,7 @@ export default function Assets() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right flex items-center justify-end gap-1">
-                        {asset.status === 'Draft' && (
+                        {asset.status === 'Draft' && (canApprove || canEdit) && (
                           <button
                             onClick={() => handleActivateAsset(asset.id)}
                             className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold px-2 border border-emerald-200"
@@ -592,13 +598,15 @@ export default function Assets() {
                         >
                           <QrCode className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleOpenEdit(asset)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Edit Asset"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleOpenEdit(asset)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Asset"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

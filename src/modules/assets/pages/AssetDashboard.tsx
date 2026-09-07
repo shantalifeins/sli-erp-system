@@ -20,9 +20,13 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 export default function AssetDashboard() {
-  const { getToken } = useAuth();
+  const { getToken, dbUser, permissions } = useAuth();
   const currencySymbol = useCurrency();
   const navigate = useNavigate();
+
+  const isSuperAdmin = dbUser?.role === 'Super Admin';
+  const depPerms = permissions?.find((p: any) => p.module === 'Depreciation Schedule' || p.module === 'Assets Register') || {};
+  const canRunDepr = isSuperAdmin || depPerms.canCreate || depPerms.canApprove;
 
   const [assets, setAssets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -103,16 +107,18 @@ export default function AssetDashboard() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setComputeResult(null);
-              setShowDepModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-xl shadow-sm transition-colors text-sm"
-          >
-            <Play className="w-4 h-4" />
-            <span>Run Depreciation</span>
-          </button>
+          {canRunDepr && (
+            <button
+              onClick={() => {
+                setComputeResult(null);
+                setShowDepModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-xl shadow-sm transition-colors text-sm"
+            >
+              <Play className="w-4 h-4" />
+              <span>Run Depreciation</span>
+            </button>
+          )}
 
           <button
             onClick={() => navigate('/asset-categories')}

@@ -165,24 +165,12 @@ export default function Admin() {
       menus: [
         { name: "Dashboard", actions: ["canView"] },
         { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
-        { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit"] },
-        { name: "Depreciation Schedule", actions: ["canView", "canCreate"] },
-        { name: "Maintenance", actions: ["canView", "canCreate", "canEdit"] },
-        { name: "Disposals", actions: ["canView", "canCreate", "canApprove"] },
-        { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] },
-        { name: "Reports", actions: ["canView"] }
-      ]
-    },
-    {
-      module: "Asset Management",
-      menus: [
-        { name: "Dashboard", actions: ["canView"] },
-        { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Depreciation Schedule", actions: ["canView", "canCreate"] },
         { name: "Asset Maintenance", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Asset Disposal", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Asset Reports", actions: ["canView"] },
-        { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] }
+        { name: "Asset Disposal", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
+        { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] },
+        { name: "Asset Reports", actions: ["canView"] }
       ]
     }
   ];
