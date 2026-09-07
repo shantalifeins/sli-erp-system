@@ -3989,7 +3989,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             // 4. Auto-register Fixed Asset & Auto-assign Custodian if item is a Fixed Asset
             try {
               const currentInv = await db.select().from(inventory_items).where(eq(inventory_items.id, invItemId)).limit(1);
-              const isFixed = currentInv[0]?.isFixedAsset || poItem[0]?.category === 'Fixed Asset' || (currentInv[0]?.category && currentInv[0].category.toLowerCase().includes('asset'));
+              const isFixed = currentInv[0]?.isFixedAsset || (poItem[0] as any)?.category === 'Fixed Asset' || (currentInv[0]?.category && currentInv[0].category.toLowerCase().includes('asset'));
 
               if (isFixed) {
                 // Trace PO -> PR -> Original IR / Requester
@@ -4001,11 +4001,11 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
                     if (parentPr[0].sourceIrId) {
                       const originalIr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPr[0].sourceIrId)).limit(1);
                       if (originalIr.length > 0) {
-                        requesterUid = originalIr[0].createdBy;
+                        requesterUid = originalIr[0].uid || (originalIr[0] as any).createdBy || null;
                       }
                     }
                     if (!requesterUid) {
-                      requesterUid = parentPr[0].createdBy;
+                      requesterUid = parentPr[0].uid || (parentPr[0] as any).createdBy || null;
                     }
                   }
                 }
@@ -5892,7 +5892,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-ï»¿  // ==========================================
+  // ==========================================
   // STOCK TRANSFERS
   // ==========================================
   
