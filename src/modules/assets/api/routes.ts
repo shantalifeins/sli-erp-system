@@ -4,7 +4,7 @@ import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
 import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions } from '../../../shared/db/schema.js';
-import { calculateStraightLineSchedule } from '../lib/depreciationEngine.js';
+import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count } from 'drizzle-orm';
 
@@ -783,8 +783,10 @@ router.post('/:id/activate', requireAuth, checkPlugin('asset-management'), async
     const usefulLifeMonths = Number(existingAsset.usefulLifeMonths || 36);
     const startDate = existingAsset.depreciationStartDate ? new Date(existingAsset.depreciationStartDate) : new Date(existingAsset.acquisitionDate || new Date());
 
-    // Generate schedule periods
-    const scheduleItems = calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
+    // Generate schedule periods using chosen method engine
+    const scheduleItems = existingAsset.depreciationMethod === 'Declining Balance'
+      ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate)
+      : calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
 
     // Delete any existing schedule rows for this asset (re-activation protection)
     await db
@@ -971,7 +973,9 @@ router.post('/:id/submit', requireAuth, checkPlugin('asset-management'), async (
       const usefulLifeMonths = Number(assetRecord.usefulLifeMonths || 36);
       const startDate = assetRecord.depreciationStartDate ? new Date(assetRecord.depreciationStartDate) : new Date(assetRecord.acquisitionDate || new Date());
 
-      const scheduleItems = calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
+      const scheduleItems = assetRecord.depreciationMethod === 'Declining Balance'
+        ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate)
+        : calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
 
       await db
         .delete(asset_depreciation_schedule)
@@ -1101,7 +1105,9 @@ router.post('/:id/approve', requireAuth, checkPlugin('asset-management'), async 
     const usefulLifeMonths = Number(assetRecord.usefulLifeMonths || 36);
     const startDate = assetRecord.depreciationStartDate ? new Date(assetRecord.depreciationStartDate) : new Date(assetRecord.acquisitionDate || new Date());
 
-    const scheduleItems = calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
+    const scheduleItems = assetRecord.depreciationMethod === 'Declining Balance'
+      ? calculateDecliningBalanceSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate)
+      : calculateStraightLineSchedule(acquisitionCost, salvageValue, usefulLifeMonths, startDate);
 
     await db
       .delete(asset_depreciation_schedule)

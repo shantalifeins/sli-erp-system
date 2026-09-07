@@ -42,6 +42,7 @@ import UserDashboard from '@/src/modules/userPanel/pages/UserDashboard';
 
 import AssetDashboard from '@/src/modules/assets/pages/AssetDashboard';
 import Assets from '@/src/modules/assets/pages/Assets';
+import AssetSchedule from '@/src/modules/assets/pages/AssetSchedule';
 import AssetCategories from '@/src/modules/assets/pages/AssetCategories';
 import AssetMaintenance from '@/src/modules/assets/pages/AssetMaintenance';
 import AssetDisposal from '@/src/modules/assets/pages/AssetDisposal';
@@ -93,6 +94,7 @@ export default function App() {
             {/* Asset Management Routes */}
             <Route path="/assets-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDashboard /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Assets /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-schedule/:id" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetSchedule /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetCategories /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-maintenance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetMaintenance /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-disposal" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDisposal /></PluginProtectedRoute></PrivateRoute>} />

@@ -11,6 +11,7 @@ export default function Inventory() {
   const currencySymbol = useCurrency();
   const [items, setItems] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [assetCategories, setAssetCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,20 +30,65 @@ export default function Inventory() {
   const [uom, setUom] = useState('Pcs');
   const [location, setLocation] = useState('');
   const [isFixedAsset, setIsFixedAsset] = useState(false);
+  const [assetCategoryId, setAssetCategoryId] = useState('');
   const [basePrice, setBasePrice] = useState('');
   const [isAdminItem, setIsAdminItem] = useState(false);
   const [isItItem, setIsItItem] = useState(false);
+
+  const findMatchingAssetCategory = (itemCatName: string, assetCats: any[]) => {
+    if (!itemCatName || !assetCats || assetCats.length === 0) return '';
+    const itemLower = itemCatName.toLowerCase();
+    
+    // Direct match or substring match
+    const directMatch = assetCats.find(a => 
+      a.name.toLowerCase() === itemLower ||
+      a.name.toLowerCase().includes(itemLower) ||
+      itemLower.includes(a.name.toLowerCase())
+    );
+    if (directMatch) return directMatch.id;
+
+    // Word token match
+    const tokens = itemLower.split(/[\s&,/]+/).filter(t => t.length > 2);
+    for (const token of tokens) {
+      const tokenMatch = assetCats.find(a => a.name.toLowerCase().includes(token));
+      if (tokenMatch) return tokenMatch.id;
+    }
+
+    return assetCats[0]?.id || '';
+  };
+
+  const handleCategoryChange = (newCat: string) => {
+    setCategory(newCat);
+    if (isFixedAsset) {
+      const matched = findMatchingAssetCategory(newCat, assetCategories);
+      if (matched) setAssetCategoryId(matched);
+    }
+  };
+
+  const handleFixedAssetToggle = (checked: boolean) => {
+    setIsFixedAsset(checked);
+    if (checked) {
+      if (!assetCategoryId && category) {
+        const matched = findMatchingAssetCategory(category, assetCategories);
+        if (matched) setAssetCategoryId(matched);
+      }
+    } else {
+      setAssetCategoryId('');
+    }
+  };
 
   const loadData = async () => {
     try {
       const token = await getToken();
       if (!token) return;
-      const [itemsData, catData] = await Promise.all([
+      const [itemsData, catData, assetCatRes] = await Promise.all([
         fetchWithAuth('/api/inventory', token),
-        fetchWithAuth('/api/inventory/categories', token)
+        fetchWithAuth('/api/inventory/categories', token),
+        fetchWithAuth('/api/assets/categories', token).catch(() => ({ categories: [] }))
       ]);
       setItems(itemsData);
       setCategories(catData);
+      setAssetCategories(assetCatRes?.categories || assetCatRes || []);
     } catch (error) {
       console.error(error);
     } finally {
@@ -78,7 +124,7 @@ export default function Inventory() {
 
       await fetchWithAuth('/api/inventory', token, {
         method: 'POST',
-        body: JSON.stringify({ itemCode, name, category, uom, location, isFixedAsset, basePrice, isAdminItem, isItItem }),
+        body: JSON.stringify({ itemCode, name, category, uom, location, isFixedAsset, assetCategoryId: isFixedAsset ? assetCategoryId : null, basePrice, isAdminItem, isItItem }),
       });
       setShowForm(false);
       setItemCode('');
@@ -87,6 +133,7 @@ export default function Inventory() {
       setIsNewCategory(false);
       setLocation('');
       setIsFixedAsset(false);
+      setAssetCategoryId('');
       setBasePrice('');
       setIsAdminItem(false);
       setIsItItem(false);
@@ -168,7 +215,7 @@ export default function Inventory() {
                         setIsNewCategory(true);
                         setCategory('');
                       } else {
-                        setCategory(e.target.value);
+                        handleCategoryChange(e.target.value);
                       }
                     }} 
                     required 
@@ -184,7 +231,7 @@ export default function Inventory() {
                   <div className="flex gap-2">
                     <input 
                       value={category} 
-                      onChange={e => setCategory(e.target.value)} 
+                      onChange={e => handleCategoryChange(e.target.value)} 
                       placeholder="Enter new category..." 
                       required 
                       className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" 
@@ -215,17 +262,43 @@ export default function Inventory() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2 mt-4">
-              <input 
-                type="checkbox" 
-                id="isFixedAsset" 
-                checked={isFixedAsset} 
-                onChange={e => setIsFixedAsset(e.target.checked)} 
-                className="rounded border-slate-300 text-brand-orange focus:ring-brand-orange h-4 w-4" 
-              />
-              <label htmlFor="isFixedAsset" className="text-sm font-semibold text-slate-700 cursor-pointer">
-                Is Fixed Asset?
-              </label>
+            <div className="space-y-3 mt-4">
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="isFixedAsset" 
+                  checked={isFixedAsset} 
+                  onChange={e => handleFixedAssetToggle(e.target.checked)} 
+                  className="rounded border-slate-300 text-brand-orange focus:ring-brand-orange h-4 w-4" 
+                />
+                <label htmlFor="isFixedAsset" className="text-sm font-semibold text-slate-700 cursor-pointer">
+                  Is Fixed Asset?
+                </label>
+              </div>
+
+              {isFixedAsset && (
+                <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-lg space-y-1.5">
+                  <label className="block text-[10px] font-bold text-purple-700 uppercase tracking-widest">
+                    Asset Category *
+                  </label>
+                  <select
+                    required={isFixedAsset}
+                    value={assetCategoryId}
+                    onChange={e => setAssetCategoryId(e.target.value)}
+                    className="block w-full rounded-md border-purple-200 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm border p-2 bg-white text-slate-800 font-medium"
+                  >
+                    <option value="">Select Fixed Asset Category...</option>
+                    {assetCategories.map(cat => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name} ({cat.code})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-purple-600/90 font-medium">
+                    Selected category will automatically be assigned when auto-creating Fixed Assets upon GRN QC pass.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div>

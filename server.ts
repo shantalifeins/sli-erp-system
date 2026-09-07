@@ -50,6 +50,10 @@ const supabaseAdmin = createClient(
 
 export const app = express();
 
+// Ensure asset_category_id column exists on inventory_items table
+db.execute(sql`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS asset_category_id UUID REFERENCES asset_categories(id);`)
+  .catch(err => console.warn('Auto-migration asset_category_id non-fatal warning:', err));
+
 export const DEFAULT_NOTIFICATION_TEMPLATES: Record<string, { module: string, titleTemplate: string, bodyTemplate: string, mailSubjectTemplate?: string, mailBodyTemplate?: string, recipient?: string }> = {
   "User Created": { 
     module: "Administration", 
@@ -4072,19 +4076,23 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
                 const seq = String(Number(assetCount[0].count) + 1).padStart(4, '0');
 
                 let categoryId: string;
-                const existingCategories = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
-                if (existingCategories.length > 0) {
-                  categoryId = existingCategories[0].id;
+                if (invItem.length > 0 && invItem[0].assetCategoryId) {
+                  categoryId = invItem[0].assetCategoryId;
                 } else {
-                  const [newDefaultCat] = await db.insert(asset_categories).values({
-                    companyId,
-                    name: 'General Fixed Assets',
-                    code: 'CAT-GEN',
-                    defaultDepreciationMethod: 'Straight Line',
-                    defaultUsefulLifeMonths: 36,
-                    status: 'Active'
-                  }).returning();
-                  categoryId = newDefaultCat.id;
+                  const existingCategories = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
+                  if (existingCategories.length > 0) {
+                    categoryId = existingCategories[0].id;
+                  } else {
+                    const [newDefaultCat] = await db.insert(asset_categories).values({
+                      companyId,
+                      name: 'General Fixed Assets',
+                      code: 'CAT-GEN',
+                      defaultDepreciationMethod: 'Straight Line',
+                      defaultUsefulLifeMonths: 36,
+                      status: 'Active'
+                    }).returning();
+                    categoryId = newDefaultCat.id;
+                  }
                 }
 
                 await db.insert(assets).values({
@@ -4443,7 +4451,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
       }
       if (!companyId) return res.status(400).json({ error: "No company context" });
-      const { itemCode, name, category, uom, quantityInStock, reorderLevel, location, isFixedAsset, basePrice, isAdminItem, isItItem } = req.body;
+      const { itemCode, name, category, uom, quantityInStock, reorderLevel, location, isFixedAsset, assetCategoryId, basePrice, isAdminItem, isItItem } = req.body;
       const result = await db.insert(inventory_items).values({
         companyId,
         itemCode,
@@ -4454,6 +4462,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         reorderLevel: reorderLevel || 0,
         location,
         isFixedAsset: isFixedAsset || false,
+        assetCategoryId: isFixedAsset && assetCategoryId ? assetCategoryId : null,
         basePrice: basePrice || null,
         isAdminItem: isAdminItem || false,
         isItItem: isItItem || false,

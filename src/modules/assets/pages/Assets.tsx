@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
-import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode } from 'lucide-react';
+import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText } from 'lucide-react';
 
 export default function Assets() {
+  const navigate = useNavigate();
   const { getToken } = useAuth();
   const currencySymbol = useCurrency();
 
@@ -134,9 +136,23 @@ export default function Assets() {
       setShowForm(false);
       await loadData();
     } catch (err: any) {
-      alert(err.message || 'Failed to save asset');
+      console.error('Save asset error:', err);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleActivateAsset = async (assetId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetchWithAuth(`/api/assets/${assetId}/activate`, token, {
+        method: 'POST'
+      });
+      await loadData();
+    } catch (err: any) {
+      console.error('Activate asset error:', err);
+      alert(err.message || 'Failed to activate asset');
     }
   };
 
@@ -529,6 +545,23 @@ export default function Assets() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right flex items-center justify-end gap-1">
+                        {asset.status === 'Draft' && (
+                          <button
+                            onClick={() => handleActivateAsset(asset.id)}
+                            className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold px-2 border border-emerald-200"
+                            title="Activate Asset & Generate Schedule"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>Activate</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => navigate(`/asset-schedule/${asset.id}`)}
+                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                          title="View Depreciation Schedule"
+                        >
+                          <Calendar className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => setSelectedQrAsset(asset)}
                           className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"

@@ -525,6 +525,7 @@ export const inventory_items = pgTable('inventory_items', {
   avgDailyConsumption: numeric('avg_daily_consumption'), // Phase 1: Auto-calculated
   location: text('location'),
   isFixedAsset: boolean('is_fixed_asset').default(false),
+  assetCategoryId: uuid('asset_category_id').references(() => asset_categories.id),
   basePrice: numeric('base_price'),
   isAdminItem: boolean('is_admin_item').default(false),
   isItItem: boolean('is_it_item').default(false),

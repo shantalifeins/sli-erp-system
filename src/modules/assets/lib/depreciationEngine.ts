@@ -52,3 +52,66 @@ export function calculateStraightLineSchedule(
 
   return schedule;
 }
+
+/**
+ * Calculates a declining balance depreciation schedule.
+ * Uses accelerated depreciation where early periods carry higher depreciation amounts.
+ */
+export function calculateDecliningBalanceSchedule(
+  acquisitionCost: number,
+  salvageValue: number,
+  usefulLifeMonths: number,
+  startDate: Date
+): SchedulePeriod[] {
+  if (usefulLifeMonths <= 0 || acquisitionCost < 0 || salvageValue < 0 || acquisitionCost < salvageValue) {
+    throw new Error('Invalid depreciation parameters');
+  }
+
+  const depreciableAmount = Number((acquisitionCost - salvageValue).toFixed(2));
+  if (depreciableAmount === 0) {
+    return [];
+  }
+
+  const usefulLifeYears = usefulLifeMonths / 12;
+  // Calculate annual rate (using Diminishing Value / Declining Balance formula)
+  let annualRate = 0;
+  if (salvageValue > 0) {
+    annualRate = 1 - Math.pow(salvageValue / acquisitionCost, 1 / usefulLifeYears);
+  } else {
+    // Standard double-declining rate (2 / years) capped at 0.5
+    annualRate = Math.min(2 / Math.max(usefulLifeYears, 1), 0.5);
+  }
+  const monthlyRate = annualRate / 12;
+
+  const schedule: SchedulePeriod[] = [];
+  let currentBookValue = acquisitionCost;
+  let accum = 0;
+
+  for (let i = 1; i <= usefulLifeMonths; i++) {
+    const periodDate = new Date(startDate);
+    periodDate.setMonth(periodDate.getMonth() + i);
+
+    let periodDep = Number((currentBookValue * monthlyRate).toFixed(2));
+    
+    // Ensure book value doesn't drop below salvage value
+    if (currentBookValue - periodDep < salvageValue || i === usefulLifeMonths) {
+      periodDep = Number((currentBookValue - salvageValue).toFixed(2));
+    }
+    if (periodDep < 0) periodDep = 0;
+
+    accum = Number((accum + periodDep).toFixed(2));
+    currentBookValue = Number((acquisitionCost - accum).toFixed(2));
+
+    schedule.push({
+      periodNumber: i,
+      periodDate,
+      depreciationAmount: periodDep.toFixed(2),
+      accumulatedDepreciation: accum.toFixed(2),
+      bookValueAfter: currentBookValue.toFixed(2),
+      status: 'Scheduled'
+    });
+  }
+
+  return schedule;
+}
+

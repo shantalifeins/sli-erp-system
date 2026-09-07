@@ -65,9 +65,9 @@ Located in `src/shared/db/schema.ts`:
 ### Core Domains
 - **Identity & Org**: `companies`, `branches`, `warehouses`, `users` (synced via `uid`, foreign keys specify `{ onUpdate: 'cascade' }`), `departments`, `units`, `designations`, `roles`, `role_permissions`.
 - **Workflow & Tasks**: `bpmn_definitions` (`documentType` + `companyId`), `document_approvals`, `pr_approvals`, `inbox_tasks` (`referenceType`, `referenceId`, `assignedToRole`, `assignedToUid`, `actionResult`).
-- **Inventory & Warehouse Stock**: `inventory_items` (`isAdminItem`, `isItItem`, `quantityInStock`, `basePrice`), `item_categories`, `warehouse_stock`, `warehouse_managers`, `global_stock_ledger`, `stock_transactions`, `stock_transfers`.
+- **Inventory & Warehouse Stock**: `inventory_items` (`isAdminItem`, `isItItem`, `isFixedAsset`, `assetCategoryId` FK → `asset_categories.id`, `quantityInStock`, `basePrice`), `item_categories`, `warehouse_stock`, `warehouse_managers`, `global_stock_ledger`, `stock_transactions`, `stock_transfers`.
 - **Procurement (P2P)**: `purchase_requisitions`, `pr_items`, `vendors` (includes banking details), `rfqs`, `quotations`, `comparative_statements`, `cs_items`, `vendor_evaluations`, `purchase_orders`, `po_items`, `grn`, `grn_items`, `qc_inspections`, `invoices`, `payments`.
-- **Asset Management (Fixed Assets)**: `asset_categories`, `assets`, `asset_depreciation_schedule`, `asset_transfers`, `asset_maintenance`, `asset_disposals`, `asset_physical_verifications`, `asset_verification_details`.
+- **Asset Management (Fixed Assets)**: `asset_categories`, `assets` (auto-created as `Draft` upon GRN QC pass using item's `assetCategoryId`), `asset_depreciation_schedule`, `asset_transfers`, `asset_maintenance`, `asset_disposals`, `asset_physical_verifications`, `asset_verification_details`.
 
 
 ---
