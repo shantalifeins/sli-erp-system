@@ -952,6 +952,8 @@ var assets = (0, import_pg_core.pgTable)("assets", {
   sourceGrnId: (0, import_pg_core.integer)("source_grn_id").references(() => grn.id),
   serialNumber: (0, import_pg_core.text)("serial_number"),
   qrCode: (0, import_pg_core.text)("qr_code"),
+  warrantyExpiryDate: (0, import_pg_core.timestamp)("warranty_expiry_date"),
+  nextMaintenanceDue: (0, import_pg_core.timestamp)("next_maintenance_due"),
   createdByUid: (0, import_pg_core.text)("created_by_uid").references(() => users.uid, { onDelete: "set null", onUpdate: "cascade" }),
   createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
   updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
@@ -1129,7 +1131,7 @@ var requireAuth = async (req, res, next) => {
     for (const secret of secretsToTry) {
       try {
         const decoded = jwt.verify(token, secret);
-        if (decoded && (decoded.sub || decoded.uid)) {
+        if (decoded && (decoded.sub || decoded.uid || decoded.email)) {
           user = { id: decoded.sub || decoded.uid, email: decoded.email };
           break;
         }
@@ -1140,18 +1142,7 @@ var requireAuth = async (req, res, next) => {
       try {
         const decoded = jwt.decode(token);
         if (decoded && (decoded.sub || decoded.uid || decoded.email)) {
-          const searchUid = decoded.sub || decoded.uid;
-          const searchEmail = decoded.email;
-          let dbCheck;
-          if (searchUid) {
-            dbCheck = await db.select().from(users).where((0, import_drizzle_orm.eq)(users.uid, searchUid)).limit(1);
-          }
-          if ((!dbCheck || !dbCheck.length) && searchEmail) {
-            dbCheck = await db.select().from(users).where((0, import_drizzle_orm.ilike)(users.email, searchEmail)).limit(1);
-          }
-          if (dbCheck && dbCheck.length > 0) {
-            user = { id: dbCheck[0].uid, email: dbCheck[0].email };
-          }
+          user = { id: decoded.sub || decoded.uid, email: decoded.email };
         }
       } catch (decErr) {
       }
@@ -1161,23 +1152,30 @@ var requireAuth = async (req, res, next) => {
         try {
           const { data, error } = await supabase.auth.getUser(token);
           if (data?.user) {
-            user = data.user;
+            user = { id: data.user.id, email: data.user.email };
           }
         } catch (sbErr) {
         }
       }
     }
-    if (!user) {
+    if (!user || !user.id && !user.email) {
       return res.status(401).json({ error: "Unauthorized: Invalid token signature or user not found" });
     }
-    const dbUserResult = await db.select().from(users).where((0, import_drizzle_orm.eq)(users.uid, user.id)).limit(1);
+    let dbUserResult = [];
+    if (user.id) {
+      dbUserResult = await db.select().from(users).where((0, import_drizzle_orm.eq)(users.uid, user.id)).limit(1);
+    }
+    if ((!dbUserResult || !dbUserResult.length) && user.email) {
+      dbUserResult = await db.select().from(users).where((0, import_drizzle_orm.ilike)(users.email, user.email)).limit(1);
+    }
     const dbUser = dbUserResult[0];
     if (dbUser && dbUser.status === "Inactive") {
       return res.status(403).json({ error: "Access Denied: Your account is suspended." });
     }
+    const finalUid = dbUser?.uid || user.id || (dbUser?.id ? `user-${dbUser.id}` : user.email);
     req.user = {
-      uid: user.id,
-      email: user.email,
+      uid: finalUid,
+      email: dbUser?.email || user.email,
       companyId: dbUser?.companyId,
       role: dbUser?.role
     };
@@ -1232,16 +1230,30 @@ var import_pg_core2 = require("drizzle-orm/pg-core");
 
 // src/shared/db/users.ts
 var import_drizzle_orm3 = require("drizzle-orm");
+var import_crypto = __toESM(require("crypto"), 1);
 async function getUser(uid, email) {
-  const byUid = await db.select().from(users).where((0, import_drizzle_orm3.eq)(users.uid, uid));
-  if (byUid.length > 0) return byUid[0];
-  const byEmail = await db.select().from(users).where((0, import_drizzle_orm3.eq)(users.email, email));
-  if (byEmail.length > 0) {
-    const updated = await db.update(users).set({ uid }).where((0, import_drizzle_orm3.eq)(users.id, byEmail[0].id)).returning();
-    return updated[0];
+  if (uid) {
+    const byUid = await db.select().from(users).where((0, import_drizzle_orm3.eq)(users.uid, uid));
+    if (byUid.length > 0) return byUid[0];
   }
-  if (email === "jetitbd@gmail.com" || email === "shantalifeins@gmail.com") {
-    const newAdmin = await db.insert(users).values({ uid, email, role: "Super Admin" }).returning();
+  if (email) {
+    const byEmail = await db.select().from(users).where((0, import_drizzle_orm3.ilike)(users.email, email.trim()));
+    if (byEmail.length > 0) {
+      let effectiveUid = uid || byEmail[0].uid;
+      if (!effectiveUid) {
+        effectiveUid = import_crypto.default.randomUUID();
+      }
+      if (byEmail[0].uid !== effectiveUid) {
+        const updated = await db.update(users).set({ uid: effectiveUid }).where((0, import_drizzle_orm3.eq)(users.id, byEmail[0].id)).returning();
+        return updated[0];
+      }
+      return byEmail[0];
+    }
+  }
+  const lowerEmail = (email || "").toLowerCase().trim();
+  if (lowerEmail === "jetitbd@gmail.com" || lowerEmail === "shantalifeins@gmail.com") {
+    const effectiveUid = uid || import_crypto.default.randomUUID();
+    const newAdmin = await db.insert(users).values({ uid: effectiveUid, email: lowerEmail, role: "Super Admin" }).returning();
     return newAdmin[0];
   }
   return null;
@@ -1711,7 +1723,7 @@ function evaluateWorkflowPath(xmlData, context = {}) {
 }
 
 // src/modules/auth/api/sso.ts
-var import_crypto = __toESM(require("crypto"), 1);
+var import_crypto2 = __toESM(require("crypto"), 1);
 var import_ws2 = __toESM(require("ws"), 1);
 var import_supabase_js2 = require("@supabase/supabase-js");
 if (typeof globalThis.WebSocket === "undefined") {
@@ -1764,7 +1776,7 @@ ssoRouter.post("/microsoft", async (req, res) => {
     }
     const userResult = await db.select().from(users).where((0, import_drizzle_orm8.eq)(users.email, email)).orderBy((0, import_drizzle_orm8.asc)(users.id)).limit(1);
     let user = userResult[0];
-    const randomPassword = import_crypto.default.randomUUID() + "A1!a";
+    const randomPassword = import_crypto2.default.randomUUID() + "A1!a";
     if (user) {
       const userCompanyResult = await db.select().from(companies).where((0, import_drizzle_orm8.eq)(companies.id, user.companyId)).limit(1);
       const userCompany = userCompanyResult[0];
@@ -1822,19 +1834,22 @@ ssoRouter.post("/microsoft", async (req, res) => {
             firstStepAssigneeRole = firstStep.assigneeValue || firstStep.roleRequired;
           }
         }
+        await db.insert(inbox_tasks).values({
+          companyId: company.id,
+          category: "System",
+          title: `New Employee Onboarding: ${user.name}`,
+          message: `Employee ${user.name} (${user.email}) registered via SSO and is waiting for Role and Branch assignment.`,
+          status: "Pending",
+          referenceType: "User Registration",
+          referenceId: user.id,
+          assignedToRole: firstStepAssigneeRole,
+          assignedToUid: firstStepAssigneeUid
+        });
+        return res.status(202).json({ status: "pending", message: "Account is pending HR approval." });
+      } else {
+        await db.update(users).set({ status: "Active" }).where((0, import_drizzle_orm8.eq)(users.id, user.id));
+        user.status = "Active";
       }
-      await db.insert(inbox_tasks).values({
-        companyId: company.id,
-        category: "System",
-        title: `New Employee Onboarding: ${user.name}`,
-        message: `Employee ${user.name} (${user.email}) registered via SSO and is waiting for Role and Branch assignment.`,
-        status: "Pending",
-        referenceType: "User Registration",
-        referenceId: user.id,
-        assignedToRole: firstStepAssigneeRole,
-        assignedToUid: firstStepAssigneeUid
-      });
-      return res.status(202).json({ status: "pending", message: "Account is pending HR approval." });
     } else {
     }
     if (user.status === "Pending HR Approval") {
@@ -2057,18 +2072,29 @@ router4.post("/", requireAuth, async (req, res) => {
           firstStepAssigneeRole = firstStep.assigneeValue || firstStep.roleRequired;
         }
       }
+      await db.insert(inbox_tasks).values({
+        companyId,
+        category: "User Panel",
+        title: `Profile Data Change Request: ${user.name}`,
+        message: `Employee ${user.name} has requested to change their profile data.`,
+        status: "Pending",
+        referenceType: "Profile Data Change Request",
+        referenceId: request.id,
+        assignedToRole: firstStepAssigneeRole,
+        assignedToUid: firstStepAssigneeUid
+      });
+    } else {
+      await db.update(profile_change_requests).set({ status: "Approved" }).where((0, import_drizzle_orm9.eq)(profile_change_requests.id, request.id));
+      request.status = "Approved";
+      const updateData = {};
+      if (requestedData?.phone) updateData.phone = requestedData.phone;
+      if (requestedData?.address) updateData.address = requestedData.address;
+      if (requestedData?.emergencyContact) updateData.emergencyContact = requestedData.emergencyContact;
+      if (requestedData?.avatarUrl) updateData.avatarUrl = requestedData.avatarUrl;
+      if (Object.keys(updateData).length > 0) {
+        await db.update(users).set(updateData).where((0, import_drizzle_orm9.and)((0, import_drizzle_orm9.eq)(users.uid, req.user.uid), (0, import_drizzle_orm9.eq)(users.companyId, companyId)));
+      }
     }
-    await db.insert(inbox_tasks).values({
-      companyId,
-      category: "User Panel",
-      title: `Profile Data Change Request: ${user.name}`,
-      message: `Employee ${user.name} has requested to change their profile data.`,
-      status: "Pending",
-      referenceType: "Profile Data Change Request",
-      referenceId: request.id,
-      assignedToRole: firstStepAssigneeRole,
-      assignedToUid: firstStepAssigneeUid
-    });
     res.json(request);
   } catch (err) {
     console.error("POST /api/profile/change-request error:", err);
@@ -2562,11 +2588,39 @@ router5.put("/verifications/:id/complete", requireAuth, checkPlugin("asset-manag
     return res.status(500).json({ error: error.message || "Failed to complete verification session" });
   }
 });
+router5.get("/my-assets", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing tenant context" });
+    const userUid = req.user?.uid;
+    if (!userUid) return res.json({ assets: [] });
+    const myAssets = await db.select({
+      id: assets.id,
+      assetCode: assets.assetCode,
+      name: assets.name,
+      categoryName: asset_categories.name,
+      branchName: branches.name,
+      departmentName: departments.name,
+      acquisitionDate: assets.acquisitionDate,
+      acquisitionCost: assets.acquisitionCost,
+      currentBookValue: assets.currentBookValue,
+      status: assets.status,
+      serialNumber: assets.serialNumber
+    }).from(assets).leftJoin(asset_categories, (0, import_drizzle_orm10.eq)(assets.categoryId, asset_categories.id)).leftJoin(branches, (0, import_drizzle_orm10.eq)(assets.branchId, branches.id)).leftJoin(departments, (0, import_drizzle_orm10.eq)(assets.departmentId, departments.id)).where((0, import_drizzle_orm10.and)(
+      (0, import_drizzle_orm10.eq)(assets.companyId, companyId),
+      (0, import_drizzle_orm10.eq)(assets.custodianUid, userUid)
+    )).orderBy((0, import_drizzle_orm10.desc)(assets.createdAt));
+    return res.json({ assets: myAssets });
+  } catch (err) {
+    console.error("GET /api/assets/my-assets error:", err);
+    return res.status(500).json({ error: "Failed to fetch my assets" });
+  }
+});
 router5.get("/", requireAuth, checkPlugin("asset-management"), async (req, res) => {
   try {
     const companyId = await resolveTenantId4(req);
     if (!companyId) return res.status(400).json({ error: "Missing company context" });
-    const { categoryId, branchId, warehouseId, departmentId, status, search, page = "1", limit = "50" } = req.query;
+    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, page = "1", limit = "50" } = req.query;
     const conditions = [(0, import_drizzle_orm10.eq)(assets.companyId, companyId)];
     if (categoryId && typeof categoryId === "string") {
       conditions.push((0, import_drizzle_orm10.eq)(assets.categoryId, categoryId));
@@ -2579,6 +2633,13 @@ router5.get("/", requireAuth, checkPlugin("asset-management"), async (req, res) 
     }
     if (departmentId && !isNaN(Number(departmentId))) {
       conditions.push((0, import_drizzle_orm10.eq)(assets.departmentId, Number(departmentId)));
+    }
+    if (custodianUid && typeof custodianUid === "string") {
+      if (custodianUid === "unassigned") {
+        conditions.push((0, import_drizzle_orm10.isNull)(assets.custodianUid));
+      } else {
+        conditions.push((0, import_drizzle_orm10.eq)(assets.custodianUid, custodianUid));
+      }
     }
     if (status && typeof status === "string") {
       conditions.push((0, import_drizzle_orm10.eq)(assets.status, status));
@@ -2623,6 +2684,8 @@ router5.get("/", requireAuth, checkPlugin("asset-management"), async (req, res) 
       sourceGrnId: assets.sourceGrnId,
       serialNumber: assets.serialNumber,
       qrCode: assets.qrCode,
+      warrantyExpiryDate: assets.warrantyExpiryDate,
+      nextMaintenanceDue: assets.nextMaintenanceDue,
       createdAt: assets.createdAt
     }).from(assets).leftJoin(asset_categories, (0, import_drizzle_orm10.eq)(assets.categoryId, asset_categories.id)).leftJoin(branches, (0, import_drizzle_orm10.eq)(assets.branchId, branches.id)).leftJoin(warehouses, (0, import_drizzle_orm10.eq)(assets.warehouseId, warehouses.id)).leftJoin(users, (0, import_drizzle_orm10.eq)(assets.custodianUid, users.uid)).leftJoin(departments, (0, import_drizzle_orm10.eq)(assets.departmentId, departments.id)).where((0, import_drizzle_orm10.and)(...conditions)).orderBy((0, import_drizzle_orm10.desc)(assets.createdAt)).limit(limitNum).offset(offset);
     const [{ totalCount }] = await db.select({ totalCount: (0, import_drizzle_orm10.count)() }).from(assets).where((0, import_drizzle_orm10.and)(...conditions));
@@ -2673,6 +2736,8 @@ router5.get("/:id", requireAuth, checkPlugin("asset-management"), async (req, re
       sourceGrnId: assets.sourceGrnId,
       serialNumber: assets.serialNumber,
       qrCode: assets.qrCode,
+      warrantyExpiryDate: assets.warrantyExpiryDate,
+      nextMaintenanceDue: assets.nextMaintenanceDue,
       createdByUid: assets.createdByUid,
       createdAt: assets.createdAt,
       updatedAt: assets.updatedAt
@@ -2705,6 +2770,8 @@ router5.post("/", requireAuth, checkPlugin("asset-management"), async (req, res)
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
+      warrantyExpiryDate,
+      nextMaintenanceDue,
       sourceType,
       sourceGrnId,
       status
@@ -2742,8 +2809,67 @@ router5.post("/", requireAuth, checkPlugin("asset-management"), async (req, res)
       sourceType: sourceType || "Manual",
       sourceGrnId: sourceGrnId ? Number(sourceGrnId) : null,
       serialNumber: serialNumber || null,
+      warrantyExpiryDate: warrantyExpiryDate ? new Date(warrantyExpiryDate) : null,
+      nextMaintenanceDue: nextMaintenanceDue ? new Date(nextMaintenanceDue) : null,
       createdByUid: req.user?.uid || null
     }).returning();
+    if (warehouseId) {
+      const wId = Number(warehouseId);
+      const [existingInvItem] = await db.select().from(inventory_items).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm10.ilike)(inventory_items.name, name.trim()))).limit(1);
+      let invItemId;
+      if (existingInvItem) {
+        invItemId = existingInvItem.id;
+        await db.update(inventory_items).set({
+          quantityInStock: (existingInvItem.quantityInStock || 0) + 1,
+          isFixedAsset: true,
+          assetCategoryId: categoryId || existingInvItem.assetCategoryId
+        }).where((0, import_drizzle_orm10.eq)(inventory_items.id, invItemId));
+      } else {
+        const itemCode = `INV-AST-${Date.now().toString().slice(-4)}`;
+        const [createdInvItem] = await db.insert(inventory_items).values({
+          companyId,
+          itemCode,
+          name: name.trim(),
+          category: "Fixed Asset",
+          isFixedAsset: true,
+          assetCategoryId: categoryId || null,
+          quantityInStock: 1,
+          uom: "pcs",
+          basePrice: String(costNum)
+        }).returning();
+        invItemId = createdInvItem.id;
+      }
+      const [ws] = await db.select().from(warehouse_stock).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(warehouse_stock.warehouseId, wId), (0, import_drizzle_orm10.eq)(warehouse_stock.itemId, invItemId))).limit(1);
+      if (ws) {
+        await db.update(warehouse_stock).set({ quantity: (ws.quantity || 0) + 1, lastUpdated: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm10.eq)(warehouse_stock.id, ws.id));
+      } else {
+        await db.insert(warehouse_stock).values({
+          companyId,
+          warehouseId: wId,
+          itemId: invItemId,
+          quantity: 1,
+          lastUpdated: /* @__PURE__ */ new Date()
+        });
+      }
+      const [gsl] = await db.select().from(global_stock_ledger).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(global_stock_ledger.companyId, companyId), (0, import_drizzle_orm10.eq)(global_stock_ledger.itemId, invItemId))).limit(1);
+      if (gsl) {
+        await db.update(global_stock_ledger).set({
+          totalStockIn: (gsl.totalStockIn || 0) + 1,
+          closingBalance: (gsl.closingBalance || 0) + 1,
+          lastUpdated: /* @__PURE__ */ new Date()
+        }).where((0, import_drizzle_orm10.eq)(global_stock_ledger.id, gsl.id));
+      } else {
+        await db.insert(global_stock_ledger).values({
+          companyId,
+          itemId: invItemId,
+          openingBalance: 0,
+          totalStockIn: 1,
+          totalStockOut: 0,
+          closingBalance: 1,
+          lastUpdated: /* @__PURE__ */ new Date()
+        });
+      }
+    }
     return res.status(201).json({ asset: newAsset });
   } catch (error) {
     console.error("POST /api/assets error:", error);
@@ -2769,6 +2895,8 @@ router5.put("/:id", requireAuth, checkPlugin("asset-management"), async (req, re
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
+      warrantyExpiryDate,
+      nextMaintenanceDue,
       status
     } = req.body || {};
     const [existingAsset] = await db.select().from(assets).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(assets.id, id), (0, import_drizzle_orm10.eq)(assets.companyId, companyId))).limit(1);
@@ -2783,7 +2911,7 @@ router5.put("/:id", requireAuth, checkPlugin("asset-management"), async (req, re
       categoryId,
       branchId: branchId !== void 0 ? branchId ? Number(branchId) : null : void 0,
       warehouseId: warehouseId !== void 0 ? warehouseId ? Number(warehouseId) : null : void 0,
-      custodianUid: custodianUid !== void 0 ? custodianUid : void 0,
+      custodianUid: custodianUid !== void 0 ? custodianUid ? custodianUid : null : void 0,
       departmentId: departmentId !== void 0 ? departmentId ? Number(departmentId) : null : void 0,
       acquisitionCost: acquisitionCost !== void 0 ? String(costNum) : void 0,
       salvageValue: salvageValue !== void 0 ? String(salvageValue) : void 0,
@@ -2793,6 +2921,8 @@ router5.put("/:id", requireAuth, checkPlugin("asset-management"), async (req, re
       depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : void 0,
       currentBookValue: updatedBookValue,
       serialNumber,
+      warrantyExpiryDate: warrantyExpiryDate !== void 0 ? warrantyExpiryDate ? new Date(warrantyExpiryDate) : null : void 0,
+      nextMaintenanceDue: nextMaintenanceDue !== void 0 ? nextMaintenanceDue ? new Date(nextMaintenanceDue) : null : void 0,
       status,
       updatedAt: /* @__PURE__ */ new Date()
     }).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(assets.id, id), (0, import_drizzle_orm10.eq)(assets.companyId, companyId))).returning();
@@ -2959,12 +3089,15 @@ router5.post("/:id/submit", requireAuth, checkPlugin("asset-management"), async 
       documentId: 0,
       stepOrder: 1,
       roleRequired: targetRole,
+      assigneeValue: id,
       status: "Pending"
     }).returning();
     await db.insert(inbox_tasks).values({
       companyId,
       category: "Asset Management",
       referenceType: "Asset Acquisition",
+      referenceId: 0,
+      actionLink: id,
       title: `Asset Acquisition Approval: ${assetRecord.name} (${assetRecord.assetCode})`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -2998,13 +3131,15 @@ router5.post("/:id/approve", requireAuth, checkPlugin("asset-management"), async
     await db.update(inbox_tasks).set({ status: "Completed", actionResult: "Approved" }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(inbox_tasks.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Acquisition")
+        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Acquisition"),
+        (0, import_drizzle_orm10.eq)(inbox_tasks.actionLink, id)
       )
     );
     await db.update(document_approvals).set({ status: "Approved", updatedAt: /* @__PURE__ */ new Date() }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(document_approvals.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Acquisition")
+        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Acquisition"),
+        (0, import_drizzle_orm10.eq)(document_approvals.assigneeValue, id)
       )
     );
     const acquisitionCost = Number(assetRecord.acquisitionCost || 0);
@@ -3052,13 +3187,15 @@ router5.post("/:id/reject", requireAuth, checkPlugin("asset-management"), async 
     await db.update(inbox_tasks).set({ status: "Completed", actionResult: "Rejected" }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(inbox_tasks.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Acquisition")
+        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Acquisition"),
+        (0, import_drizzle_orm10.eq)(inbox_tasks.actionLink, id)
       )
     );
     await db.update(document_approvals).set({ status: "Rejected", updatedAt: /* @__PURE__ */ new Date() }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(document_approvals.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Acquisition")
+        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Acquisition"),
+        (0, import_drizzle_orm10.eq)(document_approvals.assigneeValue, id)
       )
     );
     const [rejectedAsset] = await db.update(assets).set({ status: "Draft", updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(assets.id, id), (0, import_drizzle_orm10.eq)(assets.companyId, companyId))).returning();
@@ -3116,12 +3253,15 @@ router5.post("/:id/transfer", requireAuth, checkPlugin("asset-management"), asyn
       documentId: 0,
       stepOrder: 1,
       roleRequired: targetRole,
+      assigneeValue: transferRecord.id,
       status: "Pending"
     });
     await db.insert(inbox_tasks).values({
       companyId,
       category: "Asset Management",
       referenceType: "Asset Transfer",
+      referenceId: 0,
+      actionLink: transferRecord.id,
       title: `Asset Transfer Request: ${existingAsset.name} (${existingAsset.assetCode})`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -3135,6 +3275,67 @@ router5.post("/:id/transfer", requireAuth, checkPlugin("asset-management"), asyn
   } catch (error) {
     console.error("POST /api/assets/:id/transfer error:", error);
     return res.status(500).json({ error: error.message || "Failed to submit asset transfer" });
+  }
+});
+router5.get("/transfers", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const transfersList = await db.select({
+      id: asset_transfers.id,
+      assetId: asset_transfers.assetId,
+      assetTag: assets.assetCode,
+      assetName: assets.name,
+      fromBranchId: asset_transfers.fromBranchId,
+      toBranchId: asset_transfers.toBranchId,
+      fromCustodianUid: asset_transfers.fromCustodianUid,
+      toCustodianUid: asset_transfers.toCustodianUid,
+      reason: asset_transfers.reason,
+      status: asset_transfers.status,
+      createdAt: asset_transfers.createdAt
+    }).from(asset_transfers).leftJoin(assets, (0, import_drizzle_orm10.eq)(asset_transfers.assetId, assets.id)).where((0, import_drizzle_orm10.eq)(asset_transfers.companyId, companyId)).orderBy((0, import_drizzle_orm10.desc)(asset_transfers.createdAt));
+    const allBranches = await db.select().from(branches).where((0, import_drizzle_orm10.eq)(branches.companyId, companyId));
+    const allUsers = await db.select().from(users).where((0, import_drizzle_orm10.eq)(users.companyId, companyId));
+    const branchMap = new Map(allBranches.map((b) => [b.id, b.name]));
+    const userMap = new Map(allUsers.map((u) => [u.uid, u.name]));
+    const enhancedTransfers = transfersList.map((t) => ({
+      ...t,
+      fromBranchName: t.fromBranchId ? branchMap.get(t.fromBranchId) || "N/A" : "Head Office",
+      toBranchName: t.toBranchId ? branchMap.get(t.toBranchId) || "N/A" : "N/A",
+      fromCustodianName: t.fromCustodianUid ? userMap.get(t.fromCustodianUid) || "N/A" : "Unassigned",
+      toCustodianName: t.toCustodianUid ? userMap.get(t.toCustodianUid) || "N/A" : "Unassigned"
+    }));
+    return res.json({ transfers: enhancedTransfers });
+  } catch (error) {
+    console.error("GET /api/assets/transfers error:", error);
+    return res.status(500).json({ error: error.message || "Failed to fetch asset transfers" });
+  }
+});
+router5.get("/transfers/:transferId", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { transferId } = req.params;
+    const [transferRecord] = await db.select({
+      id: asset_transfers.id,
+      assetId: asset_transfers.assetId,
+      fromBranchId: asset_transfers.fromBranchId,
+      toBranchId: asset_transfers.toBranchId,
+      fromCustodianUid: asset_transfers.fromCustodianUid,
+      toCustodianUid: asset_transfers.toCustodianUid,
+      reason: asset_transfers.reason,
+      status: asset_transfers.status,
+      createdAt: asset_transfers.createdAt,
+      assetCode: assets.assetCode,
+      assetName: assets.name
+    }).from(asset_transfers).leftJoin(assets, (0, import_drizzle_orm10.eq)(asset_transfers.assetId, assets.id)).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_transfers.id, transferId), (0, import_drizzle_orm10.eq)(asset_transfers.companyId, companyId))).limit(1);
+    if (!transferRecord) {
+      return res.status(404).json({ error: "Transfer not found" });
+    }
+    return res.json(transferRecord);
+  } catch (error) {
+    console.error("GET /api/assets/transfers/:transferId error:", error);
+    return res.status(500).json({ error: error.message || "Failed to fetch asset transfer" });
   }
 });
 router5.post("/transfers/:transferId/approve", requireAuth, checkPlugin("asset-management"), async (req, res) => {
@@ -3152,7 +3353,15 @@ router5.post("/transfers/:transferId/approve", requireAuth, checkPlugin("asset-m
     await db.update(inbox_tasks).set({ status: "Completed", actionResult: "Approved" }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(inbox_tasks.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Transfer")
+        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Transfer"),
+        (0, import_drizzle_orm10.eq)(inbox_tasks.actionLink, transferId)
+      )
+    );
+    await db.update(document_approvals).set({ status: "Approved", updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(document_approvals.companyId, companyId),
+        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Transfer"),
+        (0, import_drizzle_orm10.eq)(document_approvals.assigneeValue, transferId)
       )
     );
     const [approvedTransfer] = await db.update(asset_transfers).set({ status: "Approved" }).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_transfers.id, transferId), (0, import_drizzle_orm10.eq)(asset_transfers.companyId, companyId))).returning();
@@ -3183,7 +3392,15 @@ router5.post("/transfers/:transferId/reject", requireAuth, checkPlugin("asset-ma
     await db.update(inbox_tasks).set({ status: "Completed", actionResult: "Rejected" }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(inbox_tasks.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Transfer")
+        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Transfer"),
+        (0, import_drizzle_orm10.eq)(inbox_tasks.actionLink, transferId)
+      )
+    );
+    await db.update(document_approvals).set({ status: "Rejected", updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(document_approvals.companyId, companyId),
+        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Transfer"),
+        (0, import_drizzle_orm10.eq)(document_approvals.assigneeValue, transferId)
       )
     );
     const [rejectedTransfer] = await db.update(asset_transfers).set({ status: "Rejected" }).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_transfers.id, transferId), (0, import_drizzle_orm10.eq)(asset_transfers.companyId, companyId))).returning();
@@ -3373,12 +3590,15 @@ router5.post("/:id/disposal", requireAuth, checkPlugin("asset-management"), asyn
       documentId: 0,
       stepOrder: 1,
       roleRequired: targetRole,
+      assigneeValue: disposalRecord.id,
       status: "Pending"
     });
     await db.insert(inbox_tasks).values({
       companyId,
       category: "Asset Management",
       referenceType: "Asset Disposal",
+      referenceId: 0,
+      actionLink: disposalRecord.id,
       title: `Asset Disposal Request: ${existingAsset.name} (${existingAsset.assetCode}) - ${disposalType}`,
       assignedToRole: targetRole,
       assignedToUid: null,
@@ -3392,6 +3612,33 @@ router5.post("/:id/disposal", requireAuth, checkPlugin("asset-management"), asyn
   } catch (error) {
     console.error("POST /api/assets/:id/disposal error:", error);
     return res.status(500).json({ error: error.message || "Failed to submit asset disposal" });
+  }
+});
+router5.get("/disposals/:disposalId", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { disposalId } = req.params;
+    const [disposalRecord] = await db.select({
+      id: asset_disposals.id,
+      assetId: asset_disposals.assetId,
+      disposalType: asset_disposals.disposalType,
+      disposalDate: asset_disposals.disposalDate,
+      saleAmount: asset_disposals.saleAmount,
+      bookValueAtDisposal: asset_disposals.bookValueAtDisposal,
+      gainLoss: asset_disposals.gainLoss,
+      status: asset_disposals.status,
+      createdAt: asset_disposals.createdAt,
+      assetCode: assets.assetCode,
+      assetName: assets.name
+    }).from(asset_disposals).leftJoin(assets, (0, import_drizzle_orm10.eq)(asset_disposals.assetId, assets.id)).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_disposals.id, disposalId), (0, import_drizzle_orm10.eq)(asset_disposals.companyId, companyId))).limit(1);
+    if (!disposalRecord) {
+      return res.status(404).json({ error: "Disposal not found" });
+    }
+    return res.json(disposalRecord);
+  } catch (error) {
+    console.error("GET /api/assets/disposals/:disposalId error:", error);
+    return res.status(500).json({ error: error.message || "Failed to fetch asset disposal" });
   }
 });
 router5.post("/disposals/:disposalId/approve", requireAuth, checkPlugin("asset-management"), async (req, res) => {
@@ -3409,7 +3656,15 @@ router5.post("/disposals/:disposalId/approve", requireAuth, checkPlugin("asset-m
     await db.update(inbox_tasks).set({ status: "Completed", actionResult: "Approved" }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(inbox_tasks.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Disposal")
+        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Disposal"),
+        (0, import_drizzle_orm10.eq)(inbox_tasks.actionLink, disposalId)
+      )
+    );
+    await db.update(document_approvals).set({ status: "Approved", updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(document_approvals.companyId, companyId),
+        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Disposal"),
+        (0, import_drizzle_orm10.eq)(document_approvals.assigneeValue, disposalId)
       )
     );
     const [approvedDisposal] = await db.update(asset_disposals).set({
@@ -3450,7 +3705,15 @@ router5.post("/disposals/:disposalId/reject", requireAuth, checkPlugin("asset-ma
     await db.update(inbox_tasks).set({ status: "Completed", actionResult: "Rejected" }).where(
       (0, import_drizzle_orm10.and)(
         (0, import_drizzle_orm10.eq)(inbox_tasks.companyId, companyId),
-        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Disposal")
+        (0, import_drizzle_orm10.eq)(inbox_tasks.referenceType, "Asset Disposal"),
+        (0, import_drizzle_orm10.eq)(inbox_tasks.actionLink, disposalId)
+      )
+    );
+    await db.update(document_approvals).set({ status: "Rejected", updatedAt: /* @__PURE__ */ new Date() }).where(
+      (0, import_drizzle_orm10.and)(
+        (0, import_drizzle_orm10.eq)(document_approvals.companyId, companyId),
+        (0, import_drizzle_orm10.eq)(document_approvals.documentType, "Asset Disposal"),
+        (0, import_drizzle_orm10.eq)(document_approvals.assigneeValue, disposalId)
       )
     );
     const [rejectedDisposal] = await db.update(asset_disposals).set({ status: "Rejected" }).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_disposals.id, disposalId), (0, import_drizzle_orm10.eq)(asset_disposals.companyId, companyId))).returning();
@@ -3527,25 +3790,204 @@ router6.get("/register", requireAuth, checkPlugin("asset-management"), async (re
       currentBookValue: assets.currentBookValue,
       status: assets.status,
       sourceType: assets.sourceType,
-      serialNumber: assets.serialNumber
+      serialNumber: assets.serialNumber,
+      warrantyExpiryDate: assets.warrantyExpiryDate,
+      nextMaintenanceDue: assets.nextMaintenanceDue
     }).from(assets).leftJoin(asset_categories, (0, import_drizzle_orm11.eq)(assets.categoryId, asset_categories.id)).leftJoin(branches, (0, import_drizzle_orm11.eq)(assets.branchId, branches.id)).leftJoin(departments, (0, import_drizzle_orm11.eq)(assets.departmentId, departments.id)).leftJoin(users, (0, import_drizzle_orm11.eq)(assets.custodianUid, users.uid)).where((0, import_drizzle_orm11.and)(...conditions)).orderBy((0, import_drizzle_orm11.desc)(assets.createdAt));
-    return res.json({ register: registerData, count: registerData.length });
+    const enrichedRegister = registerData.map((item) => {
+      const cost = Number(item.acquisitionCost || 0);
+      const accum = Number(item.accumulatedDepreciation || 0);
+      const depreciationPercent = cost > 0 ? Number((accum / cost * 100).toFixed(2)) : 0;
+      return {
+        ...item,
+        depreciationPercent
+      };
+    });
+    return res.json({ register: enrichedRegister, count: enrichedRegister.length });
   } catch (error) {
     console.error("GET /api/assets/reports/register error:", error);
     return res.status(500).json({ error: error.message || "Failed to generate Asset Register report" });
+  }
+});
+router6.get("/alerts", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const allAssets = await db.select({
+      id: assets.id,
+      assetCode: assets.assetCode,
+      name: assets.name,
+      categoryId: assets.categoryId,
+      categoryName: asset_categories.name,
+      branchId: assets.branchId,
+      branchName: branches.name,
+      custodianName: users.name,
+      departmentName: departments.name,
+      acquisitionCost: assets.acquisitionCost,
+      currentBookValue: assets.currentBookValue,
+      warrantyExpiryDate: assets.warrantyExpiryDate,
+      nextMaintenanceDue: assets.nextMaintenanceDue,
+      status: assets.status
+    }).from(assets).leftJoin(asset_categories, (0, import_drizzle_orm11.eq)(assets.categoryId, asset_categories.id)).leftJoin(branches, (0, import_drizzle_orm11.eq)(assets.branchId, branches.id)).leftJoin(departments, (0, import_drizzle_orm11.eq)(assets.departmentId, departments.id)).leftJoin(users, (0, import_drizzle_orm11.eq)(assets.custodianUid, users.uid)).where((0, import_drizzle_orm11.and)((0, import_drizzle_orm11.eq)(assets.companyId, companyId), (0, import_drizzle_orm11.eq)(assets.status, "Active")));
+    const now = /* @__PURE__ */ new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const warrantyAlerts = [];
+    const maintenanceAlerts = [];
+    let expiredWarrantyCount = 0;
+    let expiringSoonWarrantyCount = 0;
+    let overdueMaintenanceCount = 0;
+    let dueSoonMaintenanceCount = 0;
+    const branchSummaryMap = {};
+    for (const a of allAssets) {
+      const brKey = a.branchName || "Head Office / Unassigned";
+      if (!branchSummaryMap[brKey]) {
+        branchSummaryMap[brKey] = {
+          branchId: a.branchId,
+          branchName: brKey,
+          totalAssets: 0,
+          totalCost: 0,
+          totalNetBookValue: 0,
+          warrantyAlertsCount: 0,
+          maintenanceAlertsCount: 0
+        };
+      }
+      const br = branchSummaryMap[brKey];
+      br.totalAssets += 1;
+      br.totalCost += Number(a.acquisitionCost || 0);
+      br.totalNetBookValue += Number(a.currentBookValue || 0);
+      let isWarrantyAlert = false;
+      let isMaintenanceAlert = false;
+      if (a.warrantyExpiryDate) {
+        const wDate = new Date(a.warrantyExpiryDate);
+        const diffTime = wDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1e3 * 60 * 60 * 24));
+        let alertLevel = "ok";
+        let alertStatus = "Valid";
+        if (diffDays < 0) {
+          alertLevel = "critical";
+          alertStatus = "Expired";
+          expiredWarrantyCount++;
+          isWarrantyAlert = true;
+        } else if (diffDays <= 30) {
+          alertLevel = "warning";
+          alertStatus = "Expiring Soon";
+          expiringSoonWarrantyCount++;
+          isWarrantyAlert = true;
+        }
+        warrantyAlerts.push({
+          id: a.id,
+          assetCode: a.assetCode,
+          name: a.name,
+          categoryName: a.categoryName,
+          branchName: a.branchName,
+          custodianName: a.custodianName,
+          warrantyExpiryDate: a.warrantyExpiryDate,
+          daysRemaining: diffDays,
+          alertStatus,
+          alertLevel
+        });
+      }
+      if (a.nextMaintenanceDue) {
+        const mDate = new Date(a.nextMaintenanceDue);
+        const diffTime = mDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1e3 * 60 * 60 * 24));
+        let alertLevel = "ok";
+        let alertStatus = "OK";
+        if (diffDays < 0) {
+          alertLevel = "critical";
+          alertStatus = "Overdue";
+          overdueMaintenanceCount++;
+          isMaintenanceAlert = true;
+        } else if (diffDays <= 7) {
+          alertLevel = "warning";
+          alertStatus = "Maintenance Due";
+          dueSoonMaintenanceCount++;
+          isMaintenanceAlert = true;
+        }
+        maintenanceAlerts.push({
+          id: a.id,
+          assetCode: a.assetCode,
+          name: a.name,
+          categoryName: a.categoryName,
+          branchName: a.branchName,
+          custodianName: a.custodianName,
+          nextMaintenanceDue: a.nextMaintenanceDue,
+          daysRemaining: diffDays,
+          alertStatus,
+          alertLevel
+        });
+      }
+      if (isWarrantyAlert) br.warrantyAlertsCount += 1;
+      if (isMaintenanceAlert) br.maintenanceAlertsCount += 1;
+    }
+    const branchSummary = Object.values(branchSummaryMap).map((b) => ({
+      ...b,
+      totalCost: b.totalCost.toFixed(2),
+      totalNetBookValue: b.totalNetBookValue.toFixed(2)
+    }));
+    return res.json({
+      summary: {
+        totalWarrantyAlerts: expiredWarrantyCount + expiringSoonWarrantyCount,
+        expiredWarrantyCount,
+        expiringSoonWarrantyCount,
+        totalMaintenanceAlerts: overdueMaintenanceCount + dueSoonMaintenanceCount,
+        overdueMaintenanceCount,
+        dueSoonMaintenanceCount
+      },
+      warrantyAlerts: warrantyAlerts.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      maintenanceAlerts: maintenanceAlerts.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      branchSummary
+    });
+  } catch (error) {
+    console.error("GET /api/assets/reports/alerts error:", error);
+    return res.status(500).json({ error: error.message || "Failed to generate Asset Alerts report" });
   }
 });
 router6.get("/depreciation", requireAuth, checkPlugin("asset-management"), async (req, res) => {
   try {
     const companyId = await resolveTenantId4(req);
     if (!companyId) return res.status(400).json({ error: "Missing company context" });
-    const { status, assetId, categoryId } = req.query;
+    const { status, assetId, categoryId, search, startMonth, endMonth } = req.query;
     const conditions = [(0, import_drizzle_orm11.eq)(asset_depreciation_schedule.companyId, companyId)];
     if (status && typeof status === "string") {
       conditions.push((0, import_drizzle_orm11.eq)(asset_depreciation_schedule.status, status));
     }
     if (assetId && typeof assetId === "string") {
       conditions.push((0, import_drizzle_orm11.eq)(asset_depreciation_schedule.assetId, assetId));
+    }
+    if (categoryId && typeof categoryId === "string") {
+      conditions.push((0, import_drizzle_orm11.eq)(assets.categoryId, categoryId));
+    }
+    if (search && typeof search === "string" && search.trim() !== "") {
+      const s = `%${search.trim()}%`;
+      conditions.push(
+        (0, import_drizzle_orm11.or)(
+          (0, import_drizzle_orm11.ilike)(assets.name, s),
+          (0, import_drizzle_orm11.ilike)(assets.assetCode, s),
+          (0, import_drizzle_orm11.ilike)(asset_categories.name, s)
+        )
+      );
+    }
+    if (startMonth && typeof startMonth === "string" && startMonth.trim() !== "") {
+      const startDateStr = startMonth.length === 7 ? `${startMonth}-01` : startMonth;
+      const startDate = /* @__PURE__ */ new Date(`${startDateStr}T00:00:00.000Z`);
+      if (!isNaN(startDate.getTime())) {
+        conditions.push((0, import_drizzle_orm11.gte)(asset_depreciation_schedule.periodDate, startDate));
+      }
+    }
+    if (endMonth && typeof endMonth === "string" && endMonth.trim() !== "") {
+      let endDate;
+      if (endMonth.length === 7) {
+        const [yearStr, monthStr] = endMonth.split("-");
+        const yr = parseInt(yearStr, 10);
+        const mo = parseInt(monthStr, 10);
+        endDate = new Date(Date.UTC(yr, mo, 0, 23, 59, 59, 999));
+      } else {
+        endDate = /* @__PURE__ */ new Date(`${endMonth}T23:59:59.999Z`);
+      }
+      if (!isNaN(endDate.getTime())) {
+        conditions.push((0, import_drizzle_orm11.lte)(asset_depreciation_schedule.periodDate, endDate));
+      }
     }
     const scheduleList = await db.select({
       id: asset_depreciation_schedule.id,
@@ -3645,25 +4087,27 @@ router6.get("/valuation", requireAuth, checkPlugin("asset-management"), async (r
 var reports_default3 = router6;
 
 // src/shared/lib/authUtils.ts
-var crypto3 = __toESM(require("crypto"), 1);
+var crypto4 = __toESM(require("crypto"), 1);
 var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
 var jwt2 = import_jsonwebtoken2.default.default || import_jsonwebtoken2.default;
 function hashPassword(password) {
-  const salt = crypto3.randomBytes(16).toString("hex");
-  const hash = crypto3.pbkdf2Sync(password, salt, 1e3, 64, "sha512").toString("hex");
+  const salt = crypto4.randomBytes(16).toString("hex");
+  const hash = crypto4.pbkdf2Sync(password, salt, 1e3, 64, "sha512").toString("hex");
   return `${salt}:${hash}`;
 }
 function verifyPassword(password, storedHash) {
   if (!storedHash || !storedHash.includes(":")) return false;
   const [salt, originalHash] = storedHash.split(":");
-  const hash = crypto3.pbkdf2Sync(password, salt, 1e3, 64, "sha512").toString("hex");
+  const hash = crypto4.pbkdf2Sync(password, salt, 1e3, 64, "sha512").toString("hex");
   return hash === originalHash;
 }
 function generateAuthToken(user) {
   const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || process.env.VITE_SUPABASE_ANON_KEY || "sli_erp_secret_key_2026";
+  const effectiveUid = user.uid || crypto4.randomUUID();
   return jwt2.sign(
     {
-      sub: user.uid,
+      sub: effectiveUid,
+      uid: effectiveUid,
       email: user.email,
       companyId: user.companyId || null,
       role: user.role || "Requester"
@@ -4264,7 +4708,15 @@ async function startServer() {
       if (!isValidPassword) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
+      if (!user.uid) {
+        user.uid = crypto.randomUUID();
+        try {
+          await db.update(users).set({ uid: user.uid }).where((0, import_drizzle_orm12.eq)(users.id, user.id));
+        } catch (e) {
+        }
+      }
       const token = generateAuthToken({
+        id: user.id,
         uid: user.uid,
         email: user.email,
         companyId: user.companyId,
@@ -4440,7 +4892,12 @@ async function startServer() {
         if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
       }
       if (!companyId) return res.json([]);
-      const allUsers = await db.select().from(users).where((0, import_drizzle_orm12.eq)(users.companyId, companyId)).orderBy((0, import_drizzle_orm12.desc)(users.createdAt));
+      const { status } = req.query;
+      const conditions = [(0, import_drizzle_orm12.eq)(users.companyId, companyId)];
+      if (status && typeof status === "string" && status.trim() !== "") {
+        conditions.push((0, import_drizzle_orm12.ilike)(users.status, status.trim()));
+      }
+      const allUsers = await db.select().from(users).where((0, import_drizzle_orm12.and)(...conditions)).orderBy((0, import_drizzle_orm12.desc)(users.createdAt));
       res.json(allUsers);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
@@ -4512,6 +4969,10 @@ async function startServer() {
   app.get("/api/branches", requireAuth, async (req, res) => {
     try {
       let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.json([]);
       const allBranches = await db.select().from(branches).where((0, import_drizzle_orm12.eq)(branches.companyId, companyId)).orderBy(branches.name);
       res.json(allBranches);
@@ -5340,7 +5801,9 @@ async function startServer() {
             await notifyApprovers(companyId, firstStep.assigneeType || "Role", firstStep.assigneeValue || firstStep.roleRequired, department, approvalTitle, `Request ${prNumber} requires your approval.`, "ACTION", "/inbox", "PR", newPrId, requesterBranchId);
           }
         } else {
-          await notifyApprovers(companyId, "Role", "Admin", department, createdTitle, `Request ${prNumber} has been submitted with no approvals required.`, "INFO", defaultLink, void 0, void 0, requesterBranchId);
+          await db.update(purchase_requisitions).set({ status: "Approved" }).where((0, import_drizzle_orm12.eq)(purchase_requisitions.id, newPrId));
+          prResult[0].status = "Approved";
+          await notifyApprovers(companyId, "Role", "Admin", department, createdTitle, `Request ${prNumber} has been created and auto-approved.`, "INFO", defaultLink, void 0, void 0, requesterBranchId);
         }
       }
       res.json(prResult[0]);
@@ -5433,7 +5896,9 @@ async function startServer() {
             await notifyApprovers(companyId, firstStep.assigneeType || "Role", firstStep.assigneeValue || firstStep.roleRequired, department, approvalTitle, `Request ${existingPr[0].prNumber} requires your approval.`, "ACTION", "/inbox", "PR", prId, requesterBranchId);
           }
         } else {
-          await notifyApprovers(companyId, "Role", "Admin", department, createdTitle, `Request ${existingPr[0].prNumber} has been submitted with no approvals required.`, "INFO", defaultLink, void 0, void 0, requesterBranchId);
+          await db.update(purchase_requisitions).set({ status: "Approved" }).where((0, import_drizzle_orm12.eq)(purchase_requisitions.id, prId));
+          prResult[0].status = "Approved";
+          await notifyApprovers(companyId, "Role", "Admin", department, createdTitle, `Request ${existingPr[0].prNumber} has been updated and auto-approved.`, "INFO", defaultLink, void 0, void 0, requesterBranchId);
         }
       }
       res.json(prResult[0]);
@@ -6735,6 +7200,59 @@ async function startServer() {
               lastUpdated: /* @__PURE__ */ new Date()
             });
           }
+          try {
+            const currentInv = await db.select().from(inventory_items).where((0, import_drizzle_orm12.eq)(inventory_items.id, invItemId)).limit(1);
+            const isFixed = currentInv[0]?.isFixedAsset || poItem[0]?.category === "Fixed Asset" || currentInv[0]?.category && currentInv[0].category.toLowerCase().includes("asset");
+            if (isFixed) {
+              let requesterUid = null;
+              const parentPo = await db.select().from(purchase_orders).where((0, import_drizzle_orm12.eq)(purchase_orders.id, poItem[0].poId)).limit(1);
+              if (parentPo.length > 0 && parentPo[0].prId) {
+                const parentPr = await db.select().from(purchase_requisitions).where((0, import_drizzle_orm12.eq)(purchase_requisitions.id, parentPo[0].prId)).limit(1);
+                if (parentPr.length > 0) {
+                  if (parentPr[0].sourceIrId) {
+                    const originalIr = await db.select().from(purchase_requisitions).where((0, import_drizzle_orm12.eq)(purchase_requisitions.id, parentPr[0].sourceIrId)).limit(1);
+                    if (originalIr.length > 0) {
+                      requesterUid = originalIr[0].uid || originalIr[0].createdBy || null;
+                    }
+                  }
+                  if (!requesterUid) {
+                    requesterUid = parentPr[0].uid || parentPr[0].createdBy || null;
+                  }
+                }
+              }
+              let assetCatId = currentInv[0]?.assetCategoryId;
+              if (!assetCatId) {
+                const catList = await db.select().from(asset_categories).where((0, import_drizzle_orm12.eq)(asset_categories.companyId, companyId)).limit(1);
+                if (catList.length > 0) {
+                  assetCatId = catList[0].id;
+                }
+              }
+              if (assetCatId) {
+                const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
+                for (let k = 0; k < newlyPassed; k++) {
+                  const assetCode = `AST-IR-${dateStr}-${Math.floor(1e3 + Math.random() * 9e3)}`;
+                  await db.insert(assets).values({
+                    companyId,
+                    assetCode,
+                    name: poItem[0].itemName.trim(),
+                    categoryId: assetCatId,
+                    warehouseId,
+                    custodianUid: requesterUid || null,
+                    acquisitionDate: /* @__PURE__ */ new Date(),
+                    acquisitionCost: String(poItem[0].unitPrice || "0.00"),
+                    salvageValue: "0.00",
+                    currentBookValue: String(poItem[0].unitPrice || "0.00"),
+                    status: "Active",
+                    sourceType: "GRN",
+                    sourceGrnId: grnId,
+                    createdByUid: req.user.uid
+                  });
+                }
+              }
+            }
+          } catch (assetErr) {
+            console.error("Error auto-registering asset on QC pass:", assetErr);
+          }
         }
       }
       try {
@@ -7928,17 +8446,8 @@ async function startServer() {
           });
         }
       } else {
-        await db.insert(inbox_tasks).values({
-          companyId,
-          assignedToRole: "Super Admin",
-          category: "Inventory",
-          title: `Pending Stock Out: ${requestNumber} (No Workflow)`,
-          message: `${req.user?.name || "User"} requested ${quantity} units. Please configure Stock Out workflow.`,
-          actionLink: `/stock-out`,
-          referenceType: "StockOut",
-          referenceId: newReqId,
-          status: "Pending"
-        });
+        await db.update(stock_out_requests).set({ status: "Approved" }).where((0, import_drizzle_orm12.eq)(stock_out_requests.id, newReqId));
+        newRequest[0].status = "Approved";
       }
       res.json(newRequest[0]);
     } catch (error) {
@@ -8089,7 +8598,7 @@ async function startServer() {
               for (const admin of superAdmins) {
                 await db.insert(notifications).values({
                   userId: admin.uid,
-                  title: `\u26A0\uFE0F Low Stock Alert: ${item[0].name}`,
+                  title: `\xE2\u0161\xA0\xEF\xB8\x8F Low Stock Alert: ${item[0].name}`,
                   message: `Stock level (${newQty} ${item[0].uom}) has dropped to or below reorder point (${item[0].reorderPoint}). Please initiate a Purchase Requisition.`,
                   type: "WARNING",
                   link: "/inventory"
@@ -8318,6 +8827,11 @@ async function startServer() {
         if (!hasAccess) {
           return res.status(403).json({ error: "Forbidden: You are not assigned to manage the source warehouse or an item type within." });
         }
+        const targetItems = await db.select().from(inventory_items).where((0, import_drizzle_orm12.inArray)(inventory_items.id, itemIds));
+        const fixedAssetItem = targetItems.find((i) => i.isFixedAsset);
+        if (fixedAssetItem) {
+          return res.status(400).json({ error: `Item '${fixedAssetItem.name}' is a Fixed Asset. Fixed Assets must be transferred via the Asset Management module.` });
+        }
       }
       for (const item of items) {
         const ws = await db.select().from(warehouse_stock).where(
@@ -8350,7 +8864,8 @@ async function startServer() {
         quantity: parseInt(i.quantity)
       }));
       await db.insert(stock_transfer_items).values(itemInserts);
-      const workflow = await db.select().from(bpmn_definitions).where((0, import_drizzle_orm12.and)((0, import_drizzle_orm12.eq)(bpmn_definitions.companyId, companyId), (0, import_drizzle_orm12.eq)(bpmn_definitions.documentType, "Stock Transfer")));
+      let approvalsInserted = false;
+      const workflow = await db.select().from(bpmn_definitions).where((0, import_drizzle_orm12.and)((0, import_drizzle_orm12.eq)(bpmn_definitions.companyId, companyId), (0, import_drizzle_orm12.eq)(bpmn_definitions.documentType, "Stock Transfer"), (0, import_drizzle_orm12.eq)(bpmn_definitions.isActive, true)));
       if (workflow.length > 0) {
         const wflow = workflow[0];
         try {
@@ -8374,10 +8889,14 @@ async function startServer() {
             const firstStep = approvalsToInsert[0];
             const { notifyApprovers: notifyApprovers2 } = require("./src/shared/lib/notifications.js");
             await notifyApprovers2(companyId, firstStep.assigneeType, firstStep.assigneeValue, "Global", "Stock Transfer Approval Required", `Transfer ${transferNumber} requires your approval.`, "ACTION", "/inbox", "ST", transferId);
+            approvalsInserted = true;
           }
         } catch (e) {
           console.error("Workflow parsing failed", e);
         }
+      }
+      if (!approvalsInserted) {
+        await db.update(stock_transfers).set({ status: "Approved" }).where((0, import_drizzle_orm12.eq)(stock_transfers.id, transferId));
       }
       res.json({ success: true, transferNumber });
     } catch (error) {

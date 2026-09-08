@@ -565,6 +565,8 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
         sourceGrnId: assets.sourceGrnId,
         serialNumber: assets.serialNumber,
         qrCode: assets.qrCode,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue,
         createdAt: assets.createdAt
       })
       .from(assets)
@@ -635,6 +637,8 @@ router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
         sourceGrnId: assets.sourceGrnId,
         serialNumber: assets.serialNumber,
         qrCode: assets.qrCode,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue,
         createdByUid: assets.createdByUid,
         createdAt: assets.createdAt,
         updatedAt: assets.updatedAt
@@ -680,6 +684,8 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
+      warrantyExpiryDate,
+      nextMaintenanceDue,
       sourceType,
       sourceGrnId,
       status
@@ -729,6 +735,8 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
         sourceType: sourceType || 'Manual',
         sourceGrnId: sourceGrnId ? Number(sourceGrnId) : null,
         serialNumber: serialNumber || null,
+        warrantyExpiryDate: warrantyExpiryDate ? new Date(warrantyExpiryDate) : null,
+        nextMaintenanceDue: nextMaintenanceDue ? new Date(nextMaintenanceDue) : null,
         createdByUid: req.user?.uid || null
       })
       .returning();
@@ -851,6 +859,8 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
       usefulLifeMonths,
       depreciationStartDate,
       serialNumber,
+      warrantyExpiryDate,
+      nextMaintenanceDue,
       status
     } = req.body || {};
 
@@ -885,6 +895,8 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
         depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : undefined,
         currentBookValue: updatedBookValue,
         serialNumber,
+        warrantyExpiryDate: warrantyExpiryDate !== undefined ? (warrantyExpiryDate ? new Date(warrantyExpiryDate) : null) : undefined,
+        nextMaintenanceDue: nextMaintenanceDue !== undefined ? (nextMaintenanceDue ? new Date(nextMaintenanceDue) : null) : undefined,
         status,
         updatedAt: new Date()
       })

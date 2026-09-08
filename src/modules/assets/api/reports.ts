@@ -4,7 +4,7 @@ import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
 import { assets, asset_categories, asset_depreciation_schedule, branches, departments, warehouses, users } from '../../../shared/db/schema.js';
-import { eq, and, desc, sql, ilike, or, count, sum } from 'drizzle-orm';
+import { eq, and, desc, sql, ilike, or, count, sum, gte, lte } from 'drizzle-orm';
 
 const router = Router();
 
@@ -64,7 +64,9 @@ router.get('/register', requireAuth, checkPlugin('asset-management'), async (req
         currentBookValue: assets.currentBookValue,
         status: assets.status,
         sourceType: assets.sourceType,
-        serialNumber: assets.serialNumber
+        serialNumber: assets.serialNumber,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue
       })
       .from(assets)
       .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
@@ -74,20 +76,201 @@ router.get('/register', requireAuth, checkPlugin('asset-management'), async (req
       .where(and(...conditions))
       .orderBy(desc(assets.createdAt));
 
-    return res.json({ register: registerData, count: registerData.length });
+    const enrichedRegister = registerData.map(item => {
+      const cost = Number(item.acquisitionCost || 0);
+      const accum = Number(item.accumulatedDepreciation || 0);
+      const depreciationPercent = cost > 0 ? Number(((accum / cost) * 100).toFixed(2)) : 0;
+      return {
+        ...item,
+        depreciationPercent
+      };
+    });
+
+    return res.json({ register: enrichedRegister, count: enrichedRegister.length });
   } catch (error: any) {
     console.error('GET /api/assets/reports/register error:', error);
     return res.status(500).json({ error: error.message || 'Failed to generate Asset Register report' });
   }
 });
 
-// GET /api/assets/reports/depreciation — Period-wise Depreciation Summary
+// GET /api/assets/reports/alerts — Warranty & Maintenance Expiration Alerts + Branch Summary
+router.get('/alerts', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const allAssets = await db
+      .select({
+        id: assets.id,
+        assetCode: assets.assetCode,
+        name: assets.name,
+        categoryId: assets.categoryId,
+        categoryName: asset_categories.name,
+        branchId: assets.branchId,
+        branchName: branches.name,
+        custodianName: users.name,
+        departmentName: departments.name,
+        acquisitionCost: assets.acquisitionCost,
+        currentBookValue: assets.currentBookValue,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue,
+        status: assets.status
+      })
+      .from(assets)
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .leftJoin(branches, eq(assets.branchId, branches.id))
+      .leftJoin(departments, eq(assets.departmentId, departments.id))
+      .leftJoin(users, eq(assets.custodianUid, users.uid))
+      .where(and(eq(assets.companyId, companyId), eq(assets.status, 'Active')));
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const warrantyAlerts: any[] = [];
+    const maintenanceAlerts: any[] = [];
+
+    let expiredWarrantyCount = 0;
+    let expiringSoonWarrantyCount = 0;
+    let overdueMaintenanceCount = 0;
+    let dueSoonMaintenanceCount = 0;
+
+    const branchSummaryMap: Record<string, {
+      branchId: number | null;
+      branchName: string;
+      totalAssets: number;
+      totalCost: number;
+      totalNetBookValue: number;
+      warrantyAlertsCount: number;
+      maintenanceAlertsCount: number;
+    }> = {};
+
+    for (const a of allAssets) {
+      const brKey = a.branchName || 'Head Office / Unassigned';
+      if (!branchSummaryMap[brKey]) {
+        branchSummaryMap[brKey] = {
+          branchId: a.branchId,
+          branchName: brKey,
+          totalAssets: 0,
+          totalCost: 0,
+          totalNetBookValue: 0,
+          warrantyAlertsCount: 0,
+          maintenanceAlertsCount: 0
+        };
+      }
+      const br = branchSummaryMap[brKey];
+      br.totalAssets += 1;
+      br.totalCost += Number(a.acquisitionCost || 0);
+      br.totalNetBookValue += Number(a.currentBookValue || 0);
+
+      let isWarrantyAlert = false;
+      let isMaintenanceAlert = false;
+
+      // Warranty Check
+      if (a.warrantyExpiryDate) {
+        const wDate = new Date(a.warrantyExpiryDate);
+        const diffTime = wDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        let alertLevel: 'critical' | 'warning' | 'ok' = 'ok';
+        let alertStatus = 'Valid';
+
+        if (diffDays < 0) {
+          alertLevel = 'critical';
+          alertStatus = 'Expired';
+          expiredWarrantyCount++;
+          isWarrantyAlert = true;
+        } else if (diffDays <= 30) {
+          alertLevel = 'warning';
+          alertStatus = 'Expiring Soon';
+          expiringSoonWarrantyCount++;
+          isWarrantyAlert = true;
+        }
+
+        warrantyAlerts.push({
+          id: a.id,
+          assetCode: a.assetCode,
+          name: a.name,
+          categoryName: a.categoryName,
+          branchName: a.branchName,
+          custodianName: a.custodianName,
+          warrantyExpiryDate: a.warrantyExpiryDate,
+          daysRemaining: diffDays,
+          alertStatus,
+          alertLevel
+        });
+      }
+
+      // Maintenance Check
+      if (a.nextMaintenanceDue) {
+        const mDate = new Date(a.nextMaintenanceDue);
+        const diffTime = mDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        let alertLevel: 'critical' | 'warning' | 'ok' = 'ok';
+        let alertStatus = 'OK';
+
+        if (diffDays < 0) {
+          alertLevel = 'critical';
+          alertStatus = 'Overdue';
+          overdueMaintenanceCount++;
+          isMaintenanceAlert = true;
+        } else if (diffDays <= 7) {
+          alertLevel = 'warning';
+          alertStatus = 'Maintenance Due';
+          dueSoonMaintenanceCount++;
+          isMaintenanceAlert = true;
+        }
+
+        maintenanceAlerts.push({
+          id: a.id,
+          assetCode: a.assetCode,
+          name: a.name,
+          categoryName: a.categoryName,
+          branchName: a.branchName,
+          custodianName: a.custodianName,
+          nextMaintenanceDue: a.nextMaintenanceDue,
+          daysRemaining: diffDays,
+          alertStatus,
+          alertLevel
+        });
+      }
+
+      if (isWarrantyAlert) br.warrantyAlertsCount += 1;
+      if (isMaintenanceAlert) br.maintenanceAlertsCount += 1;
+    }
+
+    const branchSummary = Object.values(branchSummaryMap).map(b => ({
+      ...b,
+      totalCost: b.totalCost.toFixed(2),
+      totalNetBookValue: b.totalNetBookValue.toFixed(2)
+    }));
+
+    return res.json({
+      summary: {
+        totalWarrantyAlerts: expiredWarrantyCount + expiringSoonWarrantyCount,
+        expiredWarrantyCount,
+        expiringSoonWarrantyCount,
+        totalMaintenanceAlerts: overdueMaintenanceCount + dueSoonMaintenanceCount,
+        overdueMaintenanceCount,
+        dueSoonMaintenanceCount
+      },
+      warrantyAlerts: warrantyAlerts.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      maintenanceAlerts: maintenanceAlerts.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      branchSummary
+    });
+  } catch (error: any) {
+    console.error('GET /api/assets/reports/alerts error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate Asset Alerts report' });
+  }
+});
+
+// GET /api/assets/reports/depreciation — Period-wise & Month-range Depreciation Summary
 router.get('/depreciation', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
-    const { status, assetId, categoryId } = req.query;
+    const { status, assetId, categoryId, search, startMonth, endMonth } = req.query;
 
     const conditions = [eq(asset_depreciation_schedule.companyId, companyId)];
 
@@ -96,6 +279,42 @@ router.get('/depreciation', requireAuth, checkPlugin('asset-management'), async 
     }
     if (assetId && typeof assetId === 'string') {
       conditions.push(eq(asset_depreciation_schedule.assetId, assetId));
+    }
+    if (categoryId && typeof categoryId === 'string') {
+      conditions.push(eq(assets.categoryId, categoryId));
+    }
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const s = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(assets.name, s),
+          ilike(assets.assetCode, s),
+          ilike(asset_categories.name, s)
+        )!
+      );
+    }
+
+    if (startMonth && typeof startMonth === 'string' && startMonth.trim() !== '') {
+      const startDateStr = startMonth.length === 7 ? `${startMonth}-01` : startMonth;
+      const startDate = new Date(`${startDateStr}T00:00:00.000Z`);
+      if (!isNaN(startDate.getTime())) {
+        conditions.push(gte(asset_depreciation_schedule.periodDate, startDate));
+      }
+    }
+
+    if (endMonth && typeof endMonth === 'string' && endMonth.trim() !== '') {
+      let endDate: Date;
+      if (endMonth.length === 7) {
+        const [yearStr, monthStr] = endMonth.split('-');
+        const yr = parseInt(yearStr, 10);
+        const mo = parseInt(monthStr, 10);
+        endDate = new Date(Date.UTC(yr, mo, 0, 23, 59, 59, 999));
+      } else {
+        endDate = new Date(`${endMonth}T23:59:59.999Z`);
+      }
+      if (!isNaN(endDate.getTime())) {
+        conditions.push(lte(asset_depreciation_schedule.periodDate, endDate));
+      }
     }
 
     const scheduleList = await db

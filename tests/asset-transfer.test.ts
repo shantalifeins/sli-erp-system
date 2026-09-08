@@ -156,6 +156,7 @@ describe('Phase 7 — Asset Transfer Workflow API', () => {
 
     mockDbSelect.mockReturnValueOnce([mockTransfer]);
     mockDbUpdate.mockReturnValueOnce([{ status: 'Completed' }]); // inbox_tasks
+    mockDbUpdate.mockReturnValueOnce([{ status: 'Approved' }]); // document_approvals
     mockDbUpdate.mockReturnValueOnce([{ ...mockTransfer, status: 'Approved' }]); // asset_transfers
     mockDbUpdate.mockReturnValueOnce([{ id: 'asset-200', branchId: 5, custodianUid: 'user-custodian-5' }]); // assets
 
@@ -178,6 +179,7 @@ describe('Phase 7 — Asset Transfer Workflow API', () => {
 
     mockDbSelect.mockReturnValueOnce([mockTransfer]);
     mockDbUpdate.mockReturnValueOnce([{ status: 'Completed' }]); // inbox_tasks
+    mockDbUpdate.mockReturnValueOnce([{ status: 'Rejected' }]); // document_approvals
     mockDbUpdate.mockReturnValueOnce([{ ...mockTransfer, status: 'Rejected' }]); // asset_transfers
 
     const res = await request(app)

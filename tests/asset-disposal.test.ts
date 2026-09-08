@@ -154,6 +154,7 @@ describe('Phase 9 — Asset Disposal & Write-off Workflow API', () => {
 
     mockDbSelect.mockReturnValueOnce([mockDisposalRecord]);
     mockDbUpdate.mockReturnValueOnce([{ status: 'Completed' }]); // inbox_tasks
+    mockDbUpdate.mockReturnValueOnce([{ status: 'Approved' }]); // document_approvals
     mockDbUpdate.mockReturnValueOnce([{ ...mockDisposalRecord, status: 'Approved' }]); // asset_disposals
     mockDbUpdate.mockReturnValueOnce([{ status: 'Cancelled' }]); // asset_depreciation_schedule
     mockDbUpdate.mockReturnValueOnce([{ id: 'asset-400', status: 'Disposed' }]); // assets
@@ -177,6 +178,7 @@ describe('Phase 9 — Asset Disposal & Write-off Workflow API', () => {
 
     mockDbSelect.mockReturnValueOnce([mockDisposalRecord]);
     mockDbUpdate.mockReturnValueOnce([{ status: 'Completed' }]); // inbox_tasks
+    mockDbUpdate.mockReturnValueOnce([{ status: 'Rejected' }]); // document_approvals
     mockDbUpdate.mockReturnValueOnce([{ ...mockDisposalRecord, status: 'Rejected' }]); // asset_disposals
 
     const res = await request(app)

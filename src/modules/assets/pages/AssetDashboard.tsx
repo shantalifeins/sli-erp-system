@@ -30,6 +30,7 @@ export default function AssetDashboard() {
 
   const [assets, setAssets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [alertsData, setAlertsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Depreciation Wizard State
@@ -44,13 +45,15 @@ export default function AssetDashboard() {
       const token = await getToken();
       if (!token) return;
 
-      const [assetRes, catRes] = await Promise.all([
+      const [assetRes, catRes, alertsRes] = await Promise.all([
         fetchWithAuth('/api/assets?limit=100', token),
-        fetchWithAuth('/api/assets/categories', token)
+        fetchWithAuth('/api/assets/categories', token),
+        fetchWithAuth('/api/assets/reports/alerts', token).catch(() => null)
       ]);
 
       setAssets(assetRes.assets || []);
       setCategories(catRes.categories || []);
+      if (alertsRes) setAlertsData(alertsRes);
     } catch (err) {
       console.error('Failed to load asset dashboard data:', err);
     } finally {
@@ -102,7 +105,7 @@ export default function AssetDashboard() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Asset Management Overview</h1>
-            <p className="text-sm text-slate-500">Monitor fixed asset register, category breakdowns, and valuation health</p>
+            <p className="text-sm text-slate-500">Monitor fixed asset register, category breakdowns, branch locations, and valuation health</p>
           </div>
         </div>
 
@@ -161,8 +164,8 @@ export default function AssetDashboard() {
         </div>
       )}
 
-      {/* Stat Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      {/* Stat Cards Grid (6 items) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Assets Registered</p>
@@ -210,7 +213,105 @@ export default function AssetDashboard() {
             <AlertTriangle className="w-6 h-6" />
           </div>
         </div>
+
+        {/* Warranty Expiration Alerts Card */}
+        <div 
+          onClick={() => navigate('/asset-reports?tab=alerts')}
+          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-amber-300 transition-colors"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Warranty Alerts</p>
+            <h3 className="text-2xl font-bold text-amber-600 mt-1">
+              {alertsData?.summary?.totalWarrantyAlerts ?? 0}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {alertsData?.summary?.expiredWarrantyCount ?? 0} Expired | {alertsData?.summary?.expiringSoonWarrantyCount ?? 0} Expiring Soon
+            </p>
+          </div>
+          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+            <Clock className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Maintenance Expiration Alerts Card */}
+        <div 
+          onClick={() => navigate('/asset-reports?tab=alerts')}
+          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-rose-300 transition-colors"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Maintenance Alerts</p>
+            <h3 className="text-2xl font-bold text-rose-600 mt-1">
+              {alertsData?.summary?.totalMaintenanceAlerts ?? 0}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {alertsData?.summary?.overdueMaintenanceCount ?? 0} Overdue | {alertsData?.summary?.dueSoonMaintenanceCount ?? 0} Due Soon
+            </p>
+          </div>
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+        </div>
       </div>
+
+      {/* Branch-Wise Summary Table */}
+      {alertsData?.branchSummary && alertsData.branchSummary.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <span>🏢 Branch-Wise Asset & Valuation Summary</span>
+            </h2>
+            <button
+              onClick={() => navigate('/asset-reports?tab=alerts')}
+              className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+            >
+              <span>Detailed Alert Report</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-600">
+              <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-3.5">Branch Location</th>
+                  <th className="px-6 py-3.5 text-center">Total Assets</th>
+                  <th className="px-6 py-3.5 text-right">Total Cost ({currencySymbol})</th>
+                  <th className="px-6 py-3.5 text-right">Net Book Value ({currencySymbol})</th>
+                  <th className="px-6 py-3.5 text-center">Warranty Alerts</th>
+                  <th className="px-6 py-3.5 text-center">Maint. Alerts</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {alertsData.branchSummary.map((b: any, i: number) => (
+                  <tr key={i} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-6 py-3.5 font-semibold text-slate-900">{b.branchName}</td>
+                    <td className="px-6 py-3.5 text-center font-semibold">{b.totalAssets}</td>
+                    <td className="px-6 py-3.5 text-right font-medium">{currencySymbol}{Number(b.totalCost).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-6 py-3.5 text-right font-semibold text-emerald-600">{currencySymbol}{Number(b.totalNetBookValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-6 py-3.5 text-center">
+                      {b.warrantyAlertsCount > 0 ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                          {b.warrantyAlertsCount}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">0</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-3.5 text-center">
+                      {b.maintenanceAlertsCount > 0 ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800">
+                          {b.maintenanceAlertsCount}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">0</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Category Breakdown & Recent Register Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

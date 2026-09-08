@@ -55,6 +55,8 @@ export default function Assets() {
     decliningRate: '0.00',
     usefulLifeMonths: 36,
     serialNumber: '',
+    warrantyExpiryDate: '',
+    nextMaintenanceDue: '',
     status: 'Active'
   });
 
@@ -124,6 +126,8 @@ export default function Assets() {
       decliningRate: '0.00',
       usefulLifeMonths: 36,
       serialNumber: '',
+      warrantyExpiryDate: '',
+      nextMaintenanceDue: '',
       status: 'Active'
     });
     setShowForm(true);
@@ -145,9 +149,41 @@ export default function Assets() {
       decliningRate: asset.decliningRate || '0.00',
       usefulLifeMonths: asset.usefulLifeMonths || 36,
       serialNumber: asset.serialNumber || '',
+      warrantyExpiryDate: asset.warrantyExpiryDate ? new Date(asset.warrantyExpiryDate).toISOString().slice(0, 10) : '',
+      nextMaintenanceDue: asset.nextMaintenanceDue ? new Date(asset.nextMaintenanceDue).toISOString().slice(0, 10) : '',
       status: asset.status || 'Active'
     });
     setShowForm(true);
+  };
+
+  const getWarrantyBadge = (dateStr: string | null) => {
+    if (!dateStr) return <span className="text-slate-400 text-xs">N/A</span>;
+    const wDate = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((wDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) {
+      return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">🔴 Expired</span>;
+    } else if (diffDays <= 30) {
+      return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">🟡 Soon ({diffDays}d)</span>;
+    } else {
+      return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">🟢 Valid</span>;
+    }
+  };
+
+  const getMaintenanceBadge = (dateStr: string | null) => {
+    if (!dateStr) return <span className="text-slate-400 text-xs">N/A</span>;
+    const mDate = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((mDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) {
+      return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">🔴 Overdue</span>;
+    } else if (diffDays <= 7) {
+      return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">🟡 Due ({diffDays}d)</span>;
+    } else {
+      return <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">🟢 OK</span>;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -438,6 +474,30 @@ export default function Assets() {
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Warranty Expiry Date
+                </label>
+                <input
+                  type="date"
+                  value={formData.warrantyExpiryDate}
+                  onChange={(e) => setFormData({ ...formData, warrantyExpiryDate: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Next Maintenance Due
+                </label>
+                <input
+                  type="date"
+                  value={formData.nextMaintenanceDue}
+                  onChange={(e) => setFormData({ ...formData, nextMaintenanceDue: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
                   Status
                 </label>
                 <select
@@ -547,119 +607,139 @@ export default function Assets() {
             <table className="w-full text-left text-sm text-slate-600">
               <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
                 <tr>
-                  <th className="px-6 py-4">Tag Code</th>
-                  <th className="px-6 py-4">Asset Description</th>
-                  <th className="px-6 py-4">Category</th>
-                  <th className="px-6 py-4">Location / Custodian</th>
-                  <th className="px-6 py-4">Cost ({currencySymbol})</th>
-                  <th className="px-6 py-4">Book Value ({currencySymbol})</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
+                  <th className="px-5 py-4">Tag Code</th>
+                  <th className="px-5 py-4">Asset Description</th>
+                  <th className="px-5 py-4">Category</th>
+                  <th className="px-5 py-4">Location / Custodian</th>
+                  <th className="px-5 py-4">Cost ({currencySymbol})</th>
+                  <th className="px-5 py-4">Current Value ({currencySymbol})</th>
+                  <th className="px-5 py-4">Depr. %</th>
+                  <th className="px-5 py-4">Warranty</th>
+                  <th className="px-5 py-4">Maint. Due</th>
+                  <th className="px-5 py-4">Status</th>
+                  <th className="px-5 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                    <td colSpan={11} className="px-6 py-12 text-center text-slate-400">
                       Loading asset records...
                     </td>
                   </tr>
                 ) : assetsList.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                    <td colSpan={11} className="px-6 py-12 text-center text-slate-400">
                       No fixed assets found.
                     </td>
                   </tr>
                 ) : (
-                  assetsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((asset) => (
-                    <tr key={asset.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-6 py-4 font-mono font-semibold text-purple-600 text-xs">
-                        {asset.assetCode}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-slate-900">{asset.name}</div>
-                        {asset.serialNumber && (
-                          <div className="text-xs text-slate-400">SN: {asset.serialNumber}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {asset.categoryName || 'Uncategorized'}
-                      </td>
-                      <td className="px-6 py-4 text-xs space-y-0.5">
-                        <div className="text-slate-700 font-medium flex items-center gap-1">
-                          <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                          {asset.branchName || 'HQ'}
-                        </div>
-                        <div className="text-slate-500 flex items-center gap-1">
-                          <User className="w-3.5 h-3.5 text-slate-400" />
-                          {asset.custodianName || 'Unassigned'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-slate-900">
-                        {currencySymbol}{Number(asset.acquisitionCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-emerald-600">
-                        {currencySymbol}{Number(asset.currentBookValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                          asset.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                          asset.status === 'UnderMaintenance' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                          asset.status === 'Disposed' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
-                          'bg-slate-100 text-slate-600 border border-slate-200'
-                        }`}>
-                          {asset.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right flex items-center justify-end gap-1">
-                        {asset.status === 'Draft' && (canApprove || canEdit) && (
+                  assetsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((asset) => {
+                    const cost = Number(asset.acquisitionCost || 0);
+                    const accum = Number(asset.accumulatedDepreciation || 0);
+                    const deprPct = cost > 0 ? ((accum / cost) * 100).toFixed(1) : '0.0';
+
+                    return (
+                      <tr key={asset.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-5 py-4 font-mono font-semibold text-purple-600 text-xs">
+                          {asset.assetCode}
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="font-medium text-slate-900">{asset.name}</div>
+                          {asset.serialNumber && (
+                            <div className="text-xs text-slate-400">SN: {asset.serialNumber}</div>
+                          )}
+                        </td>
+                        <td className="px-5 py-4 text-slate-600">
+                          {asset.categoryName || 'Uncategorized'}
+                        </td>
+                        <td className="px-5 py-4 text-xs space-y-0.5">
+                          <div className="text-slate-700 font-medium flex items-center gap-1">
+                            <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                            {asset.branchName || 'HQ'}
+                          </div>
+                          <div className="text-slate-500 flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            {asset.custodianName || 'Unassigned'}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-slate-900">
+                          {currencySymbol}{cost.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-emerald-600">
+                          {currencySymbol}{Number(asset.currentBookValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700">
+                            {deprPct}%
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {getWarrantyBadge(asset.warrantyExpiryDate)}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {getMaintenanceBadge(asset.nextMaintenanceDue)}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                            asset.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                            asset.status === 'UnderMaintenance' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            asset.status === 'Disposed' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                            'bg-slate-100 text-slate-600 border border-slate-200'
+                          }`}>
+                            {asset.status}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right flex items-center justify-end gap-1">
+                          {asset.status === 'Draft' && (canApprove || canEdit) && (
+                            <button
+                              onClick={() => handleActivateAsset(asset.id)}
+                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold px-2 border border-emerald-200"
+                              title="Activate Asset & Generate Schedule"
+                            >
+                              <Zap className="w-3.5 h-3.5" />
+                              <span>Activate</span>
+                            </button>
+                          )}
                           <button
-                            onClick={() => handleActivateAsset(asset.id)}
-                            className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold px-2 border border-emerald-200"
-                            title="Activate Asset & Generate Schedule"
+                            onClick={() => navigate(`/asset-schedule/${asset.id}`)}
+                            className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                            title="View Depreciation Schedule"
                           >
-                            <Zap className="w-3.5 h-3.5" />
-                            <span>Activate</span>
+                            <Calendar className="w-4 h-4" />
                           </button>
-                        )}
-                        <button
-                          onClick={() => navigate(`/asset-schedule/${asset.id}`)}
-                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                          title="View Depreciation Schedule"
-                        >
-                          <Calendar className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setSelectedQrAsset(asset)}
-                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                          title="View / Print QR Tag Label"
-                        >
-                          <QrCode className="w-4 h-4" />
-                        </button>
-                        {canEdit && (
-                          <>
-                            <button
-                              onClick={() => {
-                                setAssigningAsset(asset);
-                                setNewCustodianUid(asset.custodianUid || '');
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                              title="Assign / Reassign Custodian Employee"
-                            >
-                              <UserCheck className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleOpenEdit(asset)}
-                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Edit Asset"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                          <button
+                            onClick={() => setSelectedQrAsset(asset)}
+                            className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                            title="View / Print QR Tag Label"
+                          >
+                            <QrCode className="w-4 h-4" />
+                          </button>
+                          {canEdit && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setAssigningAsset(asset);
+                                  setNewCustodianUid(asset.custodianUid || '');
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                title="Assign / Reassign Custodian Employee"
+                              >
+                                <UserCheck className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleOpenEdit(asset)}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Edit Asset"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

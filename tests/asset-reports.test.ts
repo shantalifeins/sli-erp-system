@@ -121,6 +121,33 @@ describe('Phase 10 — Asset Management Reports & Valuation Summary API', () => 
     expect(res.body.schedule.length).toBe(2);
   });
 
+  it('GET /api/assets/reports/depreciation should support startMonth and endMonth range filtering', async () => {
+    const mockSchedule = [
+      {
+        id: 'sch-1',
+        assetId: 'ast-1',
+        assetCode: 'AST-20260906-0001',
+        assetName: 'Dell Latitude Laptop',
+        categoryName: 'IT Hardware',
+        periodNumber: 3,
+        periodDate: '2026-03-15',
+        depreciationAmount: '3055.56',
+        accumulatedDepreciation: '9166.68',
+        bookValueAfter: '110833.32',
+        status: 'Posted'
+      }
+    ];
+
+    mockDbSelect.mockResolvedValue(mockSchedule);
+
+    const res = await request(app)
+      .get('/api/assets/reports/depreciation?startMonth=2026-03&endMonth=2026-03&search=Dell&categoryId=cat-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.schedule.length).toBe(1);
+    expect(res.body.schedule[0].periodNumber).toBe(3);
+  });
+
   it('GET /api/assets/reports/valuation should calculate valuation totals and category/branch breakdowns', async () => {
     const mockAssets = [
       {

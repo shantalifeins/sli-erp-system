@@ -149,22 +149,28 @@ ssoRouter.post('/microsoft', async (req, res) => {
             firstStepAssigneeRole = firstStep.assigneeValue || firstStep.roleRequired;
           }
         }
+
+        // Insert Inbox task
+        await db.insert(inbox_tasks).values({
+          companyId: company.id,
+          category: 'System',
+          title: `New Employee Onboarding: ${user.name}`,
+          message: `Employee ${user.name} (${user.email}) registered via SSO and is waiting for Role and Branch assignment.`,
+          status: 'Pending',
+          referenceType: 'User Registration',
+          referenceId: user.id,
+          assignedToRole: firstStepAssigneeRole,
+          assignedToUid: firstStepAssigneeUid
+        });
+
+        return res.status(202).json({ status: 'pending', message: 'Account is pending HR approval.' });
+      } else {
+        // Auto-approve user registration if no workflow is configured
+        await db.update(users)
+          .set({ status: 'Active' })
+          .where(eq(users.id, user.id));
+        user.status = 'Active';
       }
-
-      // Insert Inbox task
-      await db.insert(inbox_tasks).values({
-        companyId: company.id,
-        category: 'System',
-        title: `New Employee Onboarding: ${user.name}`,
-        message: `Employee ${user.name} (${user.email}) registered via SSO and is waiting for Role and Branch assignment.`,
-        status: 'Pending',
-        referenceType: 'User Registration',
-        referenceId: user.id,
-        assignedToRole: firstStepAssigneeRole,
-        assignedToUid: firstStepAssigneeUid
-      });
-
-      return res.status(202).json({ status: 'pending', message: 'Account is pending HR approval.' });
     } else {
       // User exists locally. If they somehow don't exist in GoTrue, generateLink will fail later.
       // We no longer overwrite their password here so they can retain their direct login credentials.

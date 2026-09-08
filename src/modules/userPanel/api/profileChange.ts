@@ -132,20 +132,39 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
           firstStepAssigneeRole = firstStep.assigneeValue || firstStep.roleRequired;
         }
       }
-    }
 
-    // Insert Inbox task
-    await db.insert(inbox_tasks).values({
-      companyId: companyId,
-      category: 'User Panel',
-      title: `Profile Data Change Request: ${user.name}`,
-      message: `Employee ${user.name} has requested to change their profile data.`,
-      status: 'Pending',
-      referenceType: 'Profile Data Change Request',
-      referenceId: request.id,
-      assignedToRole: firstStepAssigneeRole,
-      assignedToUid: firstStepAssigneeUid
-    });
+      // Insert Inbox task
+      await db.insert(inbox_tasks).values({
+        companyId: companyId,
+        category: 'User Panel',
+        title: `Profile Data Change Request: ${user.name}`,
+        message: `Employee ${user.name} has requested to change their profile data.`,
+        status: 'Pending',
+        referenceType: 'Profile Data Change Request',
+        referenceId: request.id,
+        assignedToRole: firstStepAssigneeRole,
+        assignedToUid: firstStepAssigneeUid
+      });
+    } else {
+      // Auto-approve profile change request if no workflow is configured
+      await db.update(profile_change_requests)
+        .set({ status: 'Approved' })
+        .where(eq(profile_change_requests.id, request.id));
+      request.status = 'Approved';
+
+      // Merge changes directly into user record
+      const updateData: any = {};
+      if (requestedData?.phone) updateData.phone = requestedData.phone;
+      if (requestedData?.address) updateData.address = requestedData.address;
+      if (requestedData?.emergencyContact) updateData.emergencyContact = requestedData.emergencyContact;
+      if (requestedData?.avatarUrl) updateData.avatarUrl = requestedData.avatarUrl;
+
+      if (Object.keys(updateData).length > 0) {
+        await db.update(users)
+          .set(updateData)
+          .where(and(eq(users.uid, req.user!.uid), eq(users.companyId, companyId)));
+      }
+    }
 
     res.json(request);
   } catch (err) {

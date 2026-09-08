@@ -848,6 +848,8 @@ export const assets = pgTable('assets', {
   sourceGrnId: integer('source_grn_id').references(() => grn.id),
   serialNumber: text('serial_number'),
   qrCode: text('qr_code'),
+  warrantyExpiryDate: timestamp('warranty_expiry_date'),
+  nextMaintenanceDue: timestamp('next_maintenance_due'),
   createdByUid: text('created_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),

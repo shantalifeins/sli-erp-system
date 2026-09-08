@@ -2365,7 +2365,9 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, department, approvalTitle, `Request ${prNumber} requires your approval.`, "ACTION", "/inbox", "PR", newPrId, requesterBranchId);
           }
         } else {
-          await notifyApprovers(companyId, 'Role', 'Admin', department, createdTitle, `Request ${prNumber} has been submitted with no approvals required.`, "INFO", defaultLink, undefined, undefined, requesterBranchId);
+          await db.update(purchase_requisitions).set({ status: 'Approved' }).where(eq(purchase_requisitions.id, newPrId));
+          prResult[0].status = 'Approved';
+          await notifyApprovers(companyId, 'Role', 'Admin', department, createdTitle, `Request ${prNumber} has been created and auto-approved.`, "INFO", defaultLink, undefined, undefined, requesterBranchId);
         }
       }
 
@@ -2479,7 +2481,9 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             await notifyApprovers(companyId, firstStep.assigneeType || 'Role', firstStep.assigneeValue || firstStep.roleRequired, department, approvalTitle, `Request ${existingPr[0].prNumber} requires your approval.`, "ACTION", "/inbox", "PR", prId, requesterBranchId);
           }
         } else {
-          await notifyApprovers(companyId, 'Role', 'Admin', department, createdTitle, `Request ${existingPr[0].prNumber} has been submitted with no approvals required.`, "INFO", defaultLink, undefined, undefined, requesterBranchId);
+          await db.update(purchase_requisitions).set({ status: 'Approved' }).where(eq(purchase_requisitions.id, prId));
+          prResult[0].status = 'Approved';
+          await notifyApprovers(companyId, 'Role', 'Admin', department, createdTitle, `Request ${existingPr[0].prNumber} has been updated and auto-approved.`, "INFO", defaultLink, undefined, undefined, requesterBranchId);
         }
       }
 
@@ -5509,18 +5513,9 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           });
         }
       } else {
-        // No BPMN workflow found? Create a default task for Super Admin so it's not lost
-        await db.insert(inbox_tasks).values({
-          companyId,
-          assignedToRole: 'Super Admin',
-          category: 'Inventory',
-          title: `Pending Stock Out: ${requestNumber} (No Workflow)`,
-          message: `${req.user?.name || 'User'} requested ${quantity} units. Please configure Stock Out workflow.`,
-          actionLink: `/stock-out`,
-          referenceType: 'StockOut',
-          referenceId: newReqId,
-          status: 'Pending'
-        });
+        // No BPMN workflow configured -> Auto Approve Stock Out request
+        await db.update(stock_out_requests).set({ status: 'Approved' }).where(eq(stock_out_requests.id, newReqId));
+        newRequest[0].status = 'Approved';
       }
 
       res.json(newRequest[0]);
@@ -6051,7 +6046,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       await db.insert(stock_transfer_items).values(itemInserts);
 
       // Start BPMN Workflow
-      const workflow = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, 'Stock Transfer')));
+      let approvalsInserted = false;
+      const workflow = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.companyId, companyId), eq(bpmn_definitions.documentType, 'Stock Transfer'), eq(bpmn_definitions.isActive, true)));
       if (workflow.length > 0) {
         const wflow = workflow[0];
         try {
@@ -6075,10 +6071,15 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             const firstStep = approvalsToInsert[0];
             const { notifyApprovers } = require('./src/shared/lib/notifications.js');
             await notifyApprovers(companyId, firstStep.assigneeType, firstStep.assigneeValue, 'Global', "Stock Transfer Approval Required", `Transfer ${transferNumber} requires your approval.`, "ACTION", "/inbox", "ST", transferId);
+            approvalsInserted = true;
           }
         } catch(e) {
           console.error("Workflow parsing failed", e);
         }
+      }
+
+      if (!approvalsInserted) {
+        await db.update(stock_transfers).set({ status: 'Approved' }).where(eq(stock_transfers.id, transferId));
       }
       
       res.json({ success: true, transferNumber });
