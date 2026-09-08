@@ -6,7 +6,7 @@ import { resolveTenantId } from '../../../shared/lib/tenant.js';
 import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
-import { eq, ne, and, desc, sql, ilike, or, count, isNull } from 'drizzle-orm';
+import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'drizzle-orm';
 
 const router = Router();
 
@@ -487,6 +487,261 @@ router.get('/my-assets', requireAuth, checkPlugin('asset-management'), async (re
   } catch (err: any) {
     console.error('GET /api/assets/my-assets error:', err);
     return res.status(500).json({ error: 'Failed to fetch my assets' });
+  }
+});
+
+// GET /api/assets/dashboard — Consolidated Interactive Asset Dashboard Analytics
+router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, year } = req.query;
+
+    const conditions = [eq(assets.companyId, companyId)];
+
+    if (categoryId && typeof categoryId === 'string') {
+      conditions.push(eq(assets.categoryId, categoryId));
+    }
+    if (branchId && !isNaN(Number(branchId))) {
+      conditions.push(eq(assets.branchId, Number(branchId)));
+    }
+    if (warehouseId && !isNaN(Number(warehouseId))) {
+      conditions.push(eq(assets.warehouseId, Number(warehouseId)));
+    }
+    if (departmentId && !isNaN(Number(departmentId))) {
+      conditions.push(eq(assets.departmentId, Number(departmentId)));
+    }
+    if (custodianUid && typeof custodianUid === 'string') {
+      if (custodianUid === 'unassigned') {
+        conditions.push(isNull(assets.custodianUid));
+      } else {
+        conditions.push(eq(assets.custodianUid, custodianUid));
+      }
+    }
+    if (status && typeof status === 'string') {
+      conditions.push(eq(assets.status, status));
+    }
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const s = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(assets.name, s),
+          ilike(assets.assetCode, s),
+          ilike(assets.serialNumber, s)
+        )!
+      );
+    }
+    if (year && !isNaN(Number(year))) {
+      const yr = Number(year);
+      const startOfYear = new Date(yr, 0, 1);
+      const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
+      conditions.push(gte(assets.acquisitionDate, startOfYear));
+      conditions.push(lte(assets.acquisitionDate, endOfYear));
+    }
+
+    const allMatchingAssets = await db
+      .select({
+        id: assets.id,
+        assetCode: assets.assetCode,
+        name: assets.name,
+        categoryId: assets.categoryId,
+        categoryName: asset_categories.name,
+        branchId: assets.branchId,
+        branchName: branches.name,
+        departmentId: assets.departmentId,
+        departmentName: departments.name,
+        custodianUid: assets.custodianUid,
+        custodianName: users.name,
+        acquisitionDate: assets.acquisitionDate,
+        acquisitionCost: assets.acquisitionCost,
+        salvageValue: assets.salvageValue,
+        depreciationMethod: assets.depreciationMethod,
+        usefulLifeMonths: assets.usefulLifeMonths,
+        accumulatedDepreciation: assets.accumulatedDepreciation,
+        currentBookValue: assets.currentBookValue,
+        status: assets.status,
+        serialNumber: assets.serialNumber,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue,
+        createdAt: assets.createdAt
+      })
+      .from(assets)
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .leftJoin(branches, eq(assets.branchId, branches.id))
+      .leftJoin(departments, eq(assets.departmentId, departments.id))
+      .leftJoin(users, eq(assets.custodianUid, users.uid))
+      .where(and(...conditions))
+      .orderBy(desc(assets.createdAt));
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let totalAcquisitionCost = 0;
+    let totalAccumulatedDepreciation = 0;
+    let totalNetBookValue = 0;
+
+    let activeCount = 0;
+    let draftCount = 0;
+    let maintenanceCount = 0;
+    let disposedCount = 0;
+
+    let expiredWarrantyCount = 0;
+    let expiringSoonWarrantyCount = 0;
+    let overdueMaintenanceCount = 0;
+    let dueSoonMaintenanceCount = 0;
+
+    const categoryMap: Record<string, { categoryId: string; categoryName: string; count: number; cost: number; accum: number; nbv: number }> = {};
+    const branchMap: Record<string, { branchId: number | null; branchName: string; count: number; cost: number; accum: number; nbv: number; warrantyAlertsCount: number; maintenanceAlertsCount: number }> = {};
+    const methodMap: Record<string, { method: string; count: number; cost: number; nbv: number }> = {};
+
+    const warrantyAlertsList: any[] = [];
+    const maintenanceAlertsList: any[] = [];
+
+    for (const a of allMatchingAssets) {
+      const cost = Number(a.acquisitionCost || 0);
+      const accum = Number(a.accumulatedDepreciation || 0);
+      const nbv = Number(a.currentBookValue || 0);
+
+      totalAcquisitionCost += cost;
+      totalAccumulatedDepreciation += accum;
+      totalNetBookValue += nbv;
+
+      if (a.status === 'Active') activeCount++;
+      else if (a.status === 'Draft') draftCount++;
+      else if (a.status === 'UnderMaintenance') maintenanceCount++;
+      else if (a.status === 'Disposed' || a.status === 'Sold') disposedCount++;
+
+      // Category breakdown
+      const catKey = a.categoryName || 'Uncategorized';
+      if (!categoryMap[catKey]) {
+        categoryMap[catKey] = { categoryId: a.categoryId, categoryName: catKey, count: 0, cost: 0, accum: 0, nbv: 0 };
+      }
+      categoryMap[catKey].count += 1;
+      categoryMap[catKey].cost += cost;
+      categoryMap[catKey].accum += accum;
+      categoryMap[catKey].nbv += nbv;
+
+      // Branch breakdown
+      const brKey = a.branchName || 'Head Office / HQ';
+      if (!branchMap[brKey]) {
+        branchMap[brKey] = { branchId: a.branchId, branchName: brKey, count: 0, cost: 0, accum: 0, nbv: 0, warrantyAlertsCount: 0, maintenanceAlertsCount: 0 };
+      }
+      const br = branchMap[brKey];
+      br.count += 1;
+      br.cost += cost;
+      br.accum += accum;
+      br.nbv += nbv;
+
+      // Depreciation Method breakdown
+      const methodKey = a.depreciationMethod || 'Straight Line';
+      if (!methodMap[methodKey]) {
+        methodMap[methodKey] = { method: methodKey, count: 0, cost: 0, nbv: 0 };
+      }
+      methodMap[methodKey].count += 1;
+      methodMap[methodKey].cost += cost;
+      methodMap[methodKey].nbv += nbv;
+
+      // Expiration checks (for Active assets)
+      if (a.status === 'Active' && a.warrantyExpiryDate) {
+        const wDate = new Date(a.warrantyExpiryDate);
+        const diffDays = Math.ceil((wDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+          expiredWarrantyCount++;
+          br.warrantyAlertsCount++;
+          warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Expired', alertLevel: 'critical' });
+        } else if (diffDays <= 30) {
+          expiringSoonWarrantyCount++;
+          br.warrantyAlertsCount++;
+          warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Expiring Soon', alertLevel: 'warning' });
+        }
+      }
+
+      if (a.status === 'Active' && a.nextMaintenanceDue) {
+        const mDate = new Date(a.nextMaintenanceDue);
+        const diffDays = Math.ceil((mDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+          overdueMaintenanceCount++;
+          br.maintenanceAlertsCount++;
+          maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Overdue', alertLevel: 'critical' });
+        } else if (diffDays <= 7) {
+          dueSoonMaintenanceCount++;
+          br.maintenanceAlertsCount++;
+          maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Maintenance Due', alertLevel: 'warning' });
+        }
+      }
+    }
+
+    const branchSummary = Object.values(branchMap).map(b => ({
+      ...b,
+      cost: b.cost.toFixed(2),
+      accum: b.accum.toFixed(2),
+      nbv: b.nbv.toFixed(2)
+    }));
+
+    const categoryBreakdown = Object.values(categoryMap).map(c => ({
+      ...c,
+      cost: c.cost.toFixed(2),
+      accum: c.accum.toFixed(2),
+      nbv: c.nbv.toFixed(2)
+    }));
+
+    const statusDistribution = [
+      { name: 'Active', value: activeCount, color: '#10b981' },
+      { name: 'Under Maintenance', value: maintenanceCount, color: '#f59e0b' },
+      { name: 'Draft', value: draftCount, color: '#8b5cf6' },
+      { name: 'Disposed', value: disposedCount, color: '#ef4444' }
+    ].filter(s => s.value > 0 || allMatchingAssets.length === 0);
+
+    return res.json({
+      metrics: {
+        totalAssetsCount: allMatchingAssets.length,
+        totalAcquisitionCost: totalAcquisitionCost.toFixed(2),
+        totalAccumulatedDepreciation: totalAccumulatedDepreciation.toFixed(2),
+        totalNetBookValue: totalNetBookValue.toFixed(2),
+        activeCount,
+        draftCount,
+        maintenanceCount,
+        disposedCount,
+        warrantyAlertsCount: expiredWarrantyCount + expiringSoonWarrantyCount,
+        expiredWarrantyCount,
+        expiringSoonWarrantyCount,
+        maintenanceAlertsCount: overdueMaintenanceCount + dueSoonMaintenanceCount,
+        overdueMaintenanceCount,
+        dueSoonMaintenanceCount
+      },
+      charts: {
+        branchValuation: branchSummary.map(b => ({
+          name: b.branchName,
+          cost: Number(b.cost),
+          nbv: Number(b.nbv),
+          count: b.count,
+          warrantyAlerts: b.warrantyAlertsCount,
+          maintenanceAlerts: b.maintenanceAlertsCount
+        })),
+        categoryValuation: categoryBreakdown.map(c => ({
+          name: c.categoryName,
+          cost: Number(c.cost),
+          nbv: Number(c.nbv),
+          count: c.count
+        })),
+        statusDistribution,
+        methodDistribution: Object.values(methodMap).map(m => ({
+          name: m.method,
+          value: m.count,
+          cost: Number(m.cost),
+          nbv: Number(m.nbv)
+        }))
+      },
+      branchSummary,
+      categoryBreakdown,
+      recentAssets: allMatchingAssets.slice(0, 10),
+      criticalWarrantyAlerts: warrantyAlertsList.sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 5),
+      criticalMaintenanceAlerts: maintenanceAlertsList.sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 5)
+    });
+  } catch (error: any) {
+    console.error('GET /api/assets/dashboard error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset dashboard analytics' });
   }
 });
 
