@@ -28,6 +28,8 @@ export default function AssetCategories() {
     defaultUsefulLifeMonths: 36,
     defaultSalvagePercent: '0.00',
     defaultDecliningRate: '0.00',
+    defaultMaintenanceInterval: 'None',
+    defaultMaintenanceType: 'Preventive',
     fixedAssetAccount: '',
     depreciationAccount: '',
     expenseAccount: '',
@@ -61,6 +63,8 @@ export default function AssetCategories() {
       defaultUsefulLifeMonths: 36,
       defaultSalvagePercent: '0.00',
       defaultDecliningRate: '0.00',
+      defaultMaintenanceInterval: 'None',
+      defaultMaintenanceType: 'Preventive',
       fixedAssetAccount: '',
       depreciationAccount: '',
       expenseAccount: '',
@@ -78,6 +82,8 @@ export default function AssetCategories() {
       defaultUsefulLifeMonths: category.defaultUsefulLifeMonths || 36,
       defaultSalvagePercent: category.defaultSalvagePercent || '0.00',
       defaultDecliningRate: category.defaultDecliningRate || '0.00',
+      defaultMaintenanceInterval: category.defaultMaintenanceInterval || 'None',
+      defaultMaintenanceType: category.defaultMaintenanceType || 'Preventive',
       fixedAssetAccount: category.fixedAssetAccount || '',
       depreciationAccount: category.depreciationAccount || '',
       expenseAccount: category.expenseAccount || '',
@@ -265,6 +271,38 @@ export default function AssetCategories() {
                   onChange={(e) => setFormData({ ...formData, defaultSalvagePercent: e.target.value })}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Default Maintenance Interval
+                </label>
+                <select
+                  value={formData.defaultMaintenanceInterval}
+                  onChange={(e) => setFormData({ ...formData, defaultMaintenanceInterval: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                >
+                  <option value="None">None (No Auto Schedule)</option>
+                  <option value="Monthly">Monthly (+1 Month)</option>
+                  <option value="Quarterly">Quarterly (+3 Months)</option>
+                  <option value="HalfYearly">HalfYearly (+6 Months)</option>
+                  <option value="Annually">Annually (+1 Year)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Default Maintenance Type
+                </label>
+                <select
+                  value={formData.defaultMaintenanceType}
+                  onChange={(e) => setFormData({ ...formData, defaultMaintenanceType: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                >
+                  <option value="Preventive">Preventive Maintenance</option>
+                  <option value="Corrective">Corrective Maintenance / Repair</option>
+                  <option value="Warranty">Warranty Service</option>
+                </select>
               </div>
 
               <div>

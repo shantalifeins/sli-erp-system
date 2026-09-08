@@ -53,6 +53,8 @@ router.post('/categories', requireAuth, checkPlugin('asset-management'), async (
       defaultUsefulLifeMonths,
       defaultSalvagePercent,
       defaultDecliningRate,
+      defaultMaintenanceInterval,
+      defaultMaintenanceType,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -73,6 +75,8 @@ router.post('/categories', requireAuth, checkPlugin('asset-management'), async (
         defaultUsefulLifeMonths: defaultUsefulLifeMonths ? Number(defaultUsefulLifeMonths) : 36,
         defaultSalvagePercent: defaultSalvagePercent ? String(defaultSalvagePercent) : '0.00',
         defaultDecliningRate: defaultDecliningRate !== undefined ? String(defaultDecliningRate) : '0.00',
+        defaultMaintenanceInterval: defaultMaintenanceInterval || 'None',
+        defaultMaintenanceType: defaultMaintenanceType || 'Preventive',
         fixedAssetAccount: fixedAssetAccount || null,
         depreciationAccount: depreciationAccount || null,
         expenseAccount: expenseAccount || null,
@@ -101,6 +105,8 @@ router.put('/categories/:id', requireAuth, checkPlugin('asset-management'), asyn
       defaultUsefulLifeMonths,
       defaultSalvagePercent,
       defaultDecliningRate,
+      defaultMaintenanceInterval,
+      defaultMaintenanceType,
       fixedAssetAccount,
       depreciationAccount,
       expenseAccount,
@@ -116,6 +122,8 @@ router.put('/categories/:id', requireAuth, checkPlugin('asset-management'), asyn
         defaultUsefulLifeMonths: defaultUsefulLifeMonths ? Number(defaultUsefulLifeMonths) : undefined,
         defaultSalvagePercent: defaultSalvagePercent !== undefined ? String(defaultSalvagePercent) : undefined,
         defaultDecliningRate: defaultDecliningRate !== undefined ? String(defaultDecliningRate) : undefined,
+        defaultMaintenanceInterval: defaultMaintenanceInterval !== undefined ? defaultMaintenanceInterval : undefined,
+        defaultMaintenanceType: defaultMaintenanceType !== undefined ? defaultMaintenanceType : undefined,
         fixedAssetAccount,
         depreciationAccount,
         expenseAccount,
@@ -1970,14 +1978,227 @@ router.get('/:id/transfers', requireAuth, checkPlugin('asset-management'), async
 // 6. ASSET MAINTENANCE TRACKING
 // ==========================================
 
-// POST /api/assets/:id/maintenance — Create maintenance record and set asset to UnderMaintenance
+// GET /api/assets/maintenance/calendar — Fetch maintenance events for calendar view
+router.get('/maintenance/calendar', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { startDate, endDate, branchId, categoryId } = req.query;
+
+    const conditions = [
+      eq(assets.companyId, companyId),
+      eq(asset_maintenance.companyId, companyId)
+    ];
+
+    if (startDate && typeof startDate === 'string') {
+      conditions.push(gte(asset_maintenance.scheduledDate, new Date(startDate)));
+    }
+    if (endDate && typeof endDate === 'string') {
+      conditions.push(lte(asset_maintenance.scheduledDate, new Date(endDate)));
+    }
+    if (branchId && !isNaN(Number(branchId))) {
+      conditions.push(eq(assets.branchId, Number(branchId)));
+    }
+    if (categoryId && typeof categoryId === 'string') {
+      conditions.push(eq(assets.categoryId, categoryId));
+    }
+
+    const eventsList = await db
+      .select({
+        id: asset_maintenance.id,
+        assetId: asset_maintenance.assetId,
+        assetName: assets.name,
+        assetCode: assets.assetCode,
+        categoryName: asset_categories.name,
+        branchName: branches.name,
+        maintenanceType: asset_maintenance.maintenanceType,
+        scheduledDate: asset_maintenance.scheduledDate,
+        completedDate: asset_maintenance.completedDate,
+        nextDueDate: asset_maintenance.nextDueDate,
+        recurrenceInterval: asset_maintenance.recurrenceInterval,
+        status: asset_maintenance.status,
+        cost: asset_maintenance.cost,
+        vendorName: vendors.name,
+        notes: asset_maintenance.notes
+      })
+      .from(asset_maintenance)
+      .innerJoin(assets, eq(asset_maintenance.assetId, assets.id))
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .leftJoin(branches, eq(assets.branchId, branches.id))
+      .leftJoin(vendors, eq(asset_maintenance.vendorId, vendors.id))
+      .where(and(...conditions))
+      .orderBy(desc(asset_maintenance.scheduledDate));
+
+    return res.json({ events: eventsList });
+  } catch (error: any) {
+    console.error('GET /api/assets/maintenance/calendar error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch maintenance calendar' });
+  }
+});
+
+// GET /api/assets/maintenance/analytics — Fetch maintenance cost analytics & KPIs
+router.get('/maintenance/analytics', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { branchId, categoryId } = req.query;
+
+    const conditions = [
+      eq(assets.companyId, companyId),
+      eq(asset_maintenance.companyId, companyId)
+    ];
+
+    if (branchId && !isNaN(Number(branchId))) {
+      conditions.push(eq(assets.branchId, Number(branchId)));
+    }
+    if (categoryId && typeof categoryId === 'string') {
+      conditions.push(eq(assets.categoryId, categoryId));
+    }
+
+    const allTasks = await db
+      .select({
+        id: asset_maintenance.id,
+        cost: asset_maintenance.cost,
+        status: asset_maintenance.status,
+        scheduledDate: asset_maintenance.scheduledDate,
+        completedDate: asset_maintenance.completedDate,
+        categoryName: asset_categories.name
+      })
+      .from(asset_maintenance)
+      .innerJoin(assets, eq(asset_maintenance.assetId, assets.id))
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .where(and(...conditions));
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let totalSpend = 0;
+    let completedCount = 0;
+    let scheduledCount = 0;
+    let overdueCount = 0;
+
+    const monthMap: Record<string, { amount: number; taskCount: number }> = {};
+    const categoryMap: Record<string, number> = {};
+
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - i);
+      const key = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      monthMap[key] = { amount: 0, taskCount: 0 };
+    }
+
+    for (const task of allTasks) {
+      const costNum = Number(task.cost || 0);
+      if (task.status === 'Completed') {
+        completedCount++;
+        totalSpend += costNum;
+
+        const dateForMonth = task.completedDate ? new Date(task.completedDate) : new Date(task.scheduledDate);
+        const monthKey = dateForMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        if (monthMap[monthKey]) {
+          monthMap[monthKey].amount += costNum;
+          monthMap[monthKey].taskCount += 1;
+        }
+
+        const catName = task.categoryName || 'Uncategorized';
+        categoryMap[catName] = (categoryMap[catName] || 0) + costNum;
+      } else if (task.status === 'Scheduled' || task.status === 'InProgress') {
+        scheduledCount++;
+        if (new Date(task.scheduledDate) < today) {
+          overdueCount++;
+        }
+      }
+    }
+
+    const monthlySpend = Object.keys(monthMap).map((m) => ({
+      month: m,
+      amount: Math.round(monthMap[m].amount * 100) / 100,
+      taskCount: monthMap[m].taskCount
+    }));
+
+    const spendByCategory = Object.keys(categoryMap).map((cat) => ({
+      categoryName: cat,
+      amount: Math.round(categoryMap[cat] * 100) / 100
+    }));
+
+    return res.json({
+      kpis: {
+        totalSpend: Math.round(totalSpend * 100) / 100,
+        completedCount,
+        scheduledCount,
+        overdueCount
+      },
+      monthlySpend,
+      spendByCategory
+    });
+  } catch (error: any) {
+    console.error('GET /api/assets/maintenance/analytics error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch maintenance analytics' });
+  }
+});
+
+// PUT /api/assets/maintenance/:maintenanceId/in-progress — Start scheduled maintenance task
+router.put('/maintenance/:maintenanceId/in-progress', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { maintenanceId } = req.params;
+
+    const [existingRecord] = await db
+      .select()
+      .from(asset_maintenance)
+      .where(and(eq(asset_maintenance.id, maintenanceId), eq(asset_maintenance.companyId, companyId)))
+      .limit(1);
+
+    if (!existingRecord) {
+      return res.status(404).json({ error: 'Maintenance record not found' });
+    }
+
+    if (existingRecord.status !== 'Scheduled') {
+      return res.status(400).json({ error: `Task status is '${existingRecord.status}', cannot set to InProgress` });
+    }
+
+    const [updatedRecord] = await db
+      .update(asset_maintenance)
+      .set({
+        status: 'InProgress'
+      })
+      .where(and(eq(asset_maintenance.id, maintenanceId), eq(asset_maintenance.companyId, companyId)))
+      .returning();
+
+    // Toggle asset status to UnderMaintenance
+    const [updatedAsset] = await db
+      .update(assets)
+      .set({
+        status: 'UnderMaintenance',
+        updatedAt: new Date()
+      })
+      .where(and(eq(assets.id, existingRecord.assetId), eq(assets.companyId, companyId)))
+      .returning();
+
+    return res.json({
+      message: 'Maintenance task set to InProgress and asset marked as UnderMaintenance.',
+      maintenance: updatedRecord,
+      asset: updatedAsset
+    });
+  } catch (error: any) {
+    console.error('PUT /api/assets/maintenance/:maintenanceId/in-progress error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to start maintenance task' });
+  }
+});
+
+// POST /api/assets/:id/maintenance — Create maintenance record (Scheduled or InProgress)
 router.post('/:id/maintenance', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
     const { id } = req.params;
-    const { maintenanceType, vendorId, cost, scheduledDate, notes } = req.body || {};
+    const { maintenanceType, vendorId, cost, scheduledDate, notes, recurrenceInterval, status } = req.body || {};
 
     if (!maintenanceType || !scheduledDate) {
       return res.status(400).json({ error: 'Maintenance type and scheduled date are required' });
@@ -2010,6 +2231,8 @@ router.post('/:id/maintenance', requireAuth, checkPlugin('asset-management'), as
       return res.status(400).json({ error: 'Asset already has an active or scheduled maintenance task in progress' });
     }
 
+    const taskStatus = status === 'Scheduled' ? 'Scheduled' : 'InProgress';
+
     // Insert maintenance record
     const [maintenanceRecord] = await db
       .insert(asset_maintenance)
@@ -2021,22 +2244,26 @@ router.post('/:id/maintenance', requireAuth, checkPlugin('asset-management'), as
         cost: cost !== undefined ? String(cost) : '0.00',
         scheduledDate: new Date(scheduledDate),
         notes: notes || null,
-        status: 'InProgress'
+        status: taskStatus,
+        recurrenceInterval: recurrenceInterval || 'None'
       })
       .returning();
 
-    // Toggle asset status to UnderMaintenance
-    const [updatedAsset] = await db
-      .update(assets)
-      .set({
-        status: 'UnderMaintenance',
-        updatedAt: new Date()
-      })
-      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
-      .returning();
+    // Toggle asset status to UnderMaintenance if status is InProgress
+    let updatedAsset = existingAsset;
+    if (taskStatus === 'InProgress') {
+      [updatedAsset] = await db
+        .update(assets)
+        .set({
+          status: 'UnderMaintenance',
+          updatedAt: new Date()
+        })
+        .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
+        .returning();
+    }
 
     return res.status(201).json({
-      message: 'Maintenance task logged and asset set to UnderMaintenance.',
+      message: `Maintenance task logged as ${taskStatus}.`,
       maintenance: maintenanceRecord,
       asset: updatedAsset
     });
@@ -2046,7 +2273,17 @@ router.post('/:id/maintenance', requireAuth, checkPlugin('asset-management'), as
   }
 });
 
-// PUT /api/assets/maintenance/:maintenanceId/complete — Complete maintenance and restore asset to Active
+// Helper for recurrence calculation
+function getNextRecurrenceDate(currentDate: Date, interval: string): Date {
+  const next = new Date(currentDate);
+  if (interval === 'Monthly') next.setMonth(next.getMonth() + 1);
+  else if (interval === 'Quarterly') next.setMonth(next.getMonth() + 3);
+  else if (interval === 'HalfYearly') next.setMonth(next.getMonth() + 6);
+  else if (interval === 'Annually') next.setFullYear(next.getFullYear() + 1);
+  return next;
+}
+
+// PUT /api/assets/maintenance/:maintenanceId/complete — Complete maintenance, auto-schedule next if recurring, and restore asset to Active
 router.put('/maintenance/:maintenanceId/complete', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
@@ -2069,11 +2306,13 @@ router.put('/maintenance/:maintenanceId/complete', requireAuth, checkPlugin('ass
       return res.status(400).json({ error: 'Maintenance task is already marked as Completed' });
     }
 
+    const completionDate = new Date();
+
     const [completedRecord] = await db
       .update(asset_maintenance)
       .set({
         status: 'Completed',
-        completedDate: new Date(),
+        completedDate: completionDate,
         nextDueDate: nextDueDate ? new Date(nextDueDate) : undefined,
         cost: cost !== undefined ? String(cost) : existingRecord.cost,
         notes: notes || existingRecord.notes
@@ -2081,11 +2320,39 @@ router.put('/maintenance/:maintenanceId/complete', requireAuth, checkPlugin('ass
       .where(and(eq(asset_maintenance.id, maintenanceId), eq(asset_maintenance.companyId, companyId)))
       .returning();
 
-    // Restore asset status to Active
+    // Restore asset status to Active & update nextMaintenanceDue
+    let computedNextDueDate: Date | null = nextDueDate ? new Date(nextDueDate) : null;
+    let nextTaskCreated = null;
+
+    // Auto-recurrence engine: create next task if recurrenceInterval is set
+    const interval = existingRecord.recurrenceInterval;
+    if (interval && interval !== 'None') {
+      computedNextDueDate = getNextRecurrenceDate(completionDate, interval);
+
+      const [newTask] = await db
+        .insert(asset_maintenance)
+        .values({
+          companyId,
+          assetId: existingRecord.assetId,
+          maintenanceType: existingRecord.maintenanceType,
+          vendorId: existingRecord.vendorId,
+          cost: '0.00',
+          scheduledDate: computedNextDueDate,
+          recurrenceInterval: interval,
+          parentTaskId: existingRecord.id,
+          status: 'Scheduled',
+          notes: `Auto-scheduled recurring (${interval}) follow-up to completed task #${existingRecord.id.slice(0, 8)}`
+        })
+        .returning();
+
+      nextTaskCreated = newTask;
+    }
+
     const [restoredAsset] = await db
       .update(assets)
       .set({
         status: 'Active',
+        nextMaintenanceDue: computedNextDueDate || undefined,
         updatedAt: new Date()
       })
       .where(and(eq(assets.id, existingRecord.assetId), eq(assets.companyId, companyId)))
@@ -2094,7 +2361,8 @@ router.put('/maintenance/:maintenanceId/complete', requireAuth, checkPlugin('ass
     return res.json({
       message: 'Maintenance task completed and asset restored to Active.',
       maintenance: completedRecord,
-      asset: restoredAsset
+      asset: restoredAsset,
+      nextTaskCreated
     });
   } catch (error: any) {
     console.error('PUT /api/assets/maintenance/:maintenanceId/complete error:', error);
@@ -2122,6 +2390,8 @@ router.get('/:id/maintenance', requireAuth, checkPlugin('asset-management'), asy
         scheduledDate: asset_maintenance.scheduledDate,
         completedDate: asset_maintenance.completedDate,
         nextDueDate: asset_maintenance.nextDueDate,
+        recurrenceInterval: asset_maintenance.recurrenceInterval,
+        parentTaskId: asset_maintenance.parentTaskId,
         notes: asset_maintenance.notes,
         status: asset_maintenance.status,
         createdAt: asset_maintenance.createdAt

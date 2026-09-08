@@ -816,6 +816,8 @@ export const asset_categories = pgTable('asset_categories', {
   defaultUsefulLifeMonths: integer('default_useful_life_months').default(36).notNull(),
   defaultSalvagePercent: numeric('default_salvage_percent').default('0.00'),
   defaultDecliningRate: numeric('default_declining_rate').default('0.00'),
+  defaultMaintenanceInterval: text('default_maintenance_interval').default('None'),
+  defaultMaintenanceType: text('default_maintenance_type').default('Preventive'),
   fixedAssetAccount: text('fixed_asset_account'),
   depreciationAccount: text('depreciation_account'),
   expenseAccount: text('expense_account'),
@@ -894,6 +896,8 @@ export const asset_maintenance = pgTable('asset_maintenance', {
   nextDueDate: timestamp('next_due_date'),
   notes: text('notes'),
   status: text('status').default('Scheduled').notNull(), // Scheduled, InProgress, Completed, Cancelled
+  recurrenceInterval: text('recurrence_interval').default('None'), // None, Monthly, Quarterly, HalfYearly, Annually
+  parentTaskId: uuid('parent_task_id').references((): any => asset_maintenance.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
