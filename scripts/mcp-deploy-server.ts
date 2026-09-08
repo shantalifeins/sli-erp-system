@@ -79,18 +79,31 @@ export async function checkServerHealth(host: string, user: string, sshKeyPath?:
   }
 }
 
-export async function runRemoteMigration(host: string, user: string, dbUrl: string, sshKeyPath?: string): Promise<string> {
+export async function runSqlMigration(host: string, user: string, sqlQuery: string, sshKeyPath?: string): Promise<string> {
   const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
-  const cmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "cd /home/iamadmin/sli-erp && DATABASE_URL='${dbUrl}' npx drizzle-kit push"`;
-  const check = validateCommand(cmd);
+  const nodeCode = `
+    const { Client } = require('pg');
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    async function main() {
+      await client.connect();
+      const res = await client.query(${JSON.stringify(sqlQuery)});
+      console.log('SQL_MIGRATION_SUCCESS:', res.command);
+      await client.end();
+    }
+    main().catch(err => { console.error('SQL_MIGRATION_ERROR:', err.message); client.end(); });
+  `;
+  const b64 = Buffer.from(nodeCode).toString('base64');
+  const sshCmd = `ssh -o StrictHostKeyChecking=no ${keyFlag} ${user}@${host} "docker exec sli_erp_app node -e \\"eval(Buffer.from('${b64}', 'base64').toString('utf8'))\\""`;
+  const check = validateCommand(sshCmd);
   if (!check.allowed) throw new Error(check.reason);
 
   try {
-    const output = execSync(cmd, { encoding: 'utf-8' });
+    const output = execSync(sshCmd, { encoding: 'utf-8' });
     return output;
   } catch (err: any) {
-    return `Migration output: ${err.message}`;
+    return `Migration error: ${err.message}`;
   }
 }
 
 console.log("🚀 SLI ERP Git-Centric Deployment MCP Server initialized with strict guardrails.");
+
