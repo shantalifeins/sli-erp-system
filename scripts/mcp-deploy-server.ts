@@ -49,7 +49,8 @@ git reset --hard origin/${branch}
 rm -rf dist
 docker build --no-cache -t sli_erp_app_img .
 docker stop sli_erp_app || true
-docker rm sli_erp_app || true
+docker rm -f sli_erp_app || true
+sleep 2
 docker run -d --name sli_erp_app --restart always -p 5000:3000 -e AUTH_MODE=postgres -e NODE_ENV=production -e PORT=5000 -e VITE_API_URL=https://erp.shantalife.com -e JWT_SECRET=sli_erp_live_jwt_secret_key_2026_ssl -e DATABASE_URL="postgres://sli_erp_user:D0m@1n!ssl_erp_2026@172.17.0.1:5432/sli_erp_db?sslmode=disable" -e FRONTEND_URL=https://erp.shantalife.com sli_erp_app_img
   `.trim();
 
