@@ -390,8 +390,13 @@ export default function Inventory() {
                   <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${isLowStock ? 'bg-amber-50/20' : ''}`}>
                     <td className="px-4 py-4 font-mono font-bold">{item.itemCode}</td>
                     <td className="px-4 py-4 font-medium">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span>{item.name}</span>
+                        {item.isFixedAsset && (
+                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold border border-emerald-200 inline-flex items-center gap-1">
+                            🏢 Fixed Asset
+                          </span>
+                        )}
                         {item.abcClassification && (
                           <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-[9px] font-mono font-bold">
                             Class {item.abcClassification}
@@ -409,6 +414,7 @@ export default function Inventory() {
                       <div className="flex gap-1 flex-wrap">
                         {item.isAdminItem && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-bold">ADMIN</span>}
                         {item.isItItem && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold">IT</span>}
+                        {item.isFixedAsset && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold">ASSET</span>}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-right font-medium text-slate-700">
