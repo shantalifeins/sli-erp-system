@@ -4814,10 +4814,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const isFixedAssetLower = isFixedAssetRaw.toLowerCase();
         const isFixedAsset = isFixedAssetLower === 'yes' || isFixedAssetLower === 'true' || isFixedAssetLower === '1';
 
-        // Asset Category resolution logic when Is Fixed Asset = Yes:
-        // 1. Check if user specified explicit assetCategoryRaw in Column I that matches existingAssetCats by name
-        // 2. If not matched, try token-similarity match on assetCategoryRaw
-        // 3. If assetCategoryRaw is empty, fall back to token-similarity match on categoryRaw (Column C)
+        // Asset Category resolution & strict validation when Is Fixed Asset = Yes
         let assetCategoryId: string | null = null;
         if (isFixedAsset) {
           if (assetCategoryRaw) {
@@ -4825,10 +4822,26 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
             if (exact) {
               assetCategoryId = exact.id;
             } else {
-              assetCategoryId = findAssetCategoryId(assetCategoryRaw) || findAssetCategoryId(categoryRaw);
+              assetCategoryId = findAssetCategoryId(assetCategoryRaw);
+            }
+
+            if (!assetCategoryId) {
+              errors.push({
+                row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
+                message: `Asset Category '${assetCategoryRaw}' does not exist in system (See 'Asset Categories' sheet)`
+              });
+              continue;
             }
           } else {
+            // Column I was left empty, try auto-match based on Item Category (Column C)
             assetCategoryId = findAssetCategoryId(categoryRaw);
+            if (!assetCategoryId) {
+              errors.push({
+                row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
+                message: `Is Fixed Asset is Yes, but no matching Asset Category found for '${categoryRaw}'. Please specify a valid Asset Category in Column I`
+              });
+              continue;
+            }
           }
         }
 
