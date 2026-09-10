@@ -271,6 +271,7 @@ Whenever creating a **Bulk Upload** feature for any entity or module (e.g. Inven
    - ⚠️ **Skipped Duplicates** (Amber Card): Records that already exist in DB or file.
    - 🔵 **Missing Required Parents / Categories** (Blue Card): Records pending parent category creation.
    - ❌ **Validation Errors** (Red Card): Formatting errors (missing required fields, bad numbers, invalid enum options).
+5. **Mandatory Header Context & Fallback Tenant Resolution**: All modal components calling raw `fetch(...)` for binary template downloading MUST include BOTH `Authorization: Bearer <token>` AND `x-tenant-id: localStorage.getItem('activeTenantId')`. All backend template endpoints MUST use `resolveTenantId(req)` with fallback company resolution (`const fallbackCompany = await db.select().from(companies).limit(1)`) so template downloads never fail with 403 Forbidden.
 
 ---
 

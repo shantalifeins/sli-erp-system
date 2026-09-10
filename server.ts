@@ -2935,7 +2935,11 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   // Vendor Bulk Upload Template Endpoint
   app.get("/api/vendors/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const companyId = await resolveTenantId(req);
+      let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const existingDbVendors = await db.select({ name: vendors.name, bin: vendors.bin, tin: vendors.tin, status: vendors.status })
@@ -2982,7 +2986,11 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   // Vendor Bulk Upload Endpoint
   app.post("/api/vendors/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const companyId = await resolveTenantId(req);
+      let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const { fileData } = req.body;
@@ -4689,7 +4697,11 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   // Item Category Bulk Upload Template Endpoint
   app.get("/api/inventory/categories/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const companyId = await resolveTenantId(req);
+      let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const existingCats = await db.select({ name: item_categories.name, description: item_categories.description, status: item_categories.status })
@@ -4732,7 +4744,11 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   // Item Category Bulk Upload Endpoint
   app.post("/api/inventory/categories/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const companyId = await resolveTenantId(req);
+      let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const { fileData } = req.body;

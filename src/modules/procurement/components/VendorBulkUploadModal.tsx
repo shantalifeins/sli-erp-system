@@ -30,13 +30,12 @@ export function VendorBulkUploadModal({ isOpen, onClose, onSuccess }: VendorBulk
   const handleDownloadTemplate = async () => {
     try {
       const token = await getToken();
-      if (!token) return;
+      const activeTenantId = localStorage.getItem('activeTenantId');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeTenantId) headers['x-tenant-id'] = activeTenantId;
 
-      const res = await fetch('/api/vendors/bulk-upload/template', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const res = await fetch('/api/vendors/bulk-upload/template', { headers });
 
       if (!res.ok) {
         alert('Failed to download template');
