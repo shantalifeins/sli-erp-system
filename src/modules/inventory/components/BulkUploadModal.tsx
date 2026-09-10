@@ -18,13 +18,21 @@ interface ErrorItem {
   message: string;
 }
 
+interface MissingCategoryItem {
+  categoryName: string;
+  affectedRows: number[];
+  affectedCount: number;
+}
+
 interface UploadResult {
   success: boolean;
   imported: number;
   skippedDuplicates: number;
   failed: number;
+  pendingMissingCategory: number;
   duplicates: DuplicateItem[];
   errors: ErrorItem[];
+  missingCategories: MissingCategoryItem[];
 }
 
 interface BulkUploadModalProps {
@@ -291,39 +299,50 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({ isOpen, onClos
           {uploadResult && (
             <div className="space-y-6">
               
-              {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                
+              {/* Summary Cards — 4 columns */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+
                 {/* 1. Imported Card */}
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
                   <div className="p-2.5 bg-emerald-100 rounded-lg text-emerald-600 shrink-0">
-                    <CheckCircle className="w-6 h-6" />
+                    <CheckCircle className="w-5 h-5" />
                   </div>
                   <div>
                     <span className="text-2xl font-black text-emerald-900">{uploadResult.imported}</span>
-                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Imported Items</p>
+                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide leading-tight">Imported</p>
                   </div>
                 </div>
 
                 {/* 2. Skipped Duplicates Card */}
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
                   <div className="p-2.5 bg-amber-100 rounded-lg text-amber-600 shrink-0">
-                    <AlertTriangle className="w-6 h-6" />
+                    <AlertTriangle className="w-5 h-5" />
                   </div>
                   <div>
                     <span className="text-2xl font-black text-amber-900">{uploadResult.skippedDuplicates}</span>
-                    <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Skipped (Already Exists)</p>
+                    <p className="text-xs font-bold text-amber-700 uppercase tracking-wide leading-tight">Duplicates</p>
                   </div>
                 </div>
 
-                {/* 3. Failed Errors Card */}
+                {/* 3. Missing Category Card */}
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-100 rounded-lg text-blue-600 shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-2xl font-black text-blue-900">{uploadResult.pendingMissingCategory || 0}</span>
+                    <p className="text-xs font-bold text-blue-700 uppercase tracking-wide leading-tight">Category Missing</p>
+                  </div>
+                </div>
+
+                {/* 4. Failed Errors Card */}
                 <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
                   <div className="p-2.5 bg-red-100 rounded-lg text-red-600 shrink-0">
-                    <AlertCircle className="w-6 h-6" />
+                    <AlertCircle className="w-5 h-5" />
                   </div>
                   <div>
                     <span className="text-2xl font-black text-red-900">{uploadResult.failed}</span>
-                    <p className="text-xs font-bold text-red-700 uppercase tracking-wide">Validation Errors</p>
+                    <p className="text-xs font-bold text-red-700 uppercase tracking-wide leading-tight">Errors</p>
                   </div>
                 </div>
               </div>
@@ -365,6 +384,51 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({ isOpen, onClos
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Missing Categories Table */}
+              {uploadResult.missingCategories && uploadResult.missingCategories.length > 0 && (
+                <div className="border border-blue-200 rounded-xl overflow-hidden bg-blue-50/30">
+                  <div className="bg-blue-100/80 px-4 py-2.5 border-b border-blue-200 flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900 uppercase tracking-wide flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-blue-700" />
+                      Missing Categories ({uploadResult.missingCategories.length} categories, {uploadResult.pendingMissingCategory} rows pending)
+                    </span>
+                    <span className="text-[11px] text-blue-700 font-medium">Create these categories first, then re-upload</span>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-blue-100/40 text-blue-900 font-bold sticky top-0 border-b border-blue-200">
+                        <tr>
+                          <th className="px-4 py-2">Missing Category Name</th>
+                          <th className="px-4 py-2 w-32">Affected Rows</th>
+                          <th className="px-4 py-2 w-24">Row Numbers</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-blue-200/50">
+                        {uploadResult.missingCategories.map((cat, index) => (
+                          <tr key={index} className="hover:bg-blue-100/30">
+                            <td className="px-4 py-2 font-semibold text-slate-800 flex items-center gap-2">
+                              <span className="px-1.5 py-0.5 bg-blue-200/70 text-blue-800 rounded text-[10px] font-bold">
+                                NOT FOUND
+                              </span>
+                              {cat.categoryName}
+                            </td>
+                            <td className="px-4 py-2 text-blue-800 font-bold">{cat.affectedCount} rows</td>
+                            <td className="px-4 py-2 text-slate-600 font-mono text-[11px]">
+                              {cat.affectedRows.slice(0, 5).map(r => `Row ${r}`).join(', ')}
+                              {cat.affectedRows.length > 5 ? ` +${cat.affectedRows.length - 5} more` : ''}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="px-4 py-2.5 bg-blue-50 border-t border-blue-200 text-[11px] text-blue-700 flex items-center gap-1.5">
+                    <span>💡</span>
+                    <span>Go to <strong>Inventory → Item Categories</strong> to create the missing categories, then re-upload this file.</span>
                   </div>
                 </div>
               )}

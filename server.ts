@@ -4567,27 +4567,54 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const companyId = await resolveTenantId(req);
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
+      // Fetch existing item categories and asset categories for this company
+      const [existingItemCats, existingAssetCats] = await Promise.all([
+        db.select({ name: item_categories.name, description: item_categories.description, status: item_categories.status })
+          .from(item_categories)
+          .where(eq(item_categories.companyId, companyId))
+          .orderBy(item_categories.name),
+        db.select({ name: asset_categories.name, code: asset_categories.code, method: asset_categories.defaultDepreciationMethod, usefulLife: asset_categories.defaultUsefulLifeMonths, status: asset_categories.status })
+          .from(asset_categories)
+          .where(eq(asset_categories.companyId, companyId))
+          .orderBy(asset_categories.name)
+      ]);
+
       const wb = XLSX.utils.book_new();
-      const headers = ['Item Code', 'Item Name', 'Category', 'UOM', 'Item Type', 'Base Price', 'Location', 'Is Fixed Asset'];
+
+      // Sheet 1: Data Entry Template
+      const headers = ['Item Code *', 'Item Name *', 'Category *', 'UOM *', 'Item Type *', 'Base Price', 'Location', 'Is Fixed Asset'];
       const sampleRow1 = ['ITEM-001', 'Sample Office Chair', 'Furniture', 'Pcs', 'Admin', '1500', 'Warehouse A', 'No'];
       const sampleRow2 = ['ITEM-002', 'Laptop Dell XPS 15', 'IT Equipment', 'Pcs', 'IT', '120000', 'IT Store Room', 'Yes'];
-      
-      const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2]);
+      const noteRow = ['← See "Item Categories" sheet', '', '← Must match exactly', '← Pcs/Kg/Ltr/Box/Pack/Mtr/Set/Unit/Roll/Pair', '← Admin / IT / Both', '← Optional, numeric', '← Optional, free text', '← Yes / No'];
 
-      ws['!cols'] = [
-        { wch: 15 },
-        { wch: 30 },
-        { wch: 20 },
-        { wch: 10 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 20 },
-        { wch: 15 }
+      const ws1 = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2, noteRow]);
+      ws1['!cols'] = [
+        { wch: 16 }, { wch: 30 }, { wch: 22 }, { wch: 12 },
+        { wch: 13 }, { wch: 13 }, { wch: 22 }, { wch: 16 }
       ];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Inventory Items Template');
 
-      XLSX.utils.book_append_sheet(wb, ws, 'Inventory Items Template');
+      // Sheet 2: Item Categories (from DB)
+      const catHeaders = ['Category Name', 'Description', 'Status'];
+      const catRows = existingItemCats.length > 0
+        ? existingItemCats.map(c => [c.name, c.description || '', c.status || 'Active'])
+        : [['(No categories found — add via Inventory → Categories first)', '', '']];
+
+      const ws2 = XLSX.utils.aoa_to_sheet([catHeaders, ...catRows]);
+      ws2['!cols'] = [{ wch: 28 }, { wch: 35 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Item Categories');
+
+      // Sheet 3: Asset Categories (from DB)
+      const assetCatHeaders = ['Asset Category Name', 'Code', 'Depreciation Method', 'Useful Life (Months)', 'Status'];
+      const assetCatRows = existingAssetCats.length > 0
+        ? existingAssetCats.map(c => [c.name, c.code, c.method || 'Straight Line', c.usefulLife || 36, c.status || 'Active'])
+        : [['(No asset categories found — add via Asset Management → Categories first)', '', '', '', '']];
+
+      const ws3 = XLSX.utils.aoa_to_sheet([assetCatHeaders, ...assetCatRows]);
+      ws3['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 22 }, { wch: 22 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws3, 'Asset Categories');
+
       const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="inventory_bulk_upload_template.xlsx"');
       return res.send(buffer);
@@ -4632,21 +4659,50 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         return res.status(400).json({ error: "The uploaded file has no data rows (only headers or empty)." });
       }
 
-      // Fetch existing item codes for this company for fast duplicate detection
-      const existingDbItems = await db
-        .select({ itemCode: inventory_items.itemCode })
-        .from(inventory_items)
-        .where(eq(inventory_items.companyId, companyId));
+      // Pre-fetch all lookup data for this company in parallel
+      const [existingDbItems, existingItemCats, existingAssetCats] = await Promise.all([
+        db.select({ itemCode: inventory_items.itemCode })
+          .from(inventory_items)
+          .where(eq(inventory_items.companyId, companyId)),
+        db.select({ name: item_categories.name })
+          .from(item_categories)
+          .where(eq(item_categories.companyId, companyId)),
+        db.select({ id: asset_categories.id, name: asset_categories.name })
+          .from(asset_categories)
+          .where(eq(asset_categories.companyId, companyId))
+      ]);
 
-      const dbItemCodeSet = new Set(
-        existingDbItems.map(i => (i.itemCode || '').trim().toLowerCase())
-      );
+      // Build lookup sets/maps
+      const dbItemCodeSet = new Set(existingDbItems.map(i => (i.itemCode || '').trim().toLowerCase()));
+      const dbCategorySet = new Set(existingItemCats.map(c => c.name.trim().toLowerCase()));
+
+      // Asset category token-similarity matcher (same logic as findMatchingAssetCategory in Inventory.tsx)
+      const findAssetCategoryId = (categoryName: string): string | null => {
+        if (!categoryName || existingAssetCats.length === 0) return null;
+        const nameLower = categoryName.toLowerCase();
+        const tokens = nameLower.split(/[\s,_-]+/).filter(t => t.length > 2);
+        let bestMatch: { id: string; score: number } | null = null;
+        for (const ac of existingAssetCats) {
+          const acLower = ac.name.toLowerCase();
+          if (acLower === nameLower) return ac.id;
+          let score = 0;
+          for (const token of tokens) {
+            if (acLower.includes(token)) score++;
+          }
+          if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { id: ac.id, score };
+          }
+        }
+        return bestMatch ? bestMatch.id : null;
+      };
 
       const validUomSet = new Set(['pcs', 'kg', 'ltr', 'box', 'pack', 'mtr', 'set', 'unit', 'roll', 'pair']);
       const validItemTypeSet = new Set(['admin', 'it', 'both']);
 
       const errors: Array<{ row: number; itemCode?: string; name?: string; message: string }> = [];
       const duplicates: Array<{ row: number; itemCode: string; name: string; category: string; message: string }> = [];
+      // missingCategories: track which category names need to be created, and which rows they affect
+      const missingCategoryMap = new Map<string, number[]>(); // categoryName → [rowNumbers]
       const seenInFileSet = new Set<string>();
       const itemsToInsert: any[] = [];
 
@@ -4689,10 +4745,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const uomLower = uomRaw.toLowerCase();
         if (!validUomSet.has(uomLower)) {
           errors.push({
-            row: excelRowNumber,
-            itemCode: itemCodeRaw,
-            name: nameRaw,
-            message: `Invalid UOM '${uomRaw}'. Allowed UOMs: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`
+            row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
+            message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`
           });
           continue;
         }
@@ -4704,9 +4758,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           const itemTypeLower = itemTypeRaw.toLowerCase();
           if (!validItemTypeSet.has(itemTypeLower)) {
             errors.push({
-              row: excelRowNumber,
-              itemCode: itemCodeRaw,
-              name: nameRaw,
+              row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
               message: `Invalid Item Type '${itemTypeRaw}'. Allowed: Admin, IT, Both`
             });
             continue;
@@ -4721,9 +4773,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           const parsedPrice = Number(basePriceRaw);
           if (isNaN(parsedPrice) || parsedPrice < 0) {
             errors.push({
-              row: excelRowNumber,
-              itemCode: itemCodeRaw,
-              name: nameRaw,
+              row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
               message: `Base Price '${basePriceRaw}' must be a valid non-negative number`
             });
             continue;
@@ -4735,30 +4785,36 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const codeLower = itemCodeRaw.toLowerCase();
         if (seenInFileSet.has(codeLower)) {
           errors.push({
-            row: excelRowNumber,
-            itemCode: itemCodeRaw,
-            name: nameRaw,
+            row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
             message: `Duplicate Item Code '${itemCodeRaw}' found multiple times in this file`
           });
           continue;
         }
         seenInFileSet.add(codeLower);
 
-        // Existing Database Duplicate Check (Skipped, reported separately, NOT marked as failed error)
+        // Existing Database Duplicate Check (skipped, not error)
         if (dbItemCodeSet.has(codeLower)) {
           duplicates.push({
-            row: excelRowNumber,
-            itemCode: itemCodeRaw,
-            name: nameRaw,
-            category: categoryRaw,
+            row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw, category: categoryRaw,
             message: "Item Code already exists in system inventory (Skipped)"
           });
           continue;
         }
 
+        // Category Existence Validation (must exist in item_categories for this company)
+        if (!dbCategorySet.has(categoryRaw.toLowerCase())) {
+          const existing = missingCategoryMap.get(categoryRaw) || [];
+          existing.push(excelRowNumber);
+          missingCategoryMap.set(categoryRaw, existing);
+          continue; // row goes to missingCategories bucket — not an error, just pending
+        }
+
         // Parse Is Fixed Asset
         const isFixedAssetLower = isFixedAssetRaw.toLowerCase();
         const isFixedAsset = isFixedAssetLower === 'yes' || isFixedAssetLower === 'true' || isFixedAssetLower === '1';
+
+        // Asset Category auto-match by token similarity (null if no match — user assigns manually later)
+        const assetCategoryId = isFixedAsset ? findAssetCategoryId(categoryRaw) : null;
 
         const uomProper = uomRaw.charAt(0).toUpperCase() + uomRaw.slice(1);
 
@@ -4772,7 +4828,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
           reorderLevel: 0,
           location: locationRaw || null,
           isFixedAsset,
-          assetCategoryId: null,
+          assetCategoryId,
           basePrice,
           isAdminItem,
           isItItem
@@ -4785,13 +4841,22 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         imported = inserted.length;
       }
 
+      // Convert missingCategoryMap → array for response
+      const missingCategories = Array.from(missingCategoryMap.entries()).map(([categoryName, rows]) => ({
+        categoryName,
+        affectedRows: rows,
+        affectedCount: rows.length
+      }));
+
       return res.json({
         success: true,
         imported,
         skippedDuplicates: duplicates.length,
         failed: errors.length,
+        pendingMissingCategory: missingCategories.reduce((sum, c) => sum + c.affectedCount, 0),
         duplicates,
-        errors
+        errors,
+        missingCategories
       });
     } catch (error: any) {
       console.error("Bulk upload processing error:", error);
@@ -4800,6 +4865,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   });
 
   // SMTP Settings Endpoints
+
   app.get("/api/smtp-settings", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
