@@ -38,7 +38,8 @@ export function VendorBulkUploadModal({ isOpen, onClose, onSuccess }: VendorBulk
       const res = await fetch('/api/vendors/bulk-upload/template', { headers });
 
       if (!res.ok) {
-        alert('Failed to download template');
+        const errJson = await res.json().catch(() => ({}));
+        alert(`Failed to download template: ${errJson.error || res.statusText || 'Server Error'}`);
         return;
       }
 

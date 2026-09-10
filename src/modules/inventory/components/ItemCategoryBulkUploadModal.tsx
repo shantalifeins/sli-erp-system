@@ -38,7 +38,8 @@ export function ItemCategoryBulkUploadModal({ isOpen, onClose, onSuccess }: Item
       const res = await fetch('/api/inventory/categories/bulk-upload/template', { headers });
 
       if (!res.ok) {
-        alert('Failed to download template');
+        const errJson = await res.json().catch(() => ({}));
+        alert(`Failed to download template: ${errJson.error || res.statusText || 'Server Error'}`);
         return;
       }
 
