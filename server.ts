@@ -19,6 +19,7 @@ import { stock_reservations, physical_stock_counts, physical_count_details, stoc
 import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals } from './src/shared/db/schema.js';
 
 import { eq, desc, and, ne, isNull, or, sql, inArray, like, ilike, getTableColumns } from 'drizzle-orm';
+import * as XLSX from 'xlsx';
 import { alias } from 'drizzle-orm/pg-core';
 import { getUser } from './src/shared/db/users.js';
 import { createClient } from '@supabase/supabase-js';
@@ -4557,6 +4558,244 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     } catch (error: any) {
       console.error("DB Error:", error);
       res.status(500).json({ error: "Failed to add inventory item" });
+    }
+  });
+
+  // Inventory Bulk Upload Template Endpoint
+  app.get("/api/inventory/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+      const wb = XLSX.utils.book_new();
+      const headers = ['Item Code', 'Item Name', 'Category', 'UOM', 'Item Type', 'Base Price', 'Location', 'Is Fixed Asset'];
+      const sampleRow1 = ['ITEM-001', 'Sample Office Chair', 'Furniture', 'Pcs', 'Admin', '1500', 'Warehouse A', 'No'];
+      const sampleRow2 = ['ITEM-002', 'Laptop Dell XPS 15', 'IT Equipment', 'Pcs', 'IT', '120000', 'IT Store Room', 'Yes'];
+      
+      const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2]);
+
+      ws['!cols'] = [
+        { wch: 15 },
+        { wch: 30 },
+        { wch: 20 },
+        { wch: 10 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 20 },
+        { wch: 15 }
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Inventory Items Template');
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="inventory_bulk_upload_template.xlsx"');
+      return res.send(buffer);
+    } catch (error: any) {
+      console.error("Bulk upload template error:", error);
+      return res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
+  // Inventory Bulk Upload Endpoint
+  app.post("/api/inventory/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+      const { fileData } = req.body;
+      if (!fileData || typeof fileData !== 'string') {
+        return res.status(400).json({ error: "Invalid or missing file data. Please upload a valid Excel file." });
+      }
+
+      const buffer = Buffer.from(fileData, 'base64');
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "File size exceeds maximum allowed size of 5MB." });
+      }
+
+      let workbook;
+      try {
+        workbook = XLSX.read(buffer, { type: 'buffer' });
+      } catch (err: any) {
+        return res.status(400).json({ error: "Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file." });
+      }
+
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        return res.status(400).json({ error: "The uploaded Excel file contains no worksheets." });
+      }
+
+      const worksheet = workbook.Sheets[sheetName];
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+      if (rawRows.length < 2) {
+        return res.status(400).json({ error: "The uploaded file has no data rows (only headers or empty)." });
+      }
+
+      // Fetch existing item codes for this company for fast duplicate detection
+      const existingDbItems = await db
+        .select({ itemCode: inventory_items.itemCode })
+        .from(inventory_items)
+        .where(eq(inventory_items.companyId, companyId));
+
+      const dbItemCodeSet = new Set(
+        existingDbItems.map(i => (i.itemCode || '').trim().toLowerCase())
+      );
+
+      const validUomSet = new Set(['pcs', 'kg', 'ltr', 'box', 'pack', 'mtr', 'set', 'unit', 'roll', 'pair']);
+      const validItemTypeSet = new Set(['admin', 'it', 'both']);
+
+      const errors: Array<{ row: number; itemCode?: string; name?: string; message: string }> = [];
+      const duplicates: Array<{ row: number; itemCode: string; name: string; category: string; message: string }> = [];
+      const seenInFileSet = new Set<string>();
+      const itemsToInsert: any[] = [];
+
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const excelRowNumber = i + 1;
+
+        if (!row || row.every((cell: any) => String(cell).trim() === '')) {
+          continue;
+        }
+
+        const itemCodeRaw = String(row[0] || '').trim();
+        const nameRaw = String(row[1] || '').trim();
+        const categoryRaw = String(row[2] || '').trim();
+        const uomRaw = String(row[3] || '').trim();
+        const itemTypeRaw = String(row[4] || '').trim();
+        const basePriceRaw = row[5];
+        const locationRaw = String(row[6] || '').trim();
+        const isFixedAssetRaw = String(row[7] || '').trim();
+
+        // Required Field Validations
+        if (!itemCodeRaw) {
+          errors.push({ row: excelRowNumber, name: nameRaw, message: "Item Code is required" });
+          continue;
+        }
+        if (!nameRaw) {
+          errors.push({ row: excelRowNumber, itemCode: itemCodeRaw, message: "Item Name is required" });
+          continue;
+        }
+        if (!categoryRaw) {
+          errors.push({ row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw, message: "Category is required" });
+          continue;
+        }
+        if (!uomRaw) {
+          errors.push({ row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw, message: "UOM is required" });
+          continue;
+        }
+
+        // UOM Validation
+        const uomLower = uomRaw.toLowerCase();
+        if (!validUomSet.has(uomLower)) {
+          errors.push({
+            row: excelRowNumber,
+            itemCode: itemCodeRaw,
+            name: nameRaw,
+            message: `Invalid UOM '${uomRaw}'. Allowed UOMs: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`
+          });
+          continue;
+        }
+
+        // Item Type Validation
+        let isAdminItem = true;
+        let isItItem = false;
+        if (itemTypeRaw) {
+          const itemTypeLower = itemTypeRaw.toLowerCase();
+          if (!validItemTypeSet.has(itemTypeLower)) {
+            errors.push({
+              row: excelRowNumber,
+              itemCode: itemCodeRaw,
+              name: nameRaw,
+              message: `Invalid Item Type '${itemTypeRaw}'. Allowed: Admin, IT, Both`
+            });
+            continue;
+          }
+          isAdminItem = itemTypeLower === 'admin' || itemTypeLower === 'both';
+          isItItem = itemTypeLower === 'it' || itemTypeLower === 'both';
+        }
+
+        // Base Price Validation
+        let basePrice: string | null = null;
+        if (basePriceRaw !== undefined && basePriceRaw !== null && String(basePriceRaw).trim() !== '') {
+          const parsedPrice = Number(basePriceRaw);
+          if (isNaN(parsedPrice) || parsedPrice < 0) {
+            errors.push({
+              row: excelRowNumber,
+              itemCode: itemCodeRaw,
+              name: nameRaw,
+              message: `Base Price '${basePriceRaw}' must be a valid non-negative number`
+            });
+            continue;
+          }
+          basePrice = String(parsedPrice);
+        }
+
+        // In-File Duplicate Check
+        const codeLower = itemCodeRaw.toLowerCase();
+        if (seenInFileSet.has(codeLower)) {
+          errors.push({
+            row: excelRowNumber,
+            itemCode: itemCodeRaw,
+            name: nameRaw,
+            message: `Duplicate Item Code '${itemCodeRaw}' found multiple times in this file`
+          });
+          continue;
+        }
+        seenInFileSet.add(codeLower);
+
+        // Existing Database Duplicate Check (Skipped, reported separately, NOT marked as failed error)
+        if (dbItemCodeSet.has(codeLower)) {
+          duplicates.push({
+            row: excelRowNumber,
+            itemCode: itemCodeRaw,
+            name: nameRaw,
+            category: categoryRaw,
+            message: "Item Code already exists in system inventory (Skipped)"
+          });
+          continue;
+        }
+
+        // Parse Is Fixed Asset
+        const isFixedAssetLower = isFixedAssetRaw.toLowerCase();
+        const isFixedAsset = isFixedAssetLower === 'yes' || isFixedAssetLower === 'true' || isFixedAssetLower === '1';
+
+        const uomProper = uomRaw.charAt(0).toUpperCase() + uomRaw.slice(1);
+
+        itemsToInsert.push({
+          companyId,
+          itemCode: itemCodeRaw,
+          name: nameRaw,
+          category: categoryRaw,
+          uom: uomProper,
+          quantityInStock: 0,
+          reorderLevel: 0,
+          location: locationRaw || null,
+          isFixedAsset,
+          assetCategoryId: null,
+          basePrice,
+          isAdminItem,
+          isItItem
+        });
+      }
+
+      let imported = 0;
+      if (itemsToInsert.length > 0) {
+        const inserted = await db.insert(inventory_items).values(itemsToInsert).returning();
+        imported = inserted.length;
+      }
+
+      return res.json({
+        success: true,
+        imported,
+        skippedDuplicates: duplicates.length,
+        failed: errors.length,
+        duplicates,
+        errors
+      });
+    } catch (error: any) {
+      console.error("Bulk upload processing error:", error);
+      return res.status(500).json({ error: error.message || "Failed to process bulk upload" });
     }
   });
 

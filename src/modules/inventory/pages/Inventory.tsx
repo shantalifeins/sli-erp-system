@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Box, Plus, X, ArrowLeft } from 'lucide-react';
+import { Box, Plus, X, ArrowLeft, Upload } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
+import { BulkUploadModal } from '../components/BulkUploadModal';
 
 export default function Inventory() {
   const { getToken, dbUser, permissions } = useAuth();
@@ -14,6 +15,7 @@ export default function Inventory() {
   const [assetCategories, setAssetCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -173,13 +175,22 @@ export default function Inventory() {
         <div className="flex justify-between items-center">
         <h2 className="text-lg font-bold text-slate-800">Inventory Items</h2>
         {canCreate && (
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="inline-flex items-center px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors"
-          >
-            <Plus className="-ml-1 mr-2 h-4 w-4" aria-hidden="true" />
-            {showForm ? 'Cancel' : 'Add Item'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="inline-flex items-center px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 rounded text-sm font-bold shadow-xs transition-colors"
+            >
+              <Upload className="-ml-1 mr-2 h-4 w-4 text-slate-600" aria-hidden="true" />
+              Bulk Upload
+            </button>
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="inline-flex items-center px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-xs transition-colors"
+            >
+              <Plus className="-ml-1 mr-2 h-4 w-4" aria-hidden="true" />
+              {showForm ? 'Cancel' : 'Add Item'}
+            </button>
+          </div>
         )}
       </div>
         )}
@@ -418,10 +429,12 @@ export default function Inventory() {
         </table>
       </div>
       )}
-    </div>
+        <BulkUploadModal
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+          onSuccess={loadData}
+        />
+      </div>
     </PageLayout>
   );
 }
-
-
-

@@ -58,6 +58,68 @@ The `Layout` component provides both a side navigation bar and a **Top Module Na
 
 ---
 
+## 🏛️ 3. End-to-End System Architecture & Data Flow
+
+Below is the high-level system architecture showing component interactions, authorization middleware, the dynamic BPMN workflow engine, core business domains (including Procurement P2P, Inventory, and Asset Management), and deployment environments:
+
+```mermaid
+graph TD
+    subgraph Client ["Frontend Layer (React 18 + Vite + Tailwind CSS)"]
+        UI["Layout & Top Nav Bar"]
+        UserMod["User Panel (/inbox, /item-requisition)"]
+        AdminMod["Admin Panel (/admin)"]
+        ProcMod["Procurement Module (/purchase, /rfq, /cs, /wo)"]
+        InvMod["Inventory Module (/grn, /qc, /stock-*)"]
+        AssetMod["Asset Management (/assets, /asset-maintenance, /asset-disposal)"]
+    end
+
+    subgraph Middleware ["API Middleware & Tenant Safety Layer"]
+        AuthM["Dual Auth Middleware (AUTH_MODE=supabase | postgres)"]
+        TenM["Tenant Isolator (resolveTenantId)"]
+        RBACM["RBAC Hierarchy Guard (Admin.tsx hierarchy)"]
+    end
+
+    subgraph WorkflowEngine ["Dynamic BPMN Workflow Engine"]
+        BPMN["BPMN Modeler & Evaluator (bpmn_definitions)"]
+        Inbox["Global Inbox & Task Router (inbox_tasks)"]
+    end
+
+    subgraph BusinessCore ["Core Business Domains"]
+        P2P["Procurement Lifecycle (PR -> RFQ -> CS -> PO -> Signed WO Guard)"]
+        InvEngine["QC & Stock Engine (Incremental Ledger, WAC, Reservations)"]
+        AssetEngine["Fixed Asset Engine (QC Auto-Conversion, Depreciation, Maintenance Scheduler)"]
+        UserEngine["User Onboarding & Profile Change Lifecycle"]
+    end
+
+    subgraph DatabaseLayer ["Data Persistence Layer (Drizzle ORM)"]
+        DB["PostgreSQL / Supabase (Multi-Tenant Schema)"]
+    end
+
+    subgraph DeploymentLayer ["Deployment & MCP Pipeline"]
+        Vercel["Vercel Preview Staging (AUTH_MODE=supabase)"]
+        LiveServer["Live Production Server 10.16.49.78 (AUTH_MODE=postgres)"]
+        MCP["MCP Deploy Tooling (scripts/mcp-deploy-server.ts)"]
+    end
+
+    UI --> UserMod & AdminMod & ProcMod & InvMod & AssetMod
+    UserMod & AdminMod & ProcMod & InvMod & AssetMod --> AuthM
+    AuthM --> TenM --> RBACM
+    RBACM --> BPMN & Inbox & BusinessCore
+    BPMN --> Inbox
+    Inbox --> BusinessCore
+    BusinessCore --> P2P & InvEngine & AssetEngine & UserEngine
+    P2P -- "GRN QC Pass (isFixedAsset=true)" --> AssetEngine
+    InvEngine -- "Stock Updates & WAC" --> DB
+    P2P -- "PO / GRN Records" --> DB
+    AssetEngine -- "Assets & Depr Schedules" --> DB
+    UserEngine -- "User Credentials Sync" --> DB
+
+    DeploymentLayer -- "git pull origin main" --> LiveServer
+    MCP --> DeploymentLayer
+```
+
+---
+
 ## 💾 4. Database Schema Domains (Drizzle ORM)
 
 Located in `src/shared/db/schema.ts`:
@@ -129,6 +191,10 @@ Located in `src/shared/db/schema.ts`:
 - **Physical Stock Reconciliation (`/stock-reconciliation`)**: Full physical audit lifecycle (`physical_stock_counts`, `physical_count_details`, `stock_adjustments`). Allows spot checks/cycle counts, variance logging with reason codes (Theft, Damage, Entry Error), and 1-click approval to auto-apply adjustments to warehouse and global stock.
 - **QC Rejected Items & Disposition Management (`/rejected-items`)**: Auto-creates `rejected_item_dispositions` when QC inspections fail (`failedQty > 0`). Provides action UI for Return to Vendor (Credit Note # tracking), Scrap, and Rework workflows.
 - **Automated Reorder PR Generation**: `POST /api/inventory/auto-reorder/generate-pr` converts low-stock items (`quantityInStock <= reorderPoint`) into a Draft Purchase Requisition with 1-click trigger from `InventoryDashboard.tsx`.
+- **Bulk Upload System (`/inventory` & `/api/inventory/bulk-upload`)**:
+  - `GET /api/inventory/bulk-upload/template`: Generates formatted sample `.xlsx` template with auto-column widths and sample data rows.
+  - `POST /api/inventory/bulk-upload`: Accepts Base64 encoded Excel workbook; validates required fields (`itemCode`, `name`, `category`, `uom`), restricts UOMs to valid options (`Pcs`, `Kg`, `Ltr`, `Box`, `Pack`, `Mtr`, `Set`, `Unit`, `Roll`, `Pair`), validates `Item Type` (`Admin`, `IT`, `Both`), checks non-negative `basePrice`, detects in-file duplicates, and skips existing DB items (reported separately as skipped duplicates without failing the batch upload).
+  - UI Component (`BulkUploadModal.tsx`): Displays 3 real-time summary stat cards (🟢 Imported, ⚠️ Skipped Duplicates, ❌ Validation Errors), an "Already Exists" yellow preview table with row numbers, and a red validation error table.
 - **In-Transit Shipment Tracking**: Stock Transfer approvals set status to `In Transit` and record `dispatchDate` while deducting source warehouse stock. Destination receipt updates status to `Received` and sets `actualArrivalDate`.
 - **Weighted Average Costing (WAC)**: On each GRN QC pass, recalculates unit cost: `New WAC = ((Current Qty * Current WAC) + (Received Qty * Purchase Price)) / Total Qty` and updates `inventory_items.basePrice`.
 - **Vendor Quality Scorecard**: Auto-calculates `vendor_quality_metrics` (`qualityScore = (Passed / Total) * 10`, `rejectionRate`) and displays quality rating badges (e.g. ⭐ 9.8 / 10) on `Vendors.tsx`.
@@ -149,26 +215,20 @@ Located in `src/shared/db/schema.ts`:
 
 ---
 
-## 🔔 10. Notification System & Production Deployment Guide
+## 🔔 10. Notification System
 
 ### Notification Engine
 - Templates managed dynamically in `notification_settings` table via `DEFAULT_NOTIFICATION_TEMPLATES` in `server.ts`.
 - Dispatches web notifications and SMTP emails using `nodemailer` with dynamic bracket placeholders (`[document_type]`, `[approver_name]`).
 
-### Production Deployment Requirements
-1. **Node.js (18 LTS / 20 LTS / 22 LTS)** & **Docker** (`docker run -d --name sli_erp_app --restart always -p 5000:3000 --env-file .env sli_erp_app_img`).
-2. **Apache2 Reverse Proxy**: Proxies port 80/443 to container port 5000 (`http://127.0.0.1:5000/`).
-3. **SSL (Certbot / Let's Encrypt)**: Mandatory for HTTPS cookie security and SSO.
-4. **PostgreSQL (Self-Hosted Postgres 15+ in postgres_prod)**.
-
 ---
 
-## 🏛️ 12. Asset Management Module (Fixed Assets & Financial Lifecycle)
+## 🏛️ 11. Asset Management Module (Fixed Assets & Financial Lifecycle)
 
 - **Core Asset Register (`/assets`)**: Tracks fixed asset tags (`AST-YYYYMMDD-XXXX`), acquisition cost, salvage value, useful life in months, accumulated depreciation, net book value, branch, department, custodian, GL accounts, and serial numbers.
 - **Category Configuration (`/asset-categories`)**: Manages category depreciation default methods (Straight Line), useful life defaults, and GL account mappings (`assetGlAccount`, `deprGlAccount`, `accumDeprGlAccount`). Auto-seeds default category `CAT-GEN` (`General Fixed Assets`) if none exists during auto-creation.
 - **Procurement Auto-Conversion**: `POST /api/qc/inspection` automatically converts passed fixed assets (`isFixedAsset = true`) into `Draft` asset records with `sourceType: 'GRN'` and acquisition cost populated from PO unit price.
-- **Straight-Line Depreciation Engine (`depreciationEngine.ts`)**: Auto-calculates period depreciation `(Cost - Salvage) / Useful Life` with zero rounding drift adjustments applied to the final schedule period. `POST /api/assets/compute-depreciation` processes posted periods and updates book values.
+- **Straight-Line & Declining Balance Depreciation Engines (`depreciationEngine.ts`)**: Auto-calculates period depreciation `(Cost - Salvage) / Useful Life` or custom declining rates with zero rounding drift adjustments applied to the final schedule period. `POST /api/assets/compute-depreciation` processes posted periods and updates book values.
 - **BPMN Asset Acquisition Workflow**: Dynamic BPMN workflow for `documentType: 'Asset Acquisition'`. Submitting an asset creates pending `inbox_tasks`. Upon final approval, asset is set to `Active` and depreciation schedule rows are generated.
 - **Asset Transfer & Custodian History**: `POST /api/assets/:id/transfer` initiates branch/custodian transfer. `GET /api/assets/:id/transfers` provides custodian transfer timeline history.
 - **Asset Maintenance Scheduler & Cost Analytics (`/asset-maintenance`)**: Full preventive & corrective service scheduler with auto-recurrence engine (`Monthly`, `Quarterly`, `HalfYearly`, `Annually`). Automatically schedules follow-up tasks upon completion of recurring service records, updates asset `nextMaintenanceDue`, toggles asset status between `Active` and `UnderMaintenance`, tracks `Scheduled` vs `InProgress` status transitions, renders an interactive monthly **Maintenance Calendar Grid**, displays red `OVERDUE` badges for overdue tasks, provides Branch & Category global filtering, and visualizes 12-month expenditure trends and category cost shares via Recharts (`GET /api/assets/maintenance/calendar` & `GET /api/assets/maintenance/analytics`). Category defaults (`defaultMaintenanceInterval` & `defaultMaintenanceType`) pre-fill when scheduling new tasks.
@@ -179,7 +239,7 @@ Located in `src/shared/db/schema.ts`:
 
 ---
 
-## 🚀 13. Production Staging, Vercel & Live Server MCP Workflow
+## 🚀 12. Production Staging, Vercel & Live Server MCP Workflow
 
 ### Environment & Development Lifecycle
 1. **Feature Development & Staging (Vercel + Supabase)**:
@@ -193,4 +253,5 @@ Located in `src/shared/db/schema.ts`:
    - Deployment on the live server (`10.16.49.78`) MUST ONLY occur via MCP server tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main`.
    - **No Direct SSH Mandate**: Direct SSH login, raw SSH execution, or storing remote passwords in codebase files is strictly forbidden.
    - **Live Database Isolation**: Runs native PostgreSQL (`AUTH_MODE=postgres`) in `sli_erp_db` inside `postgres_prod`. Supabase is NOT installed on the live server.
+
 
