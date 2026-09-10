@@ -4582,15 +4582,15 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const wb = XLSX.utils.book_new();
 
       // Sheet 1: Data Entry Template
-      const headers = ['Item Code *', 'Item Name *', 'Category *', 'UOM *', 'Item Type *', 'Base Price', 'Location', 'Is Fixed Asset'];
-      const sampleRow1 = ['ITEM-001', 'Sample Office Chair', 'Furniture', 'Pcs', 'Admin', '1500', 'Warehouse A', 'No'];
-      const sampleRow2 = ['ITEM-002', 'Laptop Dell XPS 15', 'IT Equipment', 'Pcs', 'IT', '120000', 'IT Store Room', 'Yes'];
-      const noteRow = ['← See "Item Categories" sheet', '', '← Must match exactly', '← Pcs/Kg/Ltr/Box/Pack/Mtr/Set/Unit/Roll/Pair', '← Admin / IT / Both', '← Optional, numeric', '← Optional, free text', '← Yes / No'];
+      const headers = ['Item Code *', 'Item Name *', 'Category *', 'UOM *', 'Item Type *', 'Base Price', 'Location', 'Is Fixed Asset', 'Asset Category'];
+      const sampleRow1 = ['ITEM-001', 'Sample Office Chair', 'Furniture', 'Pcs', 'Admin', '1500', 'Warehouse A', 'No', ''];
+      const sampleRow2 = ['ITEM-002', 'Laptop Dell XPS 15', 'IT Equipment', 'Pcs', 'IT', '120000', 'IT Store Room', 'Yes', 'Computer Hardware'];
+      const noteRow = ['← See "Item Categories" sheet', '', '← Must match exactly', '← Pcs/Kg/Ltr/Box/Pack/Mtr/Set/Unit/Roll/Pair', '← Admin / IT / Both', '← Optional, numeric', '← Optional, free text', '← Yes / No', '← Optional if Yes (See "Asset Categories" sheet)'];
 
       const ws1 = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2, noteRow]);
       ws1['!cols'] = [
         { wch: 16 }, { wch: 30 }, { wch: 22 }, { wch: 12 },
-        { wch: 13 }, { wch: 13 }, { wch: 22 }, { wch: 16 }
+        { wch: 13 }, { wch: 13 }, { wch: 22 }, { wch: 16 }, { wch: 28 }
       ];
       XLSX.utils.book_append_sheet(wb, ws1, 'Inventory Items Template');
 
@@ -4722,6 +4722,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const basePriceRaw = row[5];
         const locationRaw = String(row[6] || '').trim();
         const isFixedAssetRaw = String(row[7] || '').trim();
+        const assetCategoryRaw = String(row[8] || '').trim();
 
         // Required Field Validations
         if (!itemCodeRaw) {
@@ -4813,8 +4814,23 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const isFixedAssetLower = isFixedAssetRaw.toLowerCase();
         const isFixedAsset = isFixedAssetLower === 'yes' || isFixedAssetLower === 'true' || isFixedAssetLower === '1';
 
-        // Asset Category auto-match by token similarity (null if no match — user assigns manually later)
-        const assetCategoryId = isFixedAsset ? findAssetCategoryId(categoryRaw) : null;
+        // Asset Category resolution logic when Is Fixed Asset = Yes:
+        // 1. Check if user specified explicit assetCategoryRaw in Column I that matches existingAssetCats by name
+        // 2. If not matched, try token-similarity match on assetCategoryRaw
+        // 3. If assetCategoryRaw is empty, fall back to token-similarity match on categoryRaw (Column C)
+        let assetCategoryId: string | null = null;
+        if (isFixedAsset) {
+          if (assetCategoryRaw) {
+            const exact = existingAssetCats.find(ac => ac.name.trim().toLowerCase() === assetCategoryRaw.toLowerCase());
+            if (exact) {
+              assetCategoryId = exact.id;
+            } else {
+              assetCategoryId = findAssetCategoryId(assetCategoryRaw) || findAssetCategoryId(categoryRaw);
+            }
+          } else {
+            assetCategoryId = findAssetCategoryId(categoryRaw);
+          }
+        }
 
         const uomProper = uomRaw.charAt(0).toUpperCase() + uomRaw.slice(1);
 

@@ -43,6 +43,8 @@ export async function pullAndDeploy(host: string, user: string, branch: string =
   const keyFlag = sshKeyPath ? `-i ${sshKeyPath}` : '';
   const scriptContent = `
 cd /home/iamadmin/sli-erp
+docker image prune -f || true
+docker builder prune -f || true
 git fetch origin
 git checkout ${branch}
 git reset --hard origin/${branch}
