@@ -2932,6 +2932,190 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
+  // Vendor Bulk Upload Template Endpoint
+  app.get("/api/vendors/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+      const existingDbVendors = await db.select({ name: vendors.name, bin: vendors.bin, tin: vendors.tin, status: vendors.status })
+        .from(vendors)
+        .where(eq(vendors.companyId, companyId))
+        .orderBy(vendors.name);
+
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Vendor Template
+      const headers = ['Vendor Name *', 'Contact Person', 'Email', 'Phone', 'BIN', 'TIN', 'Bank Name', 'Branch Name', 'Account Name', 'Account Number', 'Routing Number'];
+      const sampleRow1 = ['Acme Trade International', 'John Doe', 'john@acmetrade.com', '+8801700000000', '123456789-0101', '987654321098', 'City Bank PLC', 'Gulshan Branch', 'Acme Trade Int', '1102938475001', '225271982'];
+      const sampleRow2 = ['Global Tech Solutions Ltd', 'Sarah Khan', 'sales@globaltech.bd', '+8801800000000', '987654321-0202', '123456789012', 'BRAC Bank PLC', 'Motijheel Branch', 'Global Tech Solutions', '1501209876543001', '060273849'];
+      const noteRow = ['← Required vendor name', '← Optional, contact name', '← Optional, valid email', '← Optional, phone #', '← Optional tax BIN', '← Optional tax TIN', '← Optional bank name', '← Optional branch', '← Optional account name', '← Optional account #', '← Optional routing #'];
+
+      const ws1 = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2, noteRow]);
+      ws1['!cols'] = [
+        { wch: 28 }, { wch: 18 }, { wch: 24 }, { wch: 16 },
+        { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 18 },
+        { wch: 24 }, { wch: 20 }, { wch: 16 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Vendor Template');
+
+      // Sheet 2: Existing Vendors (from DB)
+      const vHeaders = ['Vendor Name', 'BIN', 'TIN', 'Status'];
+      const vRows = existingDbVendors.length > 0
+        ? existingDbVendors.map(v => [v.name, v.bin || '', v.tin || '', v.status || 'Active'])
+        : [['(No vendors registered yet — template ready for input)', '', '', '']];
+
+      const ws2 = XLSX.utils.aoa_to_sheet([vHeaders, ...vRows]);
+      ws2['!cols'] = [{ wch: 30 }, { wch: 20 }, { wch: 20 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Existing Vendors');
+
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="vendor_bulk_upload_template.xlsx"');
+      return res.send(buffer);
+    } catch (error: any) {
+      console.error("Vendor bulk upload template error:", error);
+      return res.status(500).json({ error: "Failed to generate vendor template" });
+    }
+  });
+
+  // Vendor Bulk Upload Endpoint
+  app.post("/api/vendors/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+      const { fileData } = req.body;
+      if (!fileData || typeof fileData !== 'string') {
+        return res.status(400).json({ error: "Invalid or missing file data. Please upload a valid Excel file." });
+      }
+
+      const buffer = Buffer.from(fileData, 'base64');
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "File size exceeds maximum allowed size of 5MB." });
+      }
+
+      let workbook;
+      try {
+        workbook = XLSX.read(buffer, { type: 'buffer' });
+      } catch (err: any) {
+        return res.status(400).json({ error: "Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file." });
+      }
+
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        return res.status(400).json({ error: "The uploaded Excel file contains no worksheets." });
+      }
+
+      const worksheet = workbook.Sheets[sheetName];
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+      if (rawRows.length < 2) {
+        return res.status(400).json({ error: "The uploaded file has no data rows (only headers or empty)." });
+      }
+
+      // Pre-fetch all existing vendor names for this company
+      const existingDbVendors = await db.select({ name: vendors.name })
+        .from(vendors)
+        .where(eq(vendors.companyId, companyId));
+
+      const dbVendorSet = new Set(existingDbVendors.map(v => v.name.trim().toLowerCase()));
+
+      const errors: Array<{ row: number; name?: string; message: string }> = [];
+      const duplicates: Array<{ row: number; name: string; message: string }> = [];
+      const seenInFileSet = new Set<string>();
+      const itemsToInsert: any[] = [];
+
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const excelRowNumber = i + 1;
+
+        if (!row || row.every((cell: any) => String(cell).trim() === '')) {
+          continue;
+        }
+
+        const nameRaw = String(row[0] || '').trim();
+        const contactPersonRaw = String(row[1] || '').trim();
+        const emailRaw = String(row[2] || '').trim();
+        const phoneRaw = String(row[3] || '').trim();
+        const binRaw = String(row[4] || '').trim();
+        const tinRaw = String(row[5] || '').trim();
+        const bankNameRaw = String(row[6] || '').trim();
+        const branchNameRaw = String(row[7] || '').trim();
+        const accountNameRaw = String(row[8] || '').trim();
+        const accountNumberRaw = String(row[9] || '').trim();
+        const routingNumberRaw = String(row[10] || '').trim();
+
+        // Required Field Validation
+        if (!nameRaw) {
+          errors.push({ row: excelRowNumber, message: "Vendor Name is required" });
+          continue;
+        }
+
+        // Email format validation if provided
+        if (emailRaw && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+          errors.push({ row: excelRowNumber, name: nameRaw, message: `Invalid email address format '${emailRaw}'` });
+          continue;
+        }
+
+        // In-File Duplicate Check
+        const nameLower = nameRaw.toLowerCase();
+        if (seenInFileSet.has(nameLower)) {
+          errors.push({
+            row: excelRowNumber, name: nameRaw,
+            message: `Duplicate Vendor Name '${nameRaw}' found multiple times in this file`
+          });
+          continue;
+        }
+        seenInFileSet.add(nameLower);
+
+        // Existing Database Duplicate Check (skipped cleanly, not error)
+        if (dbVendorSet.has(nameLower)) {
+          duplicates.push({
+            row: excelRowNumber, name: nameRaw,
+            message: "Vendor is already registered in system (Skipped)"
+          });
+          continue;
+        }
+
+        itemsToInsert.push({
+          companyId,
+          name: nameRaw,
+          contactPerson: contactPersonRaw || null,
+          email: emailRaw || null,
+          phone: phoneRaw || null,
+          bin: binRaw || null,
+          tin: tinRaw || null,
+          bankName: bankNameRaw || null,
+          branchName: branchNameRaw || null,
+          accountName: accountNameRaw || null,
+          accountNumber: accountNumberRaw || null,
+          routingNumber: routingNumberRaw || null,
+          status: 'Active',
+          rating: '0.0'
+        });
+      }
+
+      // Batch Insert Valid Vendors
+      let successCount = 0;
+      if (itemsToInsert.length > 0) {
+        const inserted = await db.insert(vendors).values(itemsToInsert).returning();
+        successCount = inserted.length;
+      }
+
+      return res.json({
+        successCount,
+        duplicateCount: duplicates.length,
+        errorCount: errors.length,
+        duplicates,
+        errors
+      });
+    } catch (error: any) {
+      console.error("Vendor bulk upload error:", error);
+      return res.status(500).json({ error: "Failed to process vendor bulk upload file" });
+    }
+  });
+
   // ==========================================
   // RFQ Endpoints
   // ==========================================

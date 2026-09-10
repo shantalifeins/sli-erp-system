@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Users, Plus, ArrowLeft, Eye, Landmark, Edit } from 'lucide-react';
+import { Users, Plus, ArrowLeft, Eye, Landmark, Edit, Upload } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
+import { VendorBulkUploadModal } from '../components/VendorBulkUploadModal';
 
 export default function Vendors() {
   const { getToken, dbUser, permissions } = useAuth();
@@ -13,6 +14,7 @@ export default function Vendors() {
   const itemsPerPage = 10;
   
   const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingVendorId, setEditingVendorId] = useState<number | null>(null);
   const [selectedVendorDetails, setSelectedVendorDetails] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -169,16 +171,25 @@ export default function Vendors() {
               <p className="text-xs text-slate-500 mt-0.5">Manage vendor profiles, tax identifiers, and banking info</p>
             </div>
             {canCreate && (
-              <button
-                onClick={() => {
-                  resetForm();
-                  setShowRegisterForm(true);
-                }}
-                className="inline-flex items-center px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors"
-              >
-                <Plus className="-ml-1 mr-2 h-4 w-4" aria-hidden="true" />
-                Register Vendor
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="inline-flex items-center px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 rounded text-sm font-bold shadow-xs transition-colors"
+                >
+                  <Upload className="-ml-1 mr-2 h-4 w-4 text-slate-600" aria-hidden="true" />
+                  Bulk Upload
+                </button>
+                <button
+                  onClick={() => {
+                    resetForm();
+                    setShowRegisterForm(true);
+                  }}
+                  className="inline-flex items-center px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-sm transition-colors"
+                >
+                  <Plus className="-ml-1 mr-2 h-4 w-4" aria-hidden="true" />
+                  Register Vendor
+                </button>
+              </div>
             )}
           </div>
 
@@ -549,6 +560,11 @@ export default function Vendors() {
           </form>
         </div>
       )}
+      <VendorBulkUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onSuccess={loadVendors}
+      />
     </div>
     </PageLayout>
   );
