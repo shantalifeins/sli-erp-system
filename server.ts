@@ -4686,6 +4686,173 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
+  // Item Category Bulk Upload Template Endpoint
+  app.get("/api/inventory/categories/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+      const existingCats = await db.select({ name: item_categories.name, description: item_categories.description, status: item_categories.status })
+        .from(item_categories)
+        .where(eq(item_categories.companyId, companyId))
+        .orderBy(item_categories.name);
+
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Category Template
+      const headers = ['Category Name *', 'Description', 'Status'];
+      const sampleRow1 = ['Electrical Items', 'Switches, cables, circuit breakers & lighting fixtures', 'Active'];
+      const sampleRow2 = ['Plumbing Supplies', 'Pipes, fittings, valves & water pump parts', 'Active'];
+      const noteRow = ['← Required category name', '← Optional description text', '← Active / Inactive'];
+
+      const ws1 = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2, noteRow]);
+      ws1['!cols'] = [{ wch: 28 }, { wch: 45 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Category Template');
+
+      // Sheet 2: Existing Categories (from DB)
+      const catHeaders = ['Category Name', 'Description', 'Status'];
+      const catRows = existingCats.length > 0
+        ? existingCats.map(c => [c.name, c.description || '', c.status || 'Active'])
+        : [['(No categories registered yet — template ready for input)', '', '']];
+
+      const ws2 = XLSX.utils.aoa_to_sheet([catHeaders, ...catRows]);
+      ws2['!cols'] = [{ wch: 30 }, { wch: 45 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Existing Categories');
+
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="item_category_bulk_upload_template.xlsx"');
+      return res.send(buffer);
+    } catch (error: any) {
+      console.error("Item category bulk upload template error:", error);
+      return res.status(500).json({ error: "Failed to generate item category template" });
+    }
+  });
+
+  // Item Category Bulk Upload Endpoint
+  app.post("/api/inventory/categories/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+      const { fileData } = req.body;
+      if (!fileData || typeof fileData !== 'string') {
+        return res.status(400).json({ error: "Invalid or missing file data. Please upload a valid Excel file." });
+      }
+
+      const buffer = Buffer.from(fileData, 'base64');
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "File size exceeds maximum allowed size of 5MB." });
+      }
+
+      let workbook;
+      try {
+        workbook = XLSX.read(buffer, { type: 'buffer' });
+      } catch (err: any) {
+        return res.status(400).json({ error: "Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file." });
+      }
+
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        return res.status(400).json({ error: "The uploaded Excel file contains no worksheets." });
+      }
+
+      const worksheet = workbook.Sheets[sheetName];
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+      if (rawRows.length < 2) {
+        return res.status(400).json({ error: "The uploaded file has no data rows (only headers or empty)." });
+      }
+
+      // Pre-fetch all existing item category names for this company
+      const existingDbCats = await db.select({ name: item_categories.name })
+        .from(item_categories)
+        .where(eq(item_categories.companyId, companyId));
+
+      const dbCatSet = new Set(existingDbCats.map(c => c.name.trim().toLowerCase()));
+
+      const errors: Array<{ row: number; name?: string; message: string }> = [];
+      const duplicates: Array<{ row: number; name: string; message: string }> = [];
+      const seenInFileSet = new Set<string>();
+      const itemsToInsert: any[] = [];
+
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const excelRowNumber = i + 1;
+
+        if (!row || row.every((cell: any) => String(cell).trim() === '')) {
+          continue;
+        }
+
+        const nameRaw = String(row[0] || '').trim();
+        const descriptionRaw = String(row[1] || '').trim();
+        const statusRaw = String(row[2] || '').trim();
+
+        // Required Field Validation
+        if (!nameRaw) {
+          errors.push({ row: excelRowNumber, message: "Category Name is required" });
+          continue;
+        }
+
+        // Status validation if provided
+        let statusProper = 'Active';
+        if (statusRaw) {
+          const statusLower = statusRaw.toLowerCase();
+          if (statusLower !== 'active' && statusLower !== 'inactive') {
+            errors.push({ row: excelRowNumber, name: nameRaw, message: `Invalid status '${statusRaw}'. Allowed: Active / Inactive` });
+            continue;
+          }
+          statusProper = statusLower === 'active' ? 'Active' : 'Inactive';
+        }
+
+        // In-File Duplicate Check
+        const nameLower = nameRaw.toLowerCase();
+        if (seenInFileSet.has(nameLower)) {
+          errors.push({
+            row: excelRowNumber, name: nameRaw,
+            message: `Duplicate Category Name '${nameRaw}' found multiple times in this file`
+          });
+          continue;
+        }
+        seenInFileSet.add(nameLower);
+
+        // Existing Database Duplicate Check (skipped cleanly, not error)
+        if (dbCatSet.has(nameLower)) {
+          duplicates.push({
+            row: excelRowNumber, name: nameRaw,
+            message: "Category already exists in system (Skipped)"
+          });
+          continue;
+        }
+
+        itemsToInsert.push({
+          companyId,
+          name: nameRaw,
+          description: descriptionRaw || null,
+          status: statusProper
+        });
+      }
+
+      // Batch Insert Valid Categories
+      let successCount = 0;
+      if (itemsToInsert.length > 0) {
+        const inserted = await db.insert(item_categories).values(itemsToInsert).returning();
+        successCount = inserted.length;
+      }
+
+      return res.json({
+        successCount,
+        duplicateCount: duplicates.length,
+        errorCount: errors.length,
+        duplicates,
+        errors
+      });
+    } catch (error: any) {
+      console.error("Item category bulk upload error:", error);
+      return res.status(500).json({ error: "Failed to process item category bulk upload file" });
+    }
+  });
+
   // Inventory Endpoints
   app.get("/api/inventory", requireAuth, async (req: AuthRequest, res) => {
     try {
