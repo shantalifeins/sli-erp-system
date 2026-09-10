@@ -254,4 +254,78 @@ Located in `src/shared/db/schema.ts`:
    - **No Direct SSH Mandate**: Direct SSH login, raw SSH execution, or storing remote passwords in codebase files is strictly forbidden.
    - **Live Database Isolation**: Runs native PostgreSQL (`AUTH_MODE=postgres`) in `sli_erp_db` inside `postgres_prod`. Supabase is NOT installed on the live server.
 
+---
 
+## 📊 13. Universal Bulk Upload Architecture & Validation Standard
+
+Whenever creating a **Bulk Upload** feature for any entity or module (e.g. Inventory Items, Item Categories, Asset Categories, Suppliers, Users, Locations, etc.), all developers and AI agents **MUST strictly adhere to the following unified architectural pattern, UI design system, Excel template structure, and error bucket logic**.
+
+---
+
+### 🏛️ 1. Core Architectural & UI Principles
+1. **Multi-Tenant Isolation**: Backend bulk-upload endpoints MUST parse `companyId` via `resolveTenantId(req)` and scope all database lookup checks and batch inserts strictly to `companyId`. Cross-tenant record creation is forbidden.
+2. **Zero Auto-Batch Creation of Auxiliary Categories/Entities**: Bulk upload processes MUST NOT automatically create missing parent entities (such as Item Categories or Asset Categories) in batch during import. Rows referencing non-existent parent entities MUST be diverted to the **Missing Entity Bucket** for auditing.
+3. **Partial Batch Import**: Invalid rows (or rows referencing missing parent categories) MUST NOT fail the entire file. Valid rows are inserted into the DB immediately, while invalid/missing rows are reported back to the user.
+4. **Unified 4-Card Summary UI (`BulkUploadModal.tsx`)**:
+   - 🟢 **Imported / Success** (Green Card): Successfully created records.
+   - ⚠️ **Skipped Duplicates** (Amber Card): Records that already exist in DB or file.
+   - 🔵 **Missing Required Parents / Categories** (Blue Card): Records pending parent category creation.
+   - ❌ **Validation Errors** (Red Card): Formatting errors (missing required fields, bad numbers, invalid enum options).
+
+---
+
+### 📄 2. Standardized Multi-Sheet Excel Template Structure (`GET /api/<module>/bulk-upload/template`)
+Every Bulk Upload template MUST be generated as a **Multi-Sheet Excel Workbook (`.xlsx`)** using `xlsx` (SheetJS):
+
+- **Sheet 1: Data Entry Template (`<Entity> Template`)**:
+  - **Row 1 (Headers)**: Clear, descriptive column headers. Asterisk (`*`) indicates required fields (e.g. `Item Code *`, `Item Name *`, `Category *`, `UOM *`, `Item Type *`, `Base Price`, `Location`, `Is Fixed Asset`, `Asset Category`).
+  - **Row 2 & 3 (Sample Rows)**: Realistic sample data demonstrating correct values (e.g., sample code, name, valid UOMs, Admin/IT, Yes/No).
+  - **Row 4 (Instruction Note Row)**: Prefixed with `←` pointing to allowed options or reference sheets (e.g. `← See "Item Categories" sheet`, `← Must match exactly`, `← Admin / IT / Both`, `← Optional if Yes (See "Asset Categories" sheet)`).
+  - **Auto Column Widths**: Preset `!cols` widths for readability.
+
+- **Sheet 2, 3, etc. (Live DB Lookup Reference Sheets)**:
+  - Dynamically query active lookup tables for the user's `companyId` in parallel (e.g. `Item Categories` sheet, `Asset Categories` sheet, `Warehouse Locations` sheet).
+  - If no records exist in DB, insert a helpful fallback message row: `(No categories found — add via <Module> → <Menu> first)`.
+
+---
+
+### ⚡ 3. Backend Processing & Validation Engine (`POST /api/<module>/bulk-upload`)
+1. **Parallel DB Lookup Pre-fetching**: Pre-fetch existing item codes, category names, and parent IDs for the company in parallel before looping through rows.
+2. **Row Validation Flow**:
+   - **Blank Row Check**: Skip completely empty rows seamlessly.
+   - **Required Fields**: Validate presence of mandatory fields (e.g. `Code`, `Name`, `Category`). If missing, add to `errors[]` bucket.
+   - **Enum / Value Whitelist**: Validate against allowed options (e.g. UOM set `['pcs', 'kg', 'ltr', ...]`, Item Type `['admin', 'it', 'both']`). If invalid, add to `errors[]`.
+   - **In-File Duplicate Detection**: Track `seenInFileSet` (case-insensitive). If code repeated, add to `errors[]`.
+   - **DB Duplicate Check**: Check against `dbItemCodeSet`. If code exists in DB, add to `duplicates[]` bucket (skipped cleanly, not treated as error).
+   - **Parent Category Existence Check**: Check if category exists in `dbCategorySet`. If NOT in DB, add row number to `missingCategoryMap` bucket. Do NOT insert row into DB.
+   - **Secondary Entity / Token Similarity Auto-Matching**: For optional/conditional foreign keys (e.g. `assetCategoryId` when `isFixedAsset = Yes`), attempt exact match first, then fall back to word token similarity matching against `asset_categories`. If strict validation is required and no match is found, reject row into `errors[]`.
+3. **Batch Insertion**: Insert all valid items into PostgreSQL in a single `db.insert().values(itemsToInsert)` operation.
+4. **Standard JSON Response Structure**:
+   ```json
+   {
+     "successCount": 15,
+     "duplicateCount": 2,
+     "errorCount": 1,
+     "pendingMissingCategory": 3,
+     "duplicates": [{ "row": 4, "itemCode": "ITEM-002", "name": "...", "message": "Already exists (Skipped)" }],
+     "errors": [{ "row": 5, "itemCode": "ITEM-003", "name": "...", "message": "Invalid UOM 'XYZ'" }],
+     "missingCategories": [{ "categoryName": "Demo Cat", "count": 3, "rows": [6, 7, 8] }]
+   }
+   ```
+
+---
+
+### 🎨 4. Standard UI Modal Component Structure (`BulkUploadModal.tsx`)
+When building Bulk Upload modals for new modules, use the exact layout pattern from `src/modules/inventory/components/BulkUploadModal.tsx`:
+- **Step 1: Download & Upload Header**:
+  - Download Template Button calling `GET /api/<module>/bulk-upload/template`.
+  - Drag-and-drop / file input zone accepting `.xlsx` or `.xls` (< 5MB limit).
+- **Step 2: Interactive 4-Column Stat Summary Cards**:
+  - 🟢 **Imported Successfully** (Green border & text)
+  - ⚠️ **Skipped Duplicates** (Amber border & text)
+  - 🔵 **Category Missing** (Blue border & text)
+  - ❌ **Validation Errors** (Red border & text)
+- **Step 3: Tabbed / Multi-Section Detail Tables**:
+  - **Blue "Missing Categories" Table**: Displays category name, count of affected rows, list of row numbers (first 5 + `+N more`), and a navigation hint (`Go to <Module> → <Menu> to create missing categories`).
+  - **Yellow "Skipped Duplicates" Table**: Displays row number, item code, name, category, and skip message.
+  - **Red "Validation Errors" Table**: Displays row number, item code, name, and exact error message.
