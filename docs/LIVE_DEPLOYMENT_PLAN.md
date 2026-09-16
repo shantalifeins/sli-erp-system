@@ -106,9 +106,17 @@ An MCP Deployment Server (`scripts/mcp-deploy-server.ts`) will be integrated int
 - `check_server_health`: View logs and status of `sli_erp_app` container and port 5000.
 - `reload_apache_config`: Create/update `/etc/apache2/sites-available/sli_erp.conf` and run `systemctl reload apache2`.
 
-### Strict Workflow Mandate
+### Strict Workflow Mandate & Git Credential Setup
 > [!IMPORTANT]
 > **Git-Centric Deployment**: All local changes MUST be committed and pushed to the Git repository first. The MCP server will strictly pull from Git on the remote server (`git pull origin main`). Direct pushing/copying of code from PC to server is disabled to ensure full version control auditing.
+
+> [!TIP]
+> **Automated Git Push Credential Configuration**:
+> To allow automated `git push origin main` commands from background subshells without blocking on interactive Windows Credential Manager popups, configure local git repository credentials:
+> ```bash
+> git config --local credential.username shantalifeins
+> ```
+> Alternatively, ensure GitHub Personal Access Token (PAT) or SSH key (`git@github.com:shantalifeins/sli-erp-system.git`) is configured for seamless agent execution.
 
 ### Forbidden Actions (Strict MCP Guardrails)
 - ❌ **No Access to Chatwoot/n8n**: Any query or command referencing `chatwoot_db`, `n8n_db`, or `postgres` system tables will be intercepted and rejected.

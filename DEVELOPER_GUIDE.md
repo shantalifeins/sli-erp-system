@@ -20,9 +20,10 @@ Welcome to the **SLI ERP System**! This comprehensive guide provides developers 
 - **Role Isolation**: RBAC tables (`roles`, `role_permissions`) enforce a compound unique constraint (`companyId` + `name`) to prevent global role name collisions.
 - **Role Permission Customization**: The `hierarchy` array in `Admin.tsx` maps each menu strictly to the actions it supports in the frontend/backend. Toggling a module or menu level checkbox automatically checks all corresponding nested actions for rapid onboarding.
 
-### 🔒 Git Repository Isolation Rules
+### 🔒 Git Repository Isolation & Automated Push Rules
 - **Workspace Scoping**: This codebase is strictly mapped to repository `https://github.com/shantalifeins/sli-erp-system.git`.
 - **Pre-Push Safety Check**: Before pushing commits, agents must run `git remote -v` to confirm the destination is strictly `shantalifeins/sli-erp-system.git` to avoid cross-project contamination across multiple projects under the same GitHub account.
+- **Automated Credential Scope**: To prevent background command subshells from blocking on interactive Windows Credential Manager popups, local credentials are bound to `git config --local credential.username shantalifeins`.
 
 ---
 
