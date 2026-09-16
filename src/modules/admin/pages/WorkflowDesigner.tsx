@@ -131,6 +131,7 @@ export default function WorkflowDesigner() {
       await fetchWithAuth('/api/bpmn/definitions', token, {
         method: 'POST',
         body: JSON.stringify({
+          id: workflowId ? parseInt(workflowId) : undefined,
           name,
           documentType,
           department,
@@ -202,10 +203,6 @@ export default function WorkflowDesigner() {
     }
     return '';
   };
-
-  if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading Workflow Canvas...</div>;
-  }
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col bg-slate-50">

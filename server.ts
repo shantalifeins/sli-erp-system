@@ -893,7 +893,7 @@ app.put('/api/profile/avatar', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// PUT /api/profile/password â€“ change password via Supabase Admin
+// PUT /api/profile/password – change password
 app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -901,10 +901,19 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(req.user.uid, {
-      password: newPassword,
-    });
-    if (error) return res.status(400).json({ error: error.message });
+    const newHash = hashPassword(newPassword);
+    await db.update(users).set({ passwordHash: newHash }).where(eq(users.uid, req.user.uid));
+
+    if (process.env.AUTH_MODE !== 'postgres') {
+      try {
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(req.user.uid, {
+          password: newPassword,
+        });
+        if (error) console.warn("Supabase password update warning:", error.message);
+      } catch (e: any) {
+        console.warn("Supabase password update exception:", e?.message);
+      }
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('PUT /api/profile/password error:', err);
@@ -1658,29 +1667,49 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
 
       const { email, password, name, designation, phone, supervisorUid, department, role, branchId } = req.body;
       
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+
       // Check if user already exists in DB to prevent duplicates
-      const existing = await db.select().from(users).where(eq(users.email, email));
+      const existing = await db.select().from(users).where(ilike(users.email, email.trim()));
       if (existing.length > 0) {
-        return res.status(400).json({ error: "User already exists" });
+        return res.status(400).json({ error: "User already exists with this email" });
       }
 
-      // Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true
-      });
+      let userUid: string = crypto.randomUUID();
+      const hashedPassword = hashPassword(password);
 
-      if (authError || !authData.user) {
-        console.error("Supabase Auth Error:", authError);
-        return res.status(400).json({ error: authError?.message || "Failed to create user in Auth" });
+      // Attempt Supabase Auth sync only if not in direct postgres mode
+      if (process.env.AUTH_MODE !== 'postgres') {
+        try {
+          const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email: email.trim(),
+            password,
+            email_confirm: true
+          });
+
+          if (authError || !authData?.user) {
+            console.warn("Supabase Auth Warning:", authError?.message);
+            if (process.env.AUTH_MODE === 'supabase') {
+              return res.status(400).json({ error: authError?.message || "Failed to create user in Supabase Auth" });
+            }
+          } else {
+            userUid = authData.user.id;
+          }
+        } catch (authErr: any) {
+          console.warn("Supabase Auth exception:", authErr);
+          if (process.env.AUTH_MODE === 'supabase') {
+            return res.status(400).json({ error: authErr?.message || "Failed to create user in Supabase Auth" });
+          }
+        }
       }
 
-      // Create user in local DB
+      // Create user in local DB (storing both uid and passwordHash for dual auth support)
       const newUser = await db.insert(users).values({
-        uid: authData.user.id,
+        uid: userUid,
         companyId,
-        email,
+        email: email.trim(),
         name: name || null,
         designation: designation || null,
         phone: phone || null,
@@ -1688,49 +1717,68 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         department: department || null,
         role: role || 'Requester',
         branchId: branchId ? parseInt(branchId) : null,
+        passwordHash: hashedPassword,
         status: 'Active'
       }).returning();
 
       // Notify the new user via Email
       const loginLink = req.headers.origin || "http://localhost:3000";
-      await notifyUser(authData.user.id, "User Created", "Welcome to the system.", "INFO", "/", { name: name || "User", email, password, link: loginLink });
+      await notifyUser(userUid, "User Created", "Welcome to the system.", "INFO", "/", { name: name || "User", email: email.trim(), password, link: loginLink })
+        .catch(err => console.warn("Failed to send user welcome notification:", err));
 
       res.json(newUser[0]);
     } catch (error: any) {
-      console.error(error);
-      res.status(500).json({ error: "Server error" });
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: "Server error: " + (error?.message || error) });
     }
   });
 
   app.put("/api/users/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const { name, designation, phone, supervisorUid, department, role, branchId, email } = req.body;
+      const { name, designation, phone, supervisorUid, department, role, branchId, email, password } = req.body;
       
       const existingUser = await db.select().from(users).where(eq(users.id, parseInt(req.params.id)));
       if (existingUser.length === 0) return res.status(404).json({ error: "User not found" });
 
-      if (email && email !== existingUser[0].email) {
-        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(existingUser[0].uid, { email });
-        if (authError) return res.status(400).json({ error: authError.message });
+      if (email && email !== existingUser[0].email && process.env.AUTH_MODE !== 'postgres') {
+        try {
+          const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(existingUser[0].uid, { email });
+          if (authError) console.warn("Supabase Auth email update warning:", authError.message);
+        } catch (e: any) {
+          console.warn("Supabase email update exception:", e?.message);
+        }
+      }
+
+      const updatePayload: any = { 
+        name: name || null,
+        email: email ? email.trim() : existingUser[0].email,
+        designation: designation || null,
+        phone: phone || null,
+        supervisorUid: supervisorUid || null,
+        department: department || null, 
+        role,
+        branchId: branchId ? parseInt(branchId) : null 
+      };
+
+      if (password && password.trim().length > 0) {
+        updatePayload.passwordHash = hashPassword(password.trim());
+        if (process.env.AUTH_MODE !== 'postgres') {
+          try {
+            await supabaseAdmin.auth.admin.updateUserById(existingUser[0].uid, { password: password.trim() });
+          } catch (e: any) {
+            console.warn("Supabase password update exception:", e?.message);
+          }
+        }
       }
 
       const updatedUser = await db.update(users)
-        .set({ 
-          name: name || null,
-          email: email || existingUser[0].email,
-          designation: designation || null,
-          phone: phone || null,
-          supervisorUid: supervisorUid || null,
-          department: department || null, 
-          role,
-          branchId: branchId ? parseInt(branchId) : null 
-        })
+        .set(updatePayload)
         .where(eq(users.id, parseInt(req.params.id)))
         .returning();
       res.json(updatedUser[0]);
     } catch (error: any) {
-      console.error(error);
-      res.status(500).json({ error: "Server error" });
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Server error: " + (error?.message || error) });
     }
   });
 
@@ -2083,21 +2131,36 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/bpmn/definitions", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
       if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { name, documentType, department, xmlData } = req.body;
+      const { id, name, documentType, department, xmlData } = req.body;
       
-      // Check if definition exists for this documentType
-      const existing = await db.select().from(bpmn_definitions)
-        .where(and(
-          eq(bpmn_definitions.companyId, companyId),
-          eq(bpmn_definitions.documentType, documentType)
-        )).limit(1);
+      let existing: any[] = [];
+      if (id) {
+        existing = await db.select().from(bpmn_definitions)
+          .where(and(
+            eq(bpmn_definitions.companyId, companyId),
+            eq(bpmn_definitions.id, parseInt(id))
+          )).limit(1);
+      }
+      if (existing.length === 0 && documentType) {
+        existing = await db.select().from(bpmn_definitions)
+          .where(and(
+            eq(bpmn_definitions.companyId, companyId),
+            eq(bpmn_definitions.documentType, documentType)
+          )).limit(1);
+      }
 
       let result;
       if (existing.length > 0) {
         // Update existing record
         result = await db.update(bpmn_definitions).set({
-          name,
+          name: name || existing[0].name,
+          documentType: documentType || existing[0].documentType,
+          department: department || existing[0].department,
           xmlData,
           isActive: true
         }).where(eq(bpmn_definitions.id, existing[0].id)).returning();
@@ -2189,11 +2252,22 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/workflows/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const workflow = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.id, parseInt(req.params.id)), eq(bpmn_definitions.companyId, companyId)));
-      if (workflow.length === 0) return res.status(404).json({ error: "Not found" });
+      if (!companyId) {
+        const fallbackCompany = await db.select().from(companies).limit(1);
+        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
+      }
+      
+      let workflow = [];
+      if (companyId) {
+        workflow = await db.select().from(bpmn_definitions).where(and(eq(bpmn_definitions.id, parseInt(req.params.id)), eq(bpmn_definitions.companyId, companyId)));
+      }
+      if (workflow.length === 0) {
+        workflow = await db.select().from(bpmn_definitions).where(eq(bpmn_definitions.id, parseInt(req.params.id)));
+      }
+      if (workflow.length === 0) return res.status(404).json({ error: "Workflow not found" });
       res.json(workflow[0]);
     } catch (error: any) {
+      console.error("GET /api/workflows/:id error:", error);
       res.status(500).json({ error: "Failed to fetch workflow" });
     }
   });

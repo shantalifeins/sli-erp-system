@@ -89,21 +89,27 @@ ssoRouter.post('/microsoft', async (req, res) => {
     }
 
     if (!user) {
-      // Create in GoTrue
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: email,
-        password: randomPassword,
-        email_confirm: true,
-        user_metadata: { name: graphData.displayName || 'New Employee' }
-      });
+      let userUid: string = crypto.randomUUID();
+      if (process.env.AUTH_MODE !== 'postgres') {
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: email,
+          password: randomPassword,
+          email_confirm: true,
+          user_metadata: { name: graphData.displayName || 'New Employee' }
+        });
 
-      if (authError) {
-        return res.status(500).json({ error: 'Failed to sync with auth server: ' + authError.message });
+        if (authError || !authData?.user) {
+          if (process.env.AUTH_MODE === 'supabase') {
+            return res.status(500).json({ error: 'Failed to sync with auth server: ' + authError?.message });
+          }
+        } else {
+          userUid = authData.user.id;
+        }
       }
 
       // Create in local DB
       const insertedUser = await db.insert(users).values({
-        uid: authData.user.id,
+        uid: userUid,
         email: email,
         name: graphData.displayName || 'New Employee',
         companyId: company.id,
@@ -182,6 +188,26 @@ ssoRouter.post('/microsoft', async (req, res) => {
     
     if (user.status === 'Inactive') {
       return res.status(403).json({ error: 'Account is suspended.' });
+    }
+    
+    if (process.env.AUTH_MODE === 'postgres') {
+      const jwtSecret = process.env.JWT_SECRET || 'production_ultra_secure_jwt_secret_key_2026';
+      const token = jwt.sign(
+        {
+          sub: user.uid,
+          uid: user.uid,
+          email: user.email,
+          companyId: user.companyId || null,
+          role: user.role || 'Requester'
+        },
+        jwtSecret,
+        { expiresIn: '7d' }
+      );
+      return res.json({ 
+        token, 
+        refreshToken: token,
+        user: { id: user.uid, email: user.email, name: user.name, role: user.role } 
+      });
     }
 
     // Generate a secure session using a magic link OTP to avoid changing the user's password
