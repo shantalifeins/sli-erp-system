@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown } from 'lucide-react';
+
 
 import { cn } from '@/src/shared/lib/utils';
 import { useLayoutControl } from '@/src/shared/contexts/LayoutContext';
@@ -307,8 +308,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },
     { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: isSuperAdmin || getPermission('Asset Disposal')?.canView },
     { name: 'Asset Reports', href: '/asset-reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Asset Reports')?.canView },
+    { name: 'Depreciation Reports', href: '/asset-depr-reports', icon: TrendingDown, show: isSuperAdmin || getPermission('Depreciation Reports')?.canView },
     { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: isSuperAdmin || getPermission('Physical Audit')?.canView },
   ].filter(nav => nav.show !== false);
+
 
   // Determine which menu to show
   let currentMenus: any[] = [];

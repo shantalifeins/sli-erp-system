@@ -1,9 +1,10 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { assets, asset_categories, asset_depreciation_schedule, branches, departments, warehouses, users } from '../../../shared/db/schema.js';
+import { assets, asset_categories, asset_depreciation_schedule, asset_disposals, branches, departments, warehouses, users } from '../../../shared/db/schema.js';
+
 import { eq, and, desc, sql, ilike, or, count, sum, gte, lte } from 'drizzle-orm';
 
 const router = Router();
@@ -443,4 +444,537 @@ router.get('/valuation', requireAuth, checkPlugin('asset-management'), async (re
   }
 });
 
+
+// ==========================================
+// DEPRECIATION SUMMARY REPORT
+// GET /api/assets/reports/depr-summary
+// Params: startMonth (YYYY-MM), endMonth (YYYY-MM), categoryId?, branchId?
+// ==========================================
+router.get('/depr-summary', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { startMonth, endMonth, categoryId, branchId } = req.query;
+    if (!startMonth || !endMonth) {
+      return res.status(400).json({ error: 'startMonth and endMonth are required (YYYY-MM)' });
+    }
+
+    const startDate = new Date(`${startMonth}-01T00:00:00.000Z`);
+    // Last millisecond of endMonth
+    const [endY, endM] = (endMonth as string).split('-').map(Number);
+    const endDate = new Date(Date.UTC(endY, endM, 0, 23, 59, 59, 999)); // last day of endMonth
+
+    // Build asset conditions
+    const assetConditions: any[] = [eq(assets.companyId, companyId)];
+    if (categoryId && typeof categoryId === 'string') {
+      assetConditions.push(eq(assets.categoryId, categoryId));
+    }
+    if (branchId && !isNaN(Number(branchId))) {
+      assetConditions.push(eq(assets.branchId, Number(branchId)));
+    }
+
+    // Fetch all matching assets with category info
+    const allAssets = await db
+      .select({
+        id: assets.id,
+        acquisitionDate: assets.acquisitionDate,
+        acquisitionCost: assets.acquisitionCost,
+        accumulatedDepreciation: assets.accumulatedDepreciation,
+        currentBookValue: assets.currentBookValue,
+        depreciationMethod: assets.depreciationMethod,
+        usefulLifeMonths: assets.usefulLifeMonths,
+        decliningRate: assets.decliningRate,
+        salvageValue: assets.salvageValue,
+        status: assets.status,
+        categoryId: assets.categoryId,
+        categoryName: asset_categories.name,
+        categoryDefaultMethod: asset_categories.defaultDepreciationMethod,
+        categoryUsefulLife: asset_categories.defaultUsefulLifeMonths,
+        categoryDecliningRate: asset_categories.defaultDecliningRate,
+      })
+      .from(assets)
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .where(and(...assetConditions));
+
+    // Fetch Posted schedule rows within period (for deprCharge and per-asset opening dep calculation)
+    const scheduleInPeriod = await db
+      .select({
+        assetId: asset_depreciation_schedule.assetId,
+        periodDate: asset_depreciation_schedule.periodDate,
+        depreciationAmount: asset_depreciation_schedule.depreciationAmount,
+        accumulatedDepreciation: asset_depreciation_schedule.accumulatedDepreciation,
+        bookValueAfter: asset_depreciation_schedule.bookValueAfter,
+        status: asset_depreciation_schedule.status,
+      })
+      .from(asset_depreciation_schedule)
+      .innerJoin(assets, eq(asset_depreciation_schedule.assetId, assets.id))
+      .where(
+        and(
+          eq(asset_depreciation_schedule.companyId, companyId),
+          eq(asset_depreciation_schedule.status, 'Posted'),
+          gte(asset_depreciation_schedule.periodDate, startDate),
+          lte(asset_depreciation_schedule.periodDate, endDate),
+          ...(categoryId && typeof categoryId === 'string' ? [eq(assets.categoryId, categoryId)] : []),
+          ...(branchId && !isNaN(Number(branchId)) ? [eq(assets.branchId, Number(branchId))] : []),
+        )
+      );
+
+    // Fetch last Posted schedule row BEFORE startDate per asset (for opening dep balance)
+    const scheduleBeforePeriod = await db
+      .select({
+        assetId: asset_depreciation_schedule.assetId,
+        accumulatedDepreciation: asset_depreciation_schedule.accumulatedDepreciation,
+        periodDate: asset_depreciation_schedule.periodDate,
+      })
+      .from(asset_depreciation_schedule)
+      .innerJoin(assets, eq(asset_depreciation_schedule.assetId, assets.id))
+      .where(
+        and(
+          eq(asset_depreciation_schedule.companyId, companyId),
+          eq(asset_depreciation_schedule.status, 'Posted'),
+          sql`${asset_depreciation_schedule.periodDate} < ${startDate}`,
+          ...(categoryId && typeof categoryId === 'string' ? [eq(assets.categoryId, categoryId)] : []),
+          ...(branchId && !isNaN(Number(branchId)) ? [eq(assets.branchId, Number(branchId))] : []),
+        )
+      )
+      .orderBy(desc(asset_depreciation_schedule.periodDate));
+
+    // Build a map: assetId -> latest accumulatedDepreciation before start
+    const openingDepMap: Record<string, number> = {};
+    for (const row of scheduleBeforePeriod) {
+      if (!(row.assetId in openingDepMap)) {
+        openingDepMap[row.assetId] = Number(row.accumulatedDepreciation || 0);
+      }
+    }
+
+
+    const disposalsInPeriod = await db
+
+      .select({
+        assetId: asset_disposals.assetId,
+        disposalDate: asset_disposals.disposalDate,
+        bookValueAtDisposal: asset_disposals.bookValueAtDisposal,
+        status: asset_disposals.status,
+      })
+      .from(asset_disposals)
+      .where(
+        and(
+          eq(asset_disposals.companyId, companyId),
+          or(
+            eq(asset_disposals.status, 'Approved'),
+            eq(asset_disposals.status, 'Completed')
+          ),
+          gte(asset_disposals.disposalDate, startDate),
+          lte(asset_disposals.disposalDate, endDate),
+        )
+      );
+
+    const disposedAssetIds = new Set(disposalsInPeriod.map(d => d.assetId));
+
+    // Map schedule rows by assetId for quick lookup
+    const scheduleInPeriodByAsset: Record<string, typeof scheduleInPeriod> = {};
+    for (const s of scheduleInPeriod) {
+      if (!scheduleInPeriodByAsset[s.assetId]) scheduleInPeriodByAsset[s.assetId] = [];
+      scheduleInPeriodByAsset[s.assetId].push(s);
+    }
+
+    // Group by category
+    interface CatRow {
+      categoryId: string;
+      categoryName: string;
+      ratePercent: number;
+      costOpeningBal: number;
+      costAddition: number;
+      costDisposal: number;
+      costClosingBal: number;
+      deprOpeningBal: number;
+      deprCharge: number;
+      deprWrittenOff: number;
+      deprClosingBal: number;
+      wdv: number;
+    }
+
+    const catMap: Record<string, CatRow> = {};
+
+    for (const a of allAssets) {
+      const catKey = a.categoryId || 'uncategorized';
+      const catName = a.categoryName || 'Uncategorized';
+      if (!catMap[catKey]) {
+        // Compute rate
+        let ratePercent = 0;
+        const method = a.depreciationMethod || a.categoryDefaultMethod || 'Straight Line';
+        const dr = Number(a.decliningRate || a.categoryDecliningRate || 0);
+        const life = Number(a.usefulLifeMonths || a.categoryUsefulLife || 0);
+        if (method === 'Declining Balance') {
+          ratePercent = dr > 0 ? dr : (life > 0 ? Number(((1 / (life / 12)) * 100).toFixed(2)) : 0);
+        } else {
+          ratePercent = life > 0 ? Number(((1 / (life / 12)) * 100).toFixed(2)) : 0;
+        }
+
+        catMap[catKey] = {
+          categoryId: catKey,
+          categoryName: catName,
+          ratePercent,
+          costOpeningBal: 0,
+          costAddition: 0,
+          costDisposal: 0,
+          costClosingBal: 0,
+          deprOpeningBal: 0,
+          deprCharge: 0,
+          deprWrittenOff: 0,
+          deprClosingBal: 0,
+          wdv: 0,
+        };
+      }
+
+      const cat = catMap[catKey];
+      const acqDate = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+      const acqCost = Number(a.acquisitionCost || 0);
+      const isDisposedInPeriod = disposedAssetIds.has(a.id);
+
+      // Cost
+      if (acqDate && acqDate < startDate) {
+        cat.costOpeningBal += acqCost;
+      } else if (acqDate && acqDate >= startDate && acqDate <= endDate) {
+        cat.costAddition += acqCost;
+      }
+
+      if (isDisposedInPeriod) {
+        cat.costDisposal += acqCost;
+      }
+
+      // Opening depreciation
+      const openingDep = openingDepMap[a.id] ?? (
+        // Fallback: if no schedule before period, derive from current accum minus in-period charges
+        Number(a.accumulatedDepreciation || 0) -
+        (scheduleInPeriodByAsset[a.id] || []).reduce((sum, s) => sum + Number(s.depreciationAmount || 0), 0)
+      );
+      if (acqDate && acqDate < startDate) {
+        cat.deprOpeningBal += Math.max(0, openingDep);
+      }
+
+      // Charge in period
+      const chargeInPeriod = (scheduleInPeriodByAsset[a.id] || [])
+        .reduce((sum, s) => sum + Number(s.depreciationAmount || 0), 0);
+      cat.deprCharge += chargeInPeriod;
+
+      // Written off (dep on disposed assets)
+      if (isDisposedInPeriod) {
+        const disp = disposalsInPeriod.find(d => d.assetId === a.id);
+        const bvAtDisposal = disp ? Number(disp.bookValueAtDisposal || 0) : 0;
+        cat.deprWrittenOff += Math.max(0, acqCost - bvAtDisposal);
+      }
+    }
+
+    // Compute closing balances
+    const rows: CatRow[] = [];
+    const totals: CatRow = {
+      categoryId: 'totals',
+      categoryName: 'Total',
+      ratePercent: 0,
+      costOpeningBal: 0, costAddition: 0, costDisposal: 0, costClosingBal: 0,
+      deprOpeningBal: 0, deprCharge: 0, deprWrittenOff: 0, deprClosingBal: 0,
+      wdv: 0,
+    };
+
+    for (const cat of Object.values(catMap)) {
+      cat.costClosingBal = cat.costOpeningBal + cat.costAddition - cat.costDisposal;
+      cat.deprClosingBal = cat.deprOpeningBal + cat.deprCharge - cat.deprWrittenOff;
+      cat.wdv = cat.costClosingBal - cat.deprClosingBal;
+      rows.push(cat);
+
+      totals.costOpeningBal += cat.costOpeningBal;
+      totals.costAddition += cat.costAddition;
+      totals.costDisposal += cat.costDisposal;
+      totals.costClosingBal += cat.costClosingBal;
+      totals.deprOpeningBal += cat.deprOpeningBal;
+      totals.deprCharge += cat.deprCharge;
+      totals.deprWrittenOff += cat.deprWrittenOff;
+      totals.deprClosingBal += cat.deprClosingBal;
+      totals.wdv += cat.wdv;
+    }
+
+    // Round totals
+    const roundRow = (r: CatRow) => ({
+      ...r,
+      costOpeningBal: Number(r.costOpeningBal.toFixed(2)),
+      costAddition: Number(r.costAddition.toFixed(2)),
+      costDisposal: Number(r.costDisposal.toFixed(2)),
+      costClosingBal: Number(r.costClosingBal.toFixed(2)),
+      deprOpeningBal: Number(r.deprOpeningBal.toFixed(2)),
+      deprCharge: Number(r.deprCharge.toFixed(2)),
+      deprWrittenOff: Number(r.deprWrittenOff.toFixed(2)),
+      deprClosingBal: Number(r.deprClosingBal.toFixed(2)),
+      wdv: Number(r.wdv.toFixed(2)),
+    });
+
+    return res.json({
+      rows: rows.map(roundRow),
+      totals: roundRow(totals),
+      period: {
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+      }
+    });
+  } catch (error: any) {
+    console.error('GET /api/assets/reports/depr-summary error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate Summary Depreciation report' });
+  }
+});
+
+// ==========================================
+// DEPRECIATION DETAILED REPORT
+// GET /api/assets/reports/depr-detailed
+// Params: startMonth (YYYY-MM), endMonth (YYYY-MM), categoryId?, branchId?
+// ==========================================
+router.get('/depr-detailed', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { startMonth, endMonth, categoryId, branchId } = req.query;
+    if (!startMonth || !endMonth) {
+      return res.status(400).json({ error: 'startMonth and endMonth are required (YYYY-MM)' });
+    }
+
+    const startDate = new Date(`${startMonth}-01T00:00:00.000Z`);
+    const [endY, endM] = (endMonth as string).split('-').map(Number);
+    const endDate = new Date(Date.UTC(endY, endM, 0, 23, 59, 59, 999));
+    const endDateStr = endDate.toISOString().split('T')[0];
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    // Build asset conditions
+    const assetConditions: any[] = [eq(assets.companyId, companyId)];
+    if (categoryId && typeof categoryId === 'string') {
+      assetConditions.push(eq(assets.categoryId, categoryId));
+    }
+    if (branchId && !isNaN(Number(branchId))) {
+      assetConditions.push(eq(assets.branchId, Number(branchId)));
+    }
+
+    const allAssets = await db
+      .select({
+        id: assets.id,
+        assetCode: assets.assetCode,
+        name: assets.name,
+        acquisitionDate: assets.acquisitionDate,
+        acquisitionCost: assets.acquisitionCost,
+        accumulatedDepreciation: assets.accumulatedDepreciation,
+        currentBookValue: assets.currentBookValue,
+        depreciationMethod: assets.depreciationMethod,
+        usefulLifeMonths: assets.usefulLifeMonths,
+        decliningRate: assets.decliningRate,
+        categoryId: assets.categoryId,
+        categoryName: asset_categories.name,
+        categoryDefaultMethod: asset_categories.defaultDepreciationMethod,
+        categoryUsefulLife: asset_categories.defaultUsefulLifeMonths,
+        categoryDecliningRate: asset_categories.defaultDecliningRate,
+      })
+      .from(assets)
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .where(and(...assetConditions))
+      .orderBy(asset_categories.name, assets.name);
+
+    // Fetch Posted schedule rows within period
+    const scheduleInPeriod = await db
+      .select({
+        assetId: asset_depreciation_schedule.assetId,
+        periodNumber: asset_depreciation_schedule.periodNumber,
+        periodDate: asset_depreciation_schedule.periodDate,
+        depreciationAmount: asset_depreciation_schedule.depreciationAmount,
+        accumulatedDepreciation: asset_depreciation_schedule.accumulatedDepreciation,
+        bookValueAfter: asset_depreciation_schedule.bookValueAfter,
+      })
+      .from(asset_depreciation_schedule)
+      .innerJoin(assets, eq(asset_depreciation_schedule.assetId, assets.id))
+      .where(
+        and(
+          eq(asset_depreciation_schedule.companyId, companyId),
+          eq(asset_depreciation_schedule.status, 'Posted'),
+          gte(asset_depreciation_schedule.periodDate, startDate),
+          lte(asset_depreciation_schedule.periodDate, endDate),
+          ...(categoryId && typeof categoryId === 'string' ? [eq(assets.categoryId, categoryId)] : []),
+          ...(branchId && !isNaN(Number(branchId)) ? [eq(assets.branchId, Number(branchId))] : []),
+        )
+      )
+      .orderBy(asset_depreciation_schedule.periodDate, asset_depreciation_schedule.assetId);
+
+    // Fetch last Posted schedule row BEFORE startDate per asset
+    const scheduleBeforePeriod = await db
+      .select({
+        assetId: asset_depreciation_schedule.assetId,
+        accumulatedDepreciation: asset_depreciation_schedule.accumulatedDepreciation,
+        bookValueAfter: asset_depreciation_schedule.bookValueAfter,
+        periodDate: asset_depreciation_schedule.periodDate,
+      })
+      .from(asset_depreciation_schedule)
+      .innerJoin(assets, eq(asset_depreciation_schedule.assetId, assets.id))
+      .where(
+        and(
+          eq(asset_depreciation_schedule.companyId, companyId),
+          eq(asset_depreciation_schedule.status, 'Posted'),
+          sql`${asset_depreciation_schedule.periodDate} < ${startDate}`,
+          ...(categoryId && typeof categoryId === 'string' ? [eq(assets.categoryId, categoryId)] : []),
+          ...(branchId && !isNaN(Number(branchId)) ? [eq(assets.branchId, Number(branchId))] : []),
+        )
+      )
+      .orderBy(desc(asset_depreciation_schedule.periodDate));
+
+    const openingDepMap: Record<string, number> = {};
+    const openingBvMap: Record<string, number> = {};
+    for (const row of scheduleBeforePeriod) {
+      if (!(row.assetId in openingDepMap)) {
+        openingDepMap[row.assetId] = Number(row.accumulatedDepreciation || 0);
+        openingBvMap[row.assetId] = Number(row.bookValueAfter || 0);
+      }
+    }
+
+    // Build schedule lookup by assetId
+    const scheduleByAsset: Record<string, typeof scheduleInPeriod> = {};
+    for (const s of scheduleInPeriod) {
+      if (!scheduleByAsset[s.assetId]) scheduleByAsset[s.assetId] = [];
+      scheduleByAsset[s.assetId].push(s);
+    }
+
+    // Group assets by category
+    const catGroups: Record<string, typeof allAssets> = {};
+    for (const a of allAssets) {
+      const key = a.categoryId || 'uncategorized';
+      if (!catGroups[key]) catGroups[key] = [];
+      catGroups[key].push(a);
+    }
+
+    interface DetailRow {
+      rowType: 'opening' | 'charge';
+      categoryId: string;
+      categoryName: string;
+      assetId?: string;
+      assetCode?: string;
+      assetName?: string;
+      date: string;
+      description: string;
+      opening: number;
+      addition: number;
+      accDep: number;
+      netCost: number;
+      yearEnd: string;
+      rate: number;
+      depreciation: number;
+    }
+
+    const rows: DetailRow[] = [];
+    const totals = { opening: 0, netCost: 0, depreciation: 0 };
+
+    for (const [catId, catAssets] of Object.entries(catGroups)) {
+      const catName = catAssets[0]?.categoryName || 'Uncategorized';
+
+      // ---- Opening Balance Row (synthetic, per category) ----
+      let openingCostSum = 0;
+      let openingDepSum = 0;
+
+      for (const a of catAssets) {
+        const acqDate = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+        const acqCost = Number(a.acquisitionCost || 0);
+        if (acqDate && acqDate < startDate) {
+          openingCostSum += acqCost;
+          const od = openingDepMap[a.id];
+          if (od !== undefined) {
+            openingDepSum += od;
+          } else {
+            // fallback: current accum minus in-period
+            const inPeriodCharge = (scheduleByAsset[a.id] || [])
+              .reduce((s, r) => s + Number(r.depreciationAmount || 0), 0);
+            openingDepSum += Math.max(0, Number(a.accumulatedDepreciation || 0) - inPeriodCharge);
+          }
+        }
+      }
+
+      const openingNetCost = openingCostSum - openingDepSum;
+
+      rows.push({
+        rowType: 'opening',
+        categoryId: catId,
+        categoryName: catName,
+        date: startDateStr,
+        description: 'Opening balance',
+        opening: openingCostSum,
+        addition: 0,
+        accDep: openingDepSum,
+        netCost: openingNetCost,
+        yearEnd: startDateStr,
+        rate: 0,
+        depreciation: 0,
+      });
+
+      totals.opening += openingCostSum;
+      totals.netCost += openingNetCost;
+
+      // ---- Charge Rows per asset ----
+      for (const a of catAssets) {
+        const schedRows = scheduleByAsset[a.id] || [];
+        const acqDate = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+        const acqCost = Number(a.acquisitionCost || 0);
+        const isAdditionInPeriod = acqDate && acqDate >= startDate && acqDate <= endDate;
+
+        // Compute rate
+        const method = a.depreciationMethod || a.categoryDefaultMethod || 'Straight Line';
+        const dr = Number(a.decliningRate || a.categoryDecliningRate || 0);
+        const life = Number(a.usefulLifeMonths || a.categoryUsefulLife || 0);
+        let ratePercent = 0;
+        if (method === 'Declining Balance') {
+          ratePercent = dr > 0 ? dr : (life > 0 ? Number(((1 / (life / 12)) * 100).toFixed(4)) : 0);
+        } else {
+          ratePercent = life > 0 ? Number(((1 / (life / 12)) * 100).toFixed(4)) : 0;
+        }
+
+        for (const s of schedRows) {
+          const depAmt = Number(s.depreciationAmount || 0);
+          const accDep = Number(s.accumulatedDepreciation || 0);
+          const opening = isAdditionInPeriod ? 0 : acqCost;
+          const addition = isAdditionInPeriod ? acqCost : 0;
+          const netCost = acqCost - accDep + depAmt; // netCost before this charge = bookValueBefore
+
+          rows.push({
+            rowType: 'charge',
+            categoryId: catId,
+            categoryName: catName,
+            assetId: a.id,
+            assetCode: a.assetCode || '',
+            assetName: a.name,
+            date: (s.periodDate instanceof Date ? s.periodDate.toISOString().split('T')[0] : String(s.periodDate || '')), 
+            description: `Depreciation Charge – ${a.assetCode || a.name}`,
+            opening,
+            addition,
+            accDep,
+            netCost: Number(s.bookValueAfter || 0),
+            yearEnd: endDateStr,
+            rate: ratePercent,
+            depreciation: depAmt,
+          });
+
+          totals.depreciation += depAmt;
+        }
+      }
+    }
+
+    return res.json({
+      rows,
+      totals: {
+        opening: Number(totals.opening.toFixed(2)),
+        netCost: Number(totals.netCost.toFixed(2)),
+        depreciation: Number(totals.depreciation.toFixed(2)),
+      },
+      period: {
+        startDate: startDateStr,
+        endDate: endDateStr,
+      }
+    });
+  } catch (error: any) {
+    console.error('GET /api/assets/reports/depr-detailed error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate Detailed Depreciation report' });
+  }
+});
+
 export default router;
+
