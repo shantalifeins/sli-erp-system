@@ -68,138 +68,138 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     window.location.reload();
   };
 
-  useEffect(() => {
-    const clearStaleSupabaseKeys = () => {
-      try {
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
-            localStorage.removeItem(key);
-          }
+  const clearStaleSupabaseKeys = () => {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          localStorage.removeItem(key);
         }
-      } catch {}
-    };
+      }
+    } catch {}
+  };
 
-    const syncUser = async (currentUser: User | null) => {
-      let localToken = localStorage.getItem('local_auth_token');
-      try {
-        let token = localToken;
-        if (!token && currentUser) {
-          try {
-            const { data } = await supabase.auth.getSession();
-            token = data?.session?.access_token || null;
-          } catch (e) {
-            token = null;
-          }
+  const syncUser = React.useCallback(async (currentUser: User | null) => {
+    let localToken = localStorage.getItem('local_auth_token');
+    try {
+      let token = localToken;
+      if (!token && currentUser) {
+        try {
+          const { data } = await supabase.auth.getSession();
+          token = data?.session?.access_token || null;
+        } catch (e) {
+          token = null;
         }
+      }
 
-        if (!token) {
-          setUser(null);
-          setDbUser(null);
-          setCompany(null);
-          setPermissions([]);
-          setActivePlugins([]);
-          setAvailableCompanies([]);
-          setIsGlobalSuperAdmin(false);
-          setLoading(false);
-          return;
-        }
-
-        let response = await fetch('/api/auth/sync', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-
-        let retries = 3;
-        while (!response.ok && response.status >= 500 && retries > 0) {
-          console.warn(`Backend sync failed with ${response.status}, retrying...`);
-          await new Promise(r => setTimeout(r, 1000));
-          response = await fetch('/api/auth/sync', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          retries--;
-        }
-
-        if (response.ok) {
-          const data = await response.json();
-          setUser((prev) => prev || ({ id: data.user?.uid, email: data.user?.email } as any));
-          setPermissions(data.permissions || []);
-          setAvailableCompanies(data.availableCompanies || []);
-          
-          const isGSA = data.user?.role === 'Super Admin' && !data.user?.companyId;
-          setIsGlobalSuperAdmin(isGSA);
-          
-          let finalCompany = data.company || null;
-          let finalTenantId = data.company?.id || null;
-
-          if (isGSA) {
-            const savedTenant = localStorage.getItem('activeTenantId');
-            if (!savedTenant && data.availableCompanies?.length > 0) {
-              finalTenantId = data.availableCompanies[0].id;
-              finalCompany = data.availableCompanies[0];
-              localStorage.setItem('activeTenantId', finalTenantId);
-            } else if (savedTenant) {
-              const matched = data.availableCompanies?.find((c:any) => c.id === savedTenant);
-              if (matched) {
-                finalCompany = matched;
-                finalTenantId = savedTenant;
-              }
-            }
-          } else {
-            localStorage.removeItem('activeTenantId');
-          }
-
-          setCompany(finalCompany);
-          setActiveTenantIdState(finalTenantId);
-
-          // Fetch active plugins in parallel
-          try {
-            const headers: any = { 'Authorization': `Bearer ${token}` };
-            const currentTenant = isGSA ? localStorage.getItem('activeTenantId') : null;
-            if (currentTenant) headers['x-tenant-id'] = currentTenant;
-
-            const pluginRes = await fetch('/api/plugins/active', { headers });
-            if (pluginRes.ok) {
-              const pluginData = await pluginRes.json();
-              setActivePlugins(pluginData.plugins || []);
-            }
-          } catch (err) {
-            console.error("Failed to fetch active plugins", err);
-          }
-
-          setDbUser(data.user);
-        } else {
-          if (response.status === 401 || response.status === 403) {
-            localStorage.removeItem('local_auth_token');
-            clearStaleSupabaseKeys();
-            setUser(null);
-            setDbUser(null);
-            setCompany(null);
-            setPermissions([]);
-            setActivePlugins([]);
-            try { await supabase.auth.signOut(); } catch (e) {}
-            setAvailableCompanies([]);
-            setIsGlobalSuperAdmin(false);
-          } else {
-            console.warn('Backend sync response:', response.status, response.statusText);
-          }
-        }
-      } catch (e: any) {
-        console.error('Failed to sync user with backend', e);
+      if (!token) {
         setUser(null);
         setDbUser(null);
         setCompany(null);
         setPermissions([]);
         setActivePlugins([]);
+        setAvailableCompanies([]);
+        setIsGlobalSuperAdmin(false);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
-    };
 
+      let response = await fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      let retries = 3;
+      while (!response.ok && response.status >= 500 && retries > 0) {
+        console.warn(`Backend sync failed with ${response.status}, retrying...`);
+        await new Promise(r => setTimeout(r, 1000));
+        response = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        retries--;
+      }
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser((prev) => prev || ({ id: data.user?.uid, email: data.user?.email } as any));
+        setPermissions(data.permissions || []);
+        setAvailableCompanies(data.availableCompanies || []);
+        
+        const isGSA = data.user?.role === 'Super Admin' && !data.user?.companyId;
+        setIsGlobalSuperAdmin(isGSA);
+        
+        let finalCompany = data.company || null;
+        let finalTenantId = data.company?.id || null;
+
+        if (isGSA) {
+          const savedTenant = localStorage.getItem('activeTenantId');
+          if (!savedTenant && data.availableCompanies?.length > 0) {
+            finalTenantId = data.availableCompanies[0].id;
+            finalCompany = data.availableCompanies[0];
+            localStorage.setItem('activeTenantId', finalTenantId);
+          } else if (savedTenant) {
+            const matched = data.availableCompanies?.find((c:any) => c.id === savedTenant);
+            if (matched) {
+              finalCompany = matched;
+              finalTenantId = savedTenant;
+            }
+          }
+        } else {
+          localStorage.removeItem('activeTenantId');
+        }
+
+        setCompany(finalCompany);
+        setActiveTenantIdState(finalTenantId);
+
+        // Fetch active plugins in parallel
+        try {
+          const headers: any = { 'Authorization': `Bearer ${token}` };
+          const currentTenant = isGSA ? localStorage.getItem('activeTenantId') : null;
+          if (currentTenant) headers['x-tenant-id'] = currentTenant;
+
+          const pluginRes = await fetch('/api/plugins/active', { headers });
+          if (pluginRes.ok) {
+            const pluginData = await pluginRes.json();
+            setActivePlugins(pluginData.plugins || []);
+          }
+        } catch (err) {
+          console.error("Failed to fetch active plugins", err);
+        }
+
+        setDbUser(data.user);
+      } else {
+        if (response.status === 401 || response.status === 403) {
+          localStorage.removeItem('local_auth_token');
+          clearStaleSupabaseKeys();
+          setUser(null);
+          setDbUser(null);
+          setCompany(null);
+          setPermissions([]);
+          setActivePlugins([]);
+          try { await supabase.auth.signOut(); } catch (e) {}
+          setAvailableCompanies([]);
+          setIsGlobalSuperAdmin(false);
+        } else {
+          console.warn('Backend sync response:', response.status, response.statusText);
+        }
+      }
+    } catch (e: any) {
+      console.error('Failed to sync user with backend', e);
+      setUser(null);
+      setDbUser(null);
+      setCompany(null);
+      setPermissions([]);
+      setActivePlugins([]);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
     // Initial session fetch
     const localToken = localStorage.getItem('local_auth_token');
     if (localToken) {
@@ -215,7 +215,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [syncUser]);
 
   const signIn = async () => {
     try {
