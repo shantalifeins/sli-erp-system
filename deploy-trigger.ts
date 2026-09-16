@@ -1,0 +1,1 @@
+﻿import { pullAndDeploy } from './scripts/mcp-deploy-server.ts'; pullAndDeploy('10.16.49.78', 'iamadmin', 'main').then(console.log).catch(console.error);

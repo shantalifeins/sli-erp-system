@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/src/shared/components/AuthProvider";
 import { useCurrency } from "@/src/shared/components/SettingsProvider";
 import { fetchWithAuth } from "@/src/shared/lib/api";
+import PageLayout from "@/src/shared/components/PageLayout";
 
 // ──────────────────────────────────────────────────────────────
 // Types
@@ -75,7 +76,7 @@ function currentYearMonth(): string {
 // ──────────────────────────────────────────────────────────────
 export default function AssetDeprReports() {
   const navigate = useNavigate();
-  const { getToken } = useAuth();
+  const { getToken, isSuperAdmin, getPermission } = useAuth();
   const currencySymbol = useCurrency();
 
   const [activeTab, setActiveTab] = useState<"summary" | "detailed">("summary");
@@ -91,6 +92,20 @@ export default function AssetDeprReports() {
   const [detailData, setDetailData] = useState<DetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const canView = isSuperAdmin || getPermission('Depreciation Reports')?.canView;
+
+  if (!canView) {
+    return (
+      <PageLayout loading={false}>
+        <div className="flex flex-col items-center justify-center h-64 text-slate-500">
+          <p className="text-lg font-bold">Access Denied</p>
+          <p className="text-sm">You do not have permission to view Depreciation Reports.</p>
+        </div>
+      </PageLayout>
+    );
+  }
+
 
   const fetchReport = useCallback(async () => {
     const token = await getToken();
