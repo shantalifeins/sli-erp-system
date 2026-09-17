@@ -1063,7 +1063,17 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       
       let permissions: any[] = [];
       try {
-        permissions = await db.select().from(role_permissions).where(eq(role_permissions.role, user.role || 'Requester'));
+        const effectiveCompanyId = user.companyId || (await resolveTenantId(req));
+        if (effectiveCompanyId) {
+          permissions = await db.select().from(role_permissions).where(
+            and(
+              eq(role_permissions.role, user.role || 'Requester'),
+              eq(role_permissions.companyId, effectiveCompanyId)
+            )
+          );
+        } else {
+          permissions = await db.select().from(role_permissions).where(eq(role_permissions.role, user.role || 'Requester'));
+        }
       } catch (e) {}
       
       const defaultComp = { id: 'default-company-uuid', name: 'SLI ERP HQ', slug: 'sli-erp-hq' };

@@ -22,6 +22,8 @@ interface AuthContextType {
   availableCompanies: any[];
   isGlobalSuperAdmin: boolean;
   getToken: () => Promise<string | null>;
+  refetchPermissions: () => Promise<void>;
+  syncUser: (currentUser?: User | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -39,6 +41,8 @@ const AuthContext = createContext<AuthContextType>({
   availableCompanies: [],
   isGlobalSuperAdmin: false,
   getToken: async () => null,
+  refetchPermissions: async () => {},
+  syncUser: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -214,7 +218,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    // Real-time permission sync across browser tabs
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('sli_auth_channel');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'ROLE_PERMISSIONS_UPDATED' || event.data?.type === 'USER_ROLE_UPDATED') {
+          syncUser(null);
+        }
+      };
+    } catch (e) {}
+
+    // Refetch on window focus
+    const handleFocus = () => {
+      if (localStorage.getItem('local_auth_token')) {
+        syncUser(null);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // Periodic lightweight auto-sync (every 15 seconds) for active visible tab
+    const interval = setInterval(() => {
+      if (localStorage.getItem('local_auth_token') && document.visibilityState === 'visible') {
+        syncUser(null);
+      }
+    }, 15000);
+
+    return () => {
+      subscription.unsubscribe();
+      if (channel) channel.close();
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
   }, [syncUser]);
 
   const signIn = async () => {
@@ -282,11 +317,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return null;
   };
 
+  const refetchPermissions = async () => {
+    await syncUser(null);
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, dbUser, company, permissions, activePlugins, loading, 
       signIn, signInWithEmail, signOut, getToken,
-      activeTenantId, setActiveTenantId, availableCompanies, isGlobalSuperAdmin
+      activeTenantId, setActiveTenantId, availableCompanies, isGlobalSuperAdmin,
+      refetchPermissions, syncUser
     }}>
       {children}
     </AuthContext.Provider>

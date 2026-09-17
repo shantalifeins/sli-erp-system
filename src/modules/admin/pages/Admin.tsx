@@ -14,7 +14,7 @@ import NotificationSettings from './NotificationSettings';
 import AdminDashboard from '../components/AdminDashboard';
 
 export default function Admin() {
-  const { getToken, dbUser, permissions: authPerms } = useAuth();
+  const { getToken, dbUser, permissions: authPerms, refetchPermissions } = useAuth();
   const { refreshSettings, settings } = useSettings();
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
@@ -357,6 +357,12 @@ export default function Admin() {
         body: JSON.stringify({ role }),
       });
       loadData();
+      try {
+        await refetchPermissions();
+        const bc = new BroadcastChannel('sli_auth_channel');
+        bc.postMessage({ type: 'USER_ROLE_UPDATED' });
+        bc.close();
+      } catch (e) {}
     } catch (error) {
       console.error("Failed to update user role", error);
     }
@@ -610,6 +616,12 @@ export default function Admin() {
       });
       setEditingRole(null);
       loadData();
+      try {
+        await refetchPermissions();
+        const bc = new BroadcastChannel('sli_auth_channel');
+        bc.postMessage({ type: 'ROLE_PERMISSIONS_UPDATED' });
+        bc.close();
+      } catch (e) {}
     } catch (error) {
       console.error("Failed to save role", error);
     }
