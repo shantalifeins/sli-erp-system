@@ -1245,10 +1245,6 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/users", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
       if (!companyId) return res.json([]);
 
       const { status } = req.query;
@@ -1659,10 +1655,6 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/users", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
       if (!companyId) return res.status(400).json({ error: "No company context" });
 
       const { email, password, name, designation, phone, supervisorUid, department, role, branchId } = req.body;
