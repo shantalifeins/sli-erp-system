@@ -261,6 +261,7 @@ export default function Inventory() {
                   <option value="Ltr">Ltr</option>
                   <option value="Box">Box</option>
                   <option value="Pack">Pack</option>
+                  <option value="Sft">Sft</option>
                 </select>
               </div>
               <div>
