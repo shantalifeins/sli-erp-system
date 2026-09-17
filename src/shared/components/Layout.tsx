@@ -133,10 +133,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Top Module Navigation Tabs configuration
   const moduleMenusMap: Record<string, string[]> = {
     'user-panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
-    'admin': ['Dashboard', 'Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup'],
-    'procurement': ['Dashboard', 'Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements'],
-    'inventory': ['Dashboard', 'Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval'],
-    'asset-management': ['Dashboard', 'Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management']
+    'admin': ['Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup', 'Admin Dashboard'],
+    'procurement': ['Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements', 'RFQ (Quotation)', 'Work Orders', 'Invoices & Payments', 'Procurement Report', 'Procurement Dashboard'],
+    'inventory': ['Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval', 'Goods Receipt (GRN)', 'Rejected Items', 'Stock Reconciliation', 'Inventory Report', 'Requisition Report', 'Inventory Dashboard'],
+    'asset-management': ['Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management', 'Asset Dashboard']
   };
 
   const allModuleTabs = [
@@ -203,19 +203,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     if (isGlobalSuperAdmin || userRole.includes('super admin') || userRole.includes('superadmin') || userRole === 'admin') {
       return true;
     }
+
+    if (mod.slug === 'user-panel') return true;
     
     const requiredMenus = moduleMenusMap[mod.slug] || [];
-    if (!permissions || permissions.length === 0) return true;
+    if (!permissions || permissions.length === 0) return false;
 
     return permissions.some((p: any) => 
-      (requiredMenus.includes(p.module) || p.module === 'Asset Management' || p.module === mod.title) && p.canView
+      (requiredMenus.includes(p.module) || (mod.slug === 'asset-management' && p.module === 'Asset Management') || p.module === mod.title) && p.canView
     );
   });
 
 
   // Define menus for each module
   const procurementMenus = [
-    { name: 'Dashboard', href: '/procurement-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Dashboard')?.canView },
+    { name: 'Dashboard', href: '/procurement-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Procurement Dashboard')?.canView || getPermission('Purchase Requisitions')?.canView || getPermission('Purchase Orders')?.canView || getPermission('Vendors')?.canView || getPermission('Comparative Statement')?.canView || getPermission('RFQ (Quotation)')?.canView },
     { name: 'Purchase Requisitions', href: '/purchase-requisition', icon: FileText, show: isSuperAdmin || getPermission('Purchase Requisitions')?.canView },
     { name: 'RFQ (Quotation)', href: '/rfq', icon: Send, show: isSuperAdmin || getPermission('RFQ (Quotation)')?.canView },
     { name: 'Comparative Statement', href: '/cs', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Comparative Statement')?.canView },
@@ -233,7 +235,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ].filter(nav => nav.show !== false);
 
   const inventoryMenus = [
-    { name: 'Dashboard', href: '/inventory-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Dashboard')?.canView },
+    { name: 'Dashboard', href: '/inventory-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Inventory Dashboard')?.canView || getPermission('Stock In')?.canView || getPermission('Stock Out')?.canView || getPermission('Goods Receipt (GRN)')?.canView || getPermission('Requisition Approval')?.canView || getPermission('Inventory Items')?.canView },
     { name: 'Item Req. by User', href: '/requisition-list', icon: Shield, show: isSuperAdmin || getPermission('Requisition Approval')?.canView },
     { name: 'Stock In', href: '/stock-in', icon: ArrowDownToLine, show: isSuperAdmin || getPermission('Stock In')?.canView },
     { name: 'Stock Out', href: '/stock-out', icon: ArrowUpFromLine, show: isSuperAdmin || getPermission('Stock Out')?.canView },
@@ -265,7 +267,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ].filter(nav => nav.show !== false);
 
   const adminMenus = [
-    { name: 'Dashboard', href: '/admin?tab=dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Dashboard')?.canView },
+    { name: 'Dashboard', href: '/admin?tab=dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Admin Dashboard')?.canView || getPermission('Users')?.canView || getPermission('Roles & Permissions')?.canView || getPermission('Companies')?.canView || getPermission('System Setting')?.canView || getPermission('User Setting')?.canView },
     {
       name: 'System Setting',
       show: isSuperAdmin || getPermission('System Setting')?.canView || getPermission('Branches')?.canView,
@@ -290,7 +292,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { name: 'Warehouse Managers', href: '/admin?tab=warehouse-managers', icon: Shield },
       ]
     },
-    // Global Tasks moved to User Panel
   ].filter(nav => nav.show !== false);
 
   const userPanelMenus = [
@@ -301,7 +302,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ].filter(nav => nav.show !== false);
 
   const assetMenus = [
-    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Dashboard')?.canView },
+    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Asset Dashboard')?.canView || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Management')?.canView },
     { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
     { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
     { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
@@ -312,7 +313,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: isSuperAdmin || getPermission('Physical Audit')?.canView },
   ].filter(nav => nav.show !== false);
 
-
   // Determine which menu to show
   let currentMenus: any[] = [];
   if (activeModule === 'procurement') currentMenus = procurementMenus;
@@ -320,6 +320,33 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   else if (activeModule === 'admin') currentMenus = adminMenus;
   else if (activeModule === 'user-panel') currentMenus = userPanelMenus;
   else if (activeModule === 'asset-management') currentMenus = assetMenus;
+
+  // Module Access Guard
+  const userRoleStr = (dbUser?.role || (dbUser as any)?.userRole || '').toLowerCase();
+  const isUserAdminRole = isGlobalSuperAdmin || userRoleStr.includes('super admin') || userRoleStr.includes('superadmin') || userRoleStr === 'admin';
+  const isAllowedModule = isUserAdminRole || activeModule === 'user-panel' || activeModule === '' || visibleModuleTabs.some(m => m.slug === activeModule);
+
+  if (!isAllowedModule && activeModule !== '') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 w-full">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border border-slate-100">
+          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Shield className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Access Denied</h2>
+          <p className="text-sm text-slate-600 mb-6">
+            You do not have permission to access the <strong>{activeModuleName}</strong> module. Please contact your system administrator.
+          </p>
+          <Link
+            to="/user-dashboard"
+            className="inline-block px-6 py-2.5 bg-brand-orange text-white text-sm font-semibold rounded-xl hover:bg-orange-600 transition-colors shadow-md shadow-orange-500/20"
+          >
+            Go to My Panel
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
 
   return (

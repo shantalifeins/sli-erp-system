@@ -70,10 +70,10 @@ export default function Home() {
   // Mapping of top-level Home cards to their possible permissions (menus)
   const moduleMenusMap: Record<string, string[]> = {
     'My Panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
-    'System Configuration': ['Dashboard', 'Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup'],
-    'Procurement': ['Dashboard', 'Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements'],
-    'Inventory': ['Dashboard', 'Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup'],
-    'Asset Management': ['Dashboard', 'Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management']
+    'System Configuration': ['Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup', 'Admin Dashboard'],
+    'Procurement': ['Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements', 'RFQ (Quotation)', 'Work Orders', 'Invoices & Payments', 'Procurement Report', 'Procurement Dashboard'],
+    'Inventory': ['Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval', 'Goods Receipt (GRN)', 'Rejected Items', 'Stock Reconciliation', 'Inventory Report', 'Requisition Report', 'Inventory Dashboard'],
+    'Asset Management': ['Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management', 'Asset Dashboard']
   };
 
 
@@ -96,12 +96,14 @@ export default function Home() {
     if (isGlobalSuperAdmin || userRole.includes('super admin') || userRole.includes('superadmin') || userRole === 'admin') {
       return true;
     }
+
+    if (mod.title === 'My Panel') return true;
     
     const requiredMenus = moduleMenusMap[mod.title] || [];
-    if (!permissions || permissions.length === 0) return true;
+    if (!permissions || permissions.length === 0) return false;
 
     return permissions.some((p: any) => 
-      (requiredMenus.includes(p.module) || p.module === 'Asset Management' || p.module === mod.title) && p.canView
+      (requiredMenus.includes(p.module) || (mod.title === 'Asset Management' && p.module === 'Asset Management') || p.module === mod.title) && p.canView
     );
   });
 
