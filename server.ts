@@ -5148,7 +5148,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         return bestMatch ? bestMatch.id : null;
       };
 
-      const validUomSet = new Set(['pcs', 'kg', 'ltr', 'box', 'pack', 'mtr', 'set', 'unit', 'roll', 'pair']);
+      const validUomSet = new Set(['pcs', 'kg', 'ltr', 'box', 'pack', 'sft', 'set', 'mtr', 'unit', 'roll', 'pair']);
       const validItemTypeSet = new Set(['admin', 'it', 'both']);
 
       const errors: Array<{ row: number; itemCode?: string; name?: string; message: string }> = [];
@@ -5199,7 +5199,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         if (!validUomSet.has(uomLower)) {
           errors.push({
             row: excelRowNumber, itemCode: itemCodeRaw, name: nameRaw,
-            message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`
+            message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Sft, Set, Mtr, Unit, Roll, Pair`
           });
           continue;
         }

@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 // Helper function mirroring backend validation logic
 function validateBulkUploadRows(rawRows: any[][], dbItemCodes: string[]) {
   const dbItemCodeSet = new Set(dbItemCodes.map(c => c.trim().toLowerCase()));
-  const validUomSet = new Set(['pcs', 'kg', 'ltr', 'box', 'pack', 'mtr', 'set', 'unit', 'roll', 'pair']);
+  const validUomSet = new Set(['pcs', 'kg', 'ltr', 'box', 'pack', 'sft', 'set', 'mtr', 'unit', 'roll', 'pair']);
   const validItemTypeSet = new Set(['admin', 'it', 'both']);
 
   const errors: Array<{ row: number; itemCode?: string; name?: string; message: string }> = [];
@@ -52,7 +52,7 @@ function validateBulkUploadRows(rawRows: any[][], dbItemCodes: string[]) {
         row: excelRowNumber,
         itemCode: itemCodeRaw,
         name: nameRaw,
-        message: `Invalid UOM '${uomRaw}'. Allowed UOMs: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`
+        message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Sft, Set, Mtr, Unit, Roll, Pair`
       });
       continue;
     }

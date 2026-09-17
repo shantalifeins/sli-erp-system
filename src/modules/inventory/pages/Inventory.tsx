@@ -263,6 +263,10 @@ export default function Inventory() {
                   <option value="Pack">Pack</option>
                   <option value="Sft">Sft</option>
                   <option value="Set">Set</option>
+                  <option value="Mtr">Mtr</option>
+                  <option value="Unit">Unit</option>
+                  <option value="Roll">Roll</option>
+                  <option value="Pair">Pair</option>
                 </select>
               </div>
               <div>
