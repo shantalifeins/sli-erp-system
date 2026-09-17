@@ -107,7 +107,7 @@ export default function Admin() {
     {
       module: "Procurement",
       menus: [
-        { name: "Dashboard", actions: ["canView"] },
+        { name: "Procurement Dashboard", actions: ["canView"] },
         { name: "Purchase Requisitions", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "RFQ (Quotation)", actions: ["canView", "canCreate", "canEdit"] },
         { name: "Comparative Statement", actions: ["canView", "canCreate", "canEdit", "canApprove"] },
@@ -115,13 +115,13 @@ export default function Admin() {
         { name: "Work Orders", actions: ["canView"] },
         { name: "Invoices & Payments", actions: ["canView", "canCreate"] },
         { name: "Vendors", actions: ["canView", "canCreate", "canEdit"] },
-        { name: "Reports", actions: ["canView"] }
+        { name: "Procurement Reports", actions: ["canView"] }
       ]
     },
     {
       module: "Inventory Management",
       menus: [
-        { name: "Dashboard", actions: ["canView"] },
+        { name: "Inventory Dashboard", actions: ["canView"] },
         { name: "Requisition Approval", actions: ["canView", "canCreate", "canApprove"] },
         { name: "Stock In", actions: ["canView", "canCreate"] },
         { name: "Stock Out", actions: ["canView", "canCreate", "canApprove"] },
@@ -131,15 +131,14 @@ export default function Admin() {
         { name: "Rejected Items", actions: ["canView"] },
         { name: "Stock Reconciliation", actions: ["canView", "canCreate", "canEdit", "canApprove"] },
         { name: "Inventory Items", actions: ["canView", "canCreate"] },
-        { name: "Warehouses", actions: ["canView", "canCreate", "canEdit"] },
-        { name: "Reports", actions: ["canView"] },
+        { name: "Inventory Reports", actions: ["canView"] },
         { name: "Requisition Report", actions: ["canView"] }
       ]
     },
     {
       module: "System Configuration",
       menus: [
-        { name: "Dashboard", actions: ["canView"] },
+        { name: "Admin Dashboard", actions: ["canView"] },
         { name: "System Setting", actions: ["canView", "canEdit"] },
         { name: "Company Profile", actions: ["canView", "canEdit"] },
         { name: "Branches", actions: ["canView", "canCreate", "canEdit"] },
@@ -163,7 +162,7 @@ export default function Admin() {
     {
       module: "Asset Management",
       menus: [
-        { name: "Dashboard", actions: ["canView"] },
+        { name: "Asset Dashboard", actions: ["canView"] },
         { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Depreciation Schedule", actions: ["canView", "canCreate"] },
@@ -174,7 +173,6 @@ export default function Admin() {
         { name: "Asset Reports", actions: ["canView"] },
         { name: "Depreciation Reports", actions: ["canView"] }
       ]
-
     }
   ];
 
@@ -640,17 +638,30 @@ export default function Admin() {
 
   // UI Helpers for Tree
   const isModuleChecked = (mod: any) => {
-    return expandedModules.includes(mod.module);
+    return mod.menus.some((menu: any) => {
+      const perms = tempPermissions[menu.name];
+      return perms && Object.values(perms).some(v => v === true);
+    });
+  };
+
+  const isModuleExpanded = (modName: string) => {
+    return expandedModules.includes(modName);
+  };
+
+  const toggleModuleExpand = (modName: string) => {
+    setExpandedModules(prev =>
+      prev.includes(modName) ? prev.filter(m => m !== modName) : [...prev, modName]
+    );
   };
   
   const toggleModule = (mod: any, checked: boolean) => {
     const menuNames = mod.menus.map((m: any) => m.name);
     if (checked) {
-      setExpandedModules([...expandedModules, mod.module]);
-      // Auto-check all menus under this module
+      if (!expandedModules.includes(mod.module)) {
+        setExpandedModules(prev => [...prev, mod.module]);
+      }
       setExpandedMenus(prev => [...new Set([...prev, ...menuNames])]);
       
-      // Auto-check all actions for all menus under this module
       setTempPermissions(prev => {
         const next = { ...prev };
         mod.menus.forEach((menu: any) => {
@@ -663,11 +674,6 @@ export default function Admin() {
         return next;
       });
     } else {
-      setExpandedModules(expandedModules.filter(m => m !== mod.module));
-      // Auto-uncheck menus if module is unchecked
-      setExpandedMenus(expandedMenus.filter(m => !menuNames.includes(m)));
-      
-      // Clear permissions for these menus
       setTempPermissions(prev => {
         const next = { ...prev };
         menuNames.forEach((m: string) => delete next[m]);
@@ -677,13 +683,25 @@ export default function Admin() {
   };
 
   const isMenuChecked = (menu: any) => {
-    return expandedMenus.includes(menu.name);
+    const perms = tempPermissions[menu.name];
+    return !!perms && Object.values(perms).some(v => v === true);
+  };
+
+  const isMenuExpanded = (menuName: string) => {
+    return expandedMenus.includes(menuName);
+  };
+
+  const toggleMenuExpand = (menuName: string) => {
+    setExpandedMenus(prev =>
+      prev.includes(menuName) ? prev.filter(m => m !== menuName) : [...prev, menuName]
+    );
   };
 
   const toggleMenu = (menu: any, checked: boolean) => {
     if (checked) {
-      setExpandedMenus([...expandedMenus, menu.name]);
-      // Auto-check all actions under this menu
+      if (!expandedMenus.includes(menu.name)) {
+        setExpandedMenus(prev => [...prev, menu.name]);
+      }
       setTempPermissions(prev => {
         const actionsObj: Record<string, boolean> = {};
         menu.actions.forEach((act: string) => {
@@ -695,8 +713,6 @@ export default function Admin() {
         };
       });
     } else {
-      setExpandedMenus(expandedMenus.filter(m => m !== menu.name));
-      // Clear permissions for this menu
       setTempPermissions(prev => {
         const next = { ...prev };
         delete next[menu.name];
@@ -706,13 +722,19 @@ export default function Admin() {
   };
 
   const handleActionToggle = (menuName: string, action: string, checked: boolean) => {
-    setTempPermissions(prev => ({
-      ...prev,
-      [menuName]: {
-        ...(prev[menuName] || {}),
-        [action]: checked
+    setTempPermissions(prev => {
+      const currentMenuPerms = prev[menuName] ? { ...prev[menuName] } : {};
+      currentMenuPerms[action] = checked;
+      
+      const hasAnyTrue = Object.values(currentMenuPerms).some(v => v === true);
+      const next = { ...prev };
+      if (hasAnyTrue) {
+        next[menuName] = currentMenuPerms;
+      } else {
+        delete next[menuName];
       }
-    }));
+      return next;
+    });
   };
 
   const openEditRole = (roleName: string) => {
@@ -722,7 +744,14 @@ export default function Admin() {
     const activeModules = new Set<string>();
 
     rolePerms.forEach(p => {
-      initialPerms[p.module] = {
+      let mappedModule = p.module;
+      if (mappedModule === 'Dashboard') {
+        mappedModule = 'Admin Dashboard';
+      } else if (mappedModule === 'Reports') {
+        mappedModule = 'Procurement Reports';
+      }
+
+      initialPerms[mappedModule] = {
         canView: p.canView,
         canCreate: p.canCreate,
         canEdit: p.canEdit,
@@ -730,12 +759,11 @@ export default function Admin() {
         canApprove: p.canApprove
       };
       
-      // If any permission is true, auto-expand the menu and its parent module
       if (p.canView || p.canCreate || p.canEdit || p.canDelete || p.canApprove) {
-        activeMenus.push(p.module);
+        activeMenus.push(mappedModule);
         
         hierarchy.forEach(mod => {
-          if (mod.menus.some(m => m.name === p.module)) {
+          if (mod.menus.some(m => m.name === mappedModule)) {
             activeModules.add(mod.module);
           }
         });
@@ -1747,61 +1775,84 @@ export default function Admin() {
                     if (mod.module === "User Panel") return activePlugins.includes("user-panel");
                     if (mod.module === "Asset Management") return activePlugins.includes("asset-management");
                     return true;
-                  }).map(mod => (
+                  }).map(mod => {
+                    const modChecked = isModuleChecked(mod);
+                    const modExpanded = isModuleExpanded(mod.module);
 
-                    <div key={mod.module} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                      <div className="bg-slate-50 px-4 py-3 flex items-center border-b border-slate-100">
-                        <label className="flex items-center gap-3 cursor-pointer select-none">
-                          <input 
-                            type="checkbox" 
-                            checked={isModuleChecked(mod)} 
-                            onChange={(e) => toggleModule(mod, e.target.checked)}
-                            className="w-4 h-4 rounded border-slate-300 text-brand-orange focus:ring-brand-orange" 
-                          />
-                          <span className="font-bold text-slate-800">{mod.module}</span>
-                        </label>
-                      </div>
-
-                      {isModuleChecked(mod) && (
-                        <div className="divide-y divide-slate-50 bg-white">
-                          {mod.menus.map(menu => (
-                            <div key={menu.name} className="flex flex-col border-l-4 border-l-brand-orange/20">
-                              <div className="px-8 py-3 flex items-center bg-white hover:bg-slate-50/50">
-                                <label className="flex items-center gap-3 cursor-pointer select-none">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={isMenuChecked(menu)} 
-                                    onChange={(e) => toggleMenu(menu, e.target.checked)}
-                                    className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" 
-                                  />
-                                  <span className="font-medium text-slate-700">{menu.name}</span>
-                                </label>
-                              </div>
-
-                              {isMenuChecked(menu) && (
-                                <div className="px-16 py-3 bg-slate-50/50 flex flex-wrap gap-6 border-t border-slate-50">
-                                  {menu.actions.map(action => {
-                                    const perms = tempPermissions[menu.name] || {};
-                                    return (
-                                      <label key={action} className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-900">
-                                        <input 
-                                          type="checkbox" 
-                                          checked={!!perms[action]} 
-                                          onChange={(e) => handleActionToggle(menu.name, action, e.target.checked)}
-                                          className="rounded border-slate-300 text-blue-500 focus:ring-blue-500" 
-                                        />
-                                        {action.replace('can', '')}
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                    return (
+                      <div key={mod.module} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <div className="bg-slate-50 px-4 py-3 flex items-center justify-between border-b border-slate-100">
+                          <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <input 
+                              type="checkbox" 
+                              checked={modChecked} 
+                              onChange={(e) => toggleModule(mod, e.target.checked)}
+                              className="w-4 h-4 rounded border-slate-300 text-brand-orange focus:ring-brand-orange" 
+                            />
+                            <span className="font-bold text-slate-800">{mod.module}</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => toggleModuleExpand(mod.module)}
+                            className="text-slate-400 hover:text-slate-600 p-1 flex items-center gap-1 text-xs"
+                          >
+                            {modExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </button>
                         </div>
-                      )}
-                    </div>
-                  ))}
+
+                        {modExpanded && (
+                          <div className="divide-y divide-slate-50 bg-white">
+                            {mod.menus.map(menu => {
+                              const menuChecked = isMenuChecked(menu);
+                              const menuExpanded = isMenuExpanded(menu.name);
+
+                              return (
+                                <div key={menu.name} className="flex flex-col border-l-4 border-l-brand-orange/20">
+                                  <div className="px-8 py-3 flex items-center justify-between bg-white hover:bg-slate-50/50">
+                                    <label className="flex items-center gap-3 cursor-pointer select-none">
+                                      <input 
+                                        type="checkbox" 
+                                        checked={menuChecked} 
+                                        onChange={(e) => toggleMenu(menu, e.target.checked)}
+                                        className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" 
+                                      />
+                                      <span className="font-medium text-slate-700">{menu.name}</span>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleMenuExpand(menu.name)}
+                                      className="text-slate-400 hover:text-slate-600 p-1"
+                                    >
+                                      {menuExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+
+                                  {menuExpanded && (
+                                    <div className="px-16 py-3 bg-slate-50/50 flex flex-wrap gap-6 border-t border-slate-50">
+                                      {menu.actions.map(action => {
+                                        const perms = tempPermissions[menu.name] || {};
+                                        return (
+                                          <label key={action} className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-900">
+                                            <input 
+                                              type="checkbox" 
+                                              checked={!!perms[action]} 
+                                              onChange={(e) => handleActionToggle(menu.name, action, e.target.checked)}
+                                              className="rounded border-slate-300 text-blue-500 focus:ring-blue-500" 
+                                            />
+                                            {action.replace('can', '')}
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div className="mt-8 flex justify-end gap-3 pt-6 border-t border-slate-100">
