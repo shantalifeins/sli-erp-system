@@ -27,14 +27,10 @@ type PaperSize = 'A4' | 'Letter' | 'Legal';
 export const getAssetQrValue = (item: Asset, companyName?: string): string => {
   const parts = [
     `Company: ${companyName || 'Shanta Life Insurance PLC'}`,
+    `Asset Name: ${item.name || ''}`,
     `Asset Tag: ${item.assetCode || ''}`,
-    `Name: ${item.name || ''}`,
-    `Category: ${item.categoryName || 'N/A'}`,
-    `Location/Branch: ${item.branchName || 'HQ'}`
+    `SN: ${item.serialNumber || 'N/A'}`
   ];
-  if (item.custodianName) parts.push(`Custodian: ${item.custodianName}`);
-  if (item.serialNumber) parts.push(`SN: ${item.serialNumber}`);
-  parts.push(`ERP: https://erp.shantalife.com/assets?search=${encodeURIComponent(item.assetCode || '')}`);
   return parts.join('\n');
 };
 
