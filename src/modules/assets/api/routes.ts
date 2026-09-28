@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
@@ -862,6 +862,141 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
     return res.status(500).json({ error: error.message || 'Failed to fetch assets' });
   }
 });
+
+
+// ==========================================
+// ASSET LOCATIONS CRUD
+// ==========================================
+
+// GET /api/assets/locations — List all locations (with branch info and sub-count)
+router.get('/locations', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const locationsList = await db
+      .select({
+        id: asset_locations.id,
+        companyId: asset_locations.companyId,
+        branchId: asset_locations.branchId,
+        branchName: branches.name,
+        parentId: asset_locations.parentId,
+        name: asset_locations.name,
+        description: asset_locations.description,
+        status: asset_locations.status,
+        createdAt: asset_locations.createdAt,
+        updatedAt: asset_locations.updatedAt
+      })
+      .from(asset_locations)
+      .leftJoin(branches, eq(asset_locations.branchId, branches.id))
+      .where(eq(asset_locations.companyId, companyId))
+      .orderBy(asset_locations.name);
+
+    return res.json({ locations: locationsList });
+  } catch (error: any) {
+    console.error('GET /api/assets/locations error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset locations' });
+  }
+});
+
+// POST /api/assets/locations — Create a location
+router.post('/locations', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { branchId, parentId, name, description, status } = req.body || {};
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Location name is required' });
+    }
+
+    const [newLocation] = await db
+      .insert(asset_locations)
+      .values({
+        companyId,
+        branchId: branchId ? Number(branchId) : null,
+        parentId: parentId || null,
+        name: name.trim(),
+        description: description || null,
+        status: status || 'Active'
+      })
+      .returning();
+
+    return res.status(201).json({ location: newLocation });
+  } catch (error: any) {
+    console.error('POST /api/assets/locations error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create asset location' });
+  }
+});
+
+// PUT /api/assets/locations/:id — Update a location
+router.put('/locations/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+    const { branchId, parentId, name, description, status } = req.body || {};
+
+    const [updated] = await db
+      .update(asset_locations)
+      .set({
+        branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
+        parentId: parentId !== undefined ? (parentId || null) : undefined,
+        name: name ? name.trim() : undefined,
+        description: description !== undefined ? (description || null) : undefined,
+        status: status || undefined,
+        updatedAt: new Date()
+      })
+      .where(and(eq(asset_locations.id, id), eq(asset_locations.companyId, companyId)))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Asset location not found' });
+    }
+
+    return res.json({ location: updated });
+  } catch (error: any) {
+    console.error('PUT /api/assets/locations/:id error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update asset location' });
+  }
+});
+
+// DELETE /api/assets/locations/:id — Delete a location
+router.delete('/locations/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+
+    // Prevent deletion if sub-locations exist
+    const children = await db
+      .select({ count: count() })
+      .from(asset_locations)
+      .where(and(eq(asset_locations.parentId, id), eq(asset_locations.companyId, companyId)));
+
+    if (Number(children[0]?.count) > 0) {
+      return res.status(400).json({ error: 'Cannot delete a location that has sub-locations. Remove sub-locations first.' });
+    }
+
+    const [deleted] = await db
+      .delete(asset_locations)
+      .where(and(eq(asset_locations.id, id), eq(asset_locations.companyId, companyId)))
+      .returning();
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Asset location not found' });
+    }
+
+    return res.json({ message: 'Location deleted successfully' });
+  } catch (error: any) {
+    console.error('DELETE /api/assets/locations/:id error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to delete asset location' });
+  }
+});
+
 
 // GET /api/assets/:id — Get single asset by ID
 router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
@@ -2777,138 +2912,6 @@ router.get('/:id/disposals', requireAuth, checkPlugin('asset-management'), async
   }
 });
 
-// ==========================================
-// ASSET LOCATIONS CRUD
-// ==========================================
-
-// GET /api/assets/locations — List all locations (with branch info and sub-count)
-router.get('/locations', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-
-    const locationsList = await db
-      .select({
-        id: asset_locations.id,
-        companyId: asset_locations.companyId,
-        branchId: asset_locations.branchId,
-        branchName: branches.name,
-        parentId: asset_locations.parentId,
-        name: asset_locations.name,
-        description: asset_locations.description,
-        status: asset_locations.status,
-        createdAt: asset_locations.createdAt,
-        updatedAt: asset_locations.updatedAt
-      })
-      .from(asset_locations)
-      .leftJoin(branches, eq(asset_locations.branchId, branches.id))
-      .where(eq(asset_locations.companyId, companyId))
-      .orderBy(asset_locations.name);
-
-    return res.json({ locations: locationsList });
-  } catch (error: any) {
-    console.error('GET /api/assets/locations error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to fetch asset locations' });
-  }
-});
-
-// POST /api/assets/locations — Create a location
-router.post('/locations', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-
-    const { branchId, parentId, name, description, status } = req.body || {};
-
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Location name is required' });
-    }
-
-    const [newLocation] = await db
-      .insert(asset_locations)
-      .values({
-        companyId,
-        branchId: branchId ? Number(branchId) : null,
-        parentId: parentId || null,
-        name: name.trim(),
-        description: description || null,
-        status: status || 'Active'
-      })
-      .returning();
-
-    return res.status(201).json({ location: newLocation });
-  } catch (error: any) {
-    console.error('POST /api/assets/locations error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to create asset location' });
-  }
-});
-
-// PUT /api/assets/locations/:id — Update a location
-router.put('/locations/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-
-    const { id } = req.params;
-    const { branchId, parentId, name, description, status } = req.body || {};
-
-    const [updated] = await db
-      .update(asset_locations)
-      .set({
-        branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
-        parentId: parentId !== undefined ? (parentId || null) : undefined,
-        name: name ? name.trim() : undefined,
-        description: description !== undefined ? (description || null) : undefined,
-        status: status || undefined,
-        updatedAt: new Date()
-      })
-      .where(and(eq(asset_locations.id, id), eq(asset_locations.companyId, companyId)))
-      .returning();
-
-    if (!updated) {
-      return res.status(404).json({ error: 'Asset location not found' });
-    }
-
-    return res.json({ location: updated });
-  } catch (error: any) {
-    console.error('PUT /api/assets/locations/:id error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to update asset location' });
-  }
-});
-
-// DELETE /api/assets/locations/:id — Delete a location
-router.delete('/locations/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-
-    const { id } = req.params;
-
-    // Prevent deletion if sub-locations exist
-    const children = await db
-      .select({ count: count() })
-      .from(asset_locations)
-      .where(and(eq(asset_locations.parentId, id), eq(asset_locations.companyId, companyId)));
-
-    if (Number(children[0]?.count) > 0) {
-      return res.status(400).json({ error: 'Cannot delete a location that has sub-locations. Remove sub-locations first.' });
-    }
-
-    const [deleted] = await db
-      .delete(asset_locations)
-      .where(and(eq(asset_locations.id, id), eq(asset_locations.companyId, companyId)))
-      .returning();
-
-    if (!deleted) {
-      return res.status(404).json({ error: 'Asset location not found' });
-    }
-
-    return res.json({ message: 'Location deleted successfully' });
-  } catch (error: any) {
-    console.error('DELETE /api/assets/locations/:id error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to delete asset location' });
-  }
-});
 
 export default router;
 
