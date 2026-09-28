@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
-import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2 } from 'lucide-react';
+import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2, Printer, CheckSquare } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { BulkStickerModal } from '../components/BulkStickerModal';
 
 export default function Assets() {
   const navigate = useNavigate();
@@ -45,6 +47,8 @@ export default function Assets() {
   const [isAssigning, setIsAssigning] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [showBulkPrintModal, setShowBulkPrintModal] = useState(false);
 
   // Form State
   const [showForm, setShowForm] = useState(false);
@@ -846,10 +850,66 @@ export default function Assets() {
             </div>
           </div>
 
+          {/* Sticky Bulk Action Bar */}
+          {selectedAssetIds.length > 0 && (
+            <div className="bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-200 mb-4">
+              <div className="flex items-center gap-3">
+                <CheckSquare className="w-5 h-5 text-purple-400" />
+                <div>
+                  <span className="font-bold text-sm">{selectedAssetIds.length} Asset(s) Selected</span>
+                  {selectedAssetIds.length < assetsList.length && (
+                    <button
+                      onClick={() => setSelectedAssetIds(assetsList.map(a => a.id))}
+                      className="ml-3 text-xs text-purple-300 hover:text-white underline transition-colors font-medium"
+                    >
+                      Select all {assetsList.length} filtered assets
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedAssetIds([])}
+                  className="px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  Clear Selection
+                </button>
+                <button
+                  onClick={() => setShowBulkPrintModal(true)}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Print {selectedAssetIds.length} Sticker(s)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-600">
               <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
                 <tr>
+                  <th className="px-4 py-4 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={
+                        assetsList.length > 0 &&
+                        assetsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).every(a => selectedAssetIds.includes(a.id))
+                      }
+                      onChange={() => {
+                        const pageAssets = assetsList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+                        const pageIds = pageAssets.map(a => a.id);
+                        const allSelected = pageIds.every(id => selectedAssetIds.includes(id));
+                        if (allSelected) {
+                          setSelectedAssetIds(prev => prev.filter(id => !pageIds.includes(id)));
+                        } else {
+                          setSelectedAssetIds(prev => Array.from(new Set([...prev, ...pageIds])));
+                        }
+                      }}
+                      className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                      title="Select all on current page"
+                    />
+                  </th>
                   <th className="px-5 py-4">Tag Code</th>
                   <th className="px-5 py-4">Asset Description</th>
                   <th className="px-5 py-4">Category</th>
@@ -883,7 +943,21 @@ export default function Assets() {
                     const deprPct = cost > 0 ? ((accum / cost) * 100).toFixed(1) : '0.0';
 
                     return (
-                      <tr key={asset.id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr key={asset.id} className={`transition-colors ${selectedAssetIds.includes(asset.id) ? 'bg-purple-50/60' : 'hover:bg-slate-50/80'}`}>
+                        <td className="px-4 py-4 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedAssetIds.includes(asset.id)}
+                            onChange={() => {
+                              setSelectedAssetIds(prev =>
+                                prev.includes(asset.id)
+                                  ? prev.filter(id => id !== asset.id)
+                                  : [...prev, asset.id]
+                              );
+                            }}
+                            className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-5 py-4 font-mono font-semibold text-purple-600 text-xs">
                           {asset.assetCode}
                         </td>
@@ -1033,11 +1107,18 @@ export default function Assets() {
                 Shanta Life Insurance PLC
               </div>
               <div className="flex justify-center py-1">
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(selectedQrAsset.assetCode)}`} 
-                  alt={selectedQrAsset.assetCode} 
-                  className="w-32 h-32 border border-slate-200 p-1 bg-white rounded-lg shadow-sm"
+                <QRCodeSVG
+                  value={selectedQrAsset.assetCode}
+                  size={140}
+                  level="H"
+                  includeMargin={false}
+                  className="p-1 border border-slate-200 bg-white rounded-lg shadow-sm"
                 />
+
+
+
+
+
               </div>
               <div className="font-mono font-bold text-brand-orange text-base tracking-wider">
                 {selectedQrAsset.assetCode}
@@ -1070,6 +1151,15 @@ export default function Assets() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bulk Sticker Modal */}
+      {showBulkPrintModal && (
+        <BulkStickerModal
+          assets={assetsList.filter(a => selectedAssetIds.includes(a.id))}
+          onClose={() => setShowBulkPrintModal(false)}
+          currencySymbol={currencySymbol}
+        />
       )}
 
       {/* Quick Assign Custodian Modal */}

@@ -1,1 +1,0 @@
-import { db } from './src/shared/db/index'; import { bpmnDefinitions } from './src/shared/db/schema'; async function run() { const w = await db.select().from(bpmnDefinitions); console.log(JSON.stringify(w, null, 2)); process.exit(0); } run().catch(console.error);
