@@ -76,8 +76,11 @@ function currentYearMonth(): string {
 // ──────────────────────────────────────────────────────────────
 export default function AssetDeprReports() {
   const navigate = useNavigate();
-  const { getToken, isSuperAdmin, getPermission } = useAuth();
+  const { getToken, dbUser, permissions } = useAuth();
   const currencySymbol = useCurrency();
+
+  const isSuperAdmin = dbUser?.role === 'Super Admin';
+  const getPermission = (menuName: string) => permissions?.find((p: any) => p.module === menuName);
 
   const [activeTab, setActiveTab] = useState<"summary" | "detailed">("summary");
 
