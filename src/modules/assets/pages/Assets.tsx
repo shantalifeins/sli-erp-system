@@ -5,11 +5,11 @@ import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
 import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2, Printer, CheckSquare } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { BulkStickerModal } from '../components/BulkStickerModal';
+import { BulkStickerModal, getAssetQrValue } from '../components/BulkStickerModal';
 
 export default function Assets() {
   const navigate = useNavigate();
-  const { getToken, dbUser, permissions } = useAuth();
+  const { getToken, dbUser, permissions, company } = useAuth();
   const currencySymbol = useCurrency();
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
@@ -1104,11 +1104,11 @@ export default function Assets() {
             {/* Printable Sticker Box */}
             <div id="printable-qr-label" className="p-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 space-y-3">
               <div className="text-xs font-bold text-slate-800 tracking-wide uppercase">
-                Shanta Life Insurance PLC
+                {company?.name || 'Shanta Life Insurance PLC'}
               </div>
               <div className="flex justify-center py-1">
                 <QRCodeSVG
-                  value={selectedQrAsset.assetCode}
+                  value={getAssetQrValue(selectedQrAsset, company?.name)}
                   size={140}
                   level="H"
                   includeMargin={false}
@@ -1159,6 +1159,7 @@ export default function Assets() {
           assets={assetsList.filter(a => selectedAssetIds.includes(a.id))}
           onClose={() => setShowBulkPrintModal(false)}
           currencySymbol={currencySymbol}
+          companyName={company?.name}
         />
       )}
 

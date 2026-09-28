@@ -229,26 +229,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       };
     } catch (e) {}
 
-    // Refetch on window focus
-    const handleFocus = () => {
-      if (localStorage.getItem('local_auth_token')) {
-        syncUser(null);
-      }
-    };
-    window.addEventListener('focus', handleFocus);
-
-    // Periodic lightweight auto-sync (every 15 seconds) for active visible tab
-    const interval = setInterval(() => {
-      if (localStorage.getItem('local_auth_token') && document.visibilityState === 'visible') {
-        syncUser(null);
-      }
-    }, 15000);
-
     return () => {
       subscription.unsubscribe();
       if (channel) channel.close();
-      window.removeEventListener('focus', handleFocus);
-      clearInterval(interval);
     };
   }, [syncUser]);
 

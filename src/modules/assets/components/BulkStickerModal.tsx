@@ -3,6 +3,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { X, Printer, Download, Layers, CheckSquare, Grid } from 'lucide-react';
 import jsPDF from 'jspdf';
 
+import { useAuth } from '@/src/shared/components/AuthProvider';
+
 interface Asset {
   id: string;
   assetCode: string;
@@ -17,11 +19,29 @@ interface BulkStickerModalProps {
   assets: Asset[];
   onClose: () => void;
   currencySymbol?: string;
+  companyName?: string;
 }
 
 type PaperSize = 'A4' | 'Letter' | 'Legal';
 
-export const BulkStickerModal: React.FC<BulkStickerModalProps> = ({ assets, onClose }) => {
+export const getAssetQrValue = (item: Asset, companyName?: string): string => {
+  const parts = [
+    `Company: ${companyName || 'Shanta Life Insurance PLC'}`,
+    `Asset Tag: ${item.assetCode || ''}`,
+    `Name: ${item.name || ''}`,
+    `Category: ${item.categoryName || 'N/A'}`,
+    `Location/Branch: ${item.branchName || 'HQ'}`
+  ];
+  if (item.custodianName) parts.push(`Custodian: ${item.custodianName}`);
+  if (item.serialNumber) parts.push(`SN: ${item.serialNumber}`);
+  parts.push(`ERP: https://erp.shantalife.com/assets?search=${encodeURIComponent(item.assetCode || '')}`);
+  return parts.join('\n');
+};
+
+export const BulkStickerModal: React.FC<BulkStickerModalProps> = ({ assets, onClose, companyName }) => {
+  const { company } = useAuth();
+  const activeCompanyName = companyName || company?.name || 'SHANTA LIFE INSURANCE PLC';
+
   const [paperSize, setPaperSize] = useState<PaperSize>('A4');
   const [columns, setColumns] = useState<number>(3);
   const [showCategory, setShowCategory] = useState<boolean>(true);
@@ -96,7 +116,7 @@ export const BulkStickerModal: React.FC<BulkStickerModalProps> = ({ assets, onCl
           pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(7.5);
           pdf.setTextColor(30, 41, 59);
-          pdf.text('SHANTA LIFE INSURANCE PLC', x + w / 2, y + 5, { align: 'center' });
+          pdf.text(activeCompanyName.toUpperCase(), x + w / 2, y + 5, { align: 'center' });
 
           // Render QR Code onto temp canvas to embed into PDF
           const qrCanvas = document.createElement('canvas');
@@ -374,14 +394,14 @@ export const BulkStickerModal: React.FC<BulkStickerModalProps> = ({ assets, onCl
                       style={{ minHeight: '38mm' }}
                     >
                       <div className="text-[10px] font-extrabold text-slate-800 tracking-wider uppercase truncate">
-                        SHANTA LIFE INSURANCE PLC
+                        {activeCompanyName}
                       </div>
 
                       {/* Dynamic SVG QR Code */}
                       <div className="flex justify-center py-0.5">
                         <QRCodeSVG
                           id={`qr-svg-${asset.id}`}
-                          value={asset.assetCode}
+                          value={getAssetQrValue(asset, activeCompanyName)}
                           size={columns === 4 ? 70 : columns === 3 ? 85 : 100}
                           level="H"
                           includeMargin={false}
