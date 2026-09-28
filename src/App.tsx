@@ -50,6 +50,7 @@ import AssetTransfers from '@/src/modules/assets/pages/AssetTransfers';
 import AssetReports from '@/src/modules/assets/pages/AssetReports';
 import AssetVerification from '@/src/modules/assets/pages/AssetVerification';
 import AssetDeprReports from '@/src/modules/assets/pages/AssetDeprReports';
+import AssetLocation from '@/src/modules/assets/pages/AssetLocation';
 import PwaInstallPrompt from '@/src/shared/components/PwaInstallPrompt';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -105,6 +106,7 @@ export default function App() {
             <Route path="/asset-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetReports /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-depr-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDeprReports /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-verification" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetVerification /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-location" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetLocation /></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Inventory Routes */}
             <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryDashboard /></PluginProtectedRoute></PrivateRoute>} />

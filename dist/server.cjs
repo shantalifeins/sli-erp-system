@@ -57,6 +57,7 @@ __export(schema_exports, {
   asset_categories: () => asset_categories,
   asset_depreciation_schedule: () => asset_depreciation_schedule,
   asset_disposals: () => asset_disposals,
+  asset_locations: () => asset_locations,
   asset_maintenance: () => asset_maintenance,
   asset_physical_verifications: () => asset_physical_verifications,
   asset_transfers: () => asset_transfers,
@@ -1052,6 +1053,18 @@ var asset_verification_details = (0, import_pg_core.pgTable)("asset_verification
   scannedAt: (0, import_pg_core.timestamp)("scanned_at"),
   notes: (0, import_pg_core.text)("notes"),
   createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
+});
+var asset_locations = (0, import_pg_core.pgTable)("asset_locations", {
+  id: (0, import_pg_core.uuid)("id").defaultRandom().primaryKey(),
+  companyId: (0, import_pg_core.uuid)("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  branchId: (0, import_pg_core.integer)("branch_id").references(() => branches.id, { onDelete: "cascade" }),
+  parentId: (0, import_pg_core.uuid)("parent_id"),
+  // self-reference filled via raw sql below
+  name: (0, import_pg_core.text)("name").notNull(),
+  description: (0, import_pg_core.text)("description"),
+  status: (0, import_pg_core.text)("status").default("Active").notNull(),
+  createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+  updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
 });
 
 // src/shared/db/index.ts
@@ -3040,11 +3053,36 @@ router5.post("/", requireAuth, checkPlugin("asset-management"), async (req, res)
     if (!name || !categoryId || acquisitionCost === void 0) {
       return res.status(400).json({ error: "Asset name, categoryId, and acquisitionCost are required" });
     }
-    const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
-    const countRes = await db.select({ count: (0, import_drizzle_orm10.count)() }).from(assets).where((0, import_drizzle_orm10.eq)(assets.companyId, companyId));
-    const existingCount = countRes && countRes[0] ? Number(countRes[0].count) : 0;
-    const seq = String(existingCount + 1).padStart(4, "0");
-    const assetCode = `AST-${dateStr}-${seq}`;
+    const catRecords = await db.select().from(asset_categories).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_categories.companyId, companyId), (0, import_drizzle_orm10.eq)(asset_categories.id, categoryId))).limit(1) || [];
+    const catRecord = Array.isArray(catRecords) ? catRecords[0] : null;
+    let categoryPrefix = "GEN";
+    if (catRecord && catRecord.code && catRecord.code.trim()) {
+      const rawCode = catRecord.code.trim();
+      if (/^CAT-/i.test(rawCode)) {
+        categoryPrefix = rawCode.replace(/^CAT-/i, "").trim().toUpperCase() || rawCode.toUpperCase();
+      } else {
+        categoryPrefix = rawCode.toUpperCase();
+      }
+    } else if (catRecord && catRecord.name && catRecord.name.trim()) {
+      categoryPrefix = catRecord.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase() || "GEN";
+    }
+    const catCountRes = await db.select({ count: (0, import_drizzle_orm10.count)() }).from(assets).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(assets.companyId, companyId), (0, import_drizzle_orm10.eq)(assets.categoryId, categoryId))) || [{ count: 0 }];
+    const existingCatAssetCount = Array.isArray(catCountRes) && catCountRes[0] ? Number(catCountRes[0].count) : 0;
+    let serialNum = existingCatAssetCount + 1;
+    let assetCode = `AST-${categoryPrefix}-${String(serialNum).padStart(4, "0")}`;
+    let isCodeUnique = false;
+    let attempts = 0;
+    while (!isCodeUnique && attempts < 100) {
+      const checkRes = await db.select({ id: assets.id }).from(assets).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(assets.companyId, companyId), (0, import_drizzle_orm10.eq)(assets.assetCode, assetCode))).limit(1) || [];
+      const existingCodeCheck = Array.isArray(checkRes) ? checkRes[0] : null;
+      if (!existingCodeCheck) {
+        isCodeUnique = true;
+      } else {
+        serialNum += 1;
+        assetCode = `AST-${categoryPrefix}-${String(serialNum).padStart(4, "0")}`;
+        attempts += 1;
+      }
+    }
     const costNum = Number(acquisitionCost);
     const salvageNum = salvageValue ? Number(salvageValue) : 0;
     const initialBookValue = String(costNum);
@@ -4189,6 +4227,92 @@ router5.get("/:id/disposals", requireAuth, checkPlugin("asset-management"), asyn
   } catch (error) {
     console.error("GET /api/assets/:id/disposals error:", error);
     return res.status(500).json({ error: error.message || "Failed to fetch asset disposal history" });
+  }
+});
+router5.get("/locations", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const locationsList = await db.select({
+      id: asset_locations.id,
+      companyId: asset_locations.companyId,
+      branchId: asset_locations.branchId,
+      branchName: branches.name,
+      parentId: asset_locations.parentId,
+      name: asset_locations.name,
+      description: asset_locations.description,
+      status: asset_locations.status,
+      createdAt: asset_locations.createdAt,
+      updatedAt: asset_locations.updatedAt
+    }).from(asset_locations).leftJoin(branches, (0, import_drizzle_orm10.eq)(asset_locations.branchId, branches.id)).where((0, import_drizzle_orm10.eq)(asset_locations.companyId, companyId)).orderBy(asset_locations.name);
+    return res.json({ locations: locationsList });
+  } catch (error) {
+    console.error("GET /api/assets/locations error:", error);
+    return res.status(500).json({ error: error.message || "Failed to fetch asset locations" });
+  }
+});
+router5.post("/locations", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { branchId, parentId, name, description, status } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Location name is required" });
+    }
+    const [newLocation] = await db.insert(asset_locations).values({
+      companyId,
+      branchId: branchId ? Number(branchId) : null,
+      parentId: parentId || null,
+      name: name.trim(),
+      description: description || null,
+      status: status || "Active"
+    }).returning();
+    return res.status(201).json({ location: newLocation });
+  } catch (error) {
+    console.error("POST /api/assets/locations error:", error);
+    return res.status(500).json({ error: error.message || "Failed to create asset location" });
+  }
+});
+router5.put("/locations/:id", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { id } = req.params;
+    const { branchId, parentId, name, description, status } = req.body || {};
+    const [updated] = await db.update(asset_locations).set({
+      branchId: branchId !== void 0 ? branchId ? Number(branchId) : null : void 0,
+      parentId: parentId !== void 0 ? parentId || null : void 0,
+      name: name ? name.trim() : void 0,
+      description: description !== void 0 ? description || null : void 0,
+      status: status || void 0,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_locations.id, id), (0, import_drizzle_orm10.eq)(asset_locations.companyId, companyId))).returning();
+    if (!updated) {
+      return res.status(404).json({ error: "Asset location not found" });
+    }
+    return res.json({ location: updated });
+  } catch (error) {
+    console.error("PUT /api/assets/locations/:id error:", error);
+    return res.status(500).json({ error: error.message || "Failed to update asset location" });
+  }
+});
+router5.delete("/locations/:id", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { id } = req.params;
+    const children = await db.select({ count: (0, import_drizzle_orm10.count)() }).from(asset_locations).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_locations.parentId, id), (0, import_drizzle_orm10.eq)(asset_locations.companyId, companyId)));
+    if (Number(children[0]?.count) > 0) {
+      return res.status(400).json({ error: "Cannot delete a location that has sub-locations. Remove sub-locations first." });
+    }
+    const [deleted] = await db.delete(asset_locations).where((0, import_drizzle_orm10.and)((0, import_drizzle_orm10.eq)(asset_locations.id, id), (0, import_drizzle_orm10.eq)(asset_locations.companyId, companyId))).returning();
+    if (!deleted) {
+      return res.status(404).json({ error: "Asset location not found" });
+    }
+    return res.json({ message: "Location deleted successfully" });
+  } catch (error) {
+    console.error("DELETE /api/assets/locations/:id error:", error);
+    return res.status(500).json({ error: error.message || "Failed to delete asset location" });
   }
 });
 var routes_default2 = router5;

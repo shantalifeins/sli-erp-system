@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown, MapPin } from 'lucide-react';
 
 
 import { cn } from '@/src/shared/lib/utils';
@@ -305,6 +305,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Asset Dashboard')?.canView || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Management')?.canView },
     { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
     { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
+    { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
     { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
     { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },
     { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: isSuperAdmin || getPermission('Asset Disposal')?.canView },

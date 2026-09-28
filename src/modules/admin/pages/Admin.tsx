@@ -165,6 +165,7 @@ export default function Admin() {
         { name: "Asset Dashboard", actions: ["canView"] },
         { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Asset Location", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Depreciation Schedule", actions: ["canView", "canCreate"] },
         { name: "Asset Transfers", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Maintenance", actions: ["canView", "canCreate", "canEdit", "canDelete"] },

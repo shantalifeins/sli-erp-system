@@ -3,7 +3,7 @@ import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
+import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'drizzle-orm';
@@ -958,16 +958,53 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
       return res.status(400).json({ error: 'Asset name, categoryId, and acquisitionCost are required' });
     }
 
-    // Auto-code generation: AST-YYYYMMDD-XXXX
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const countRes = await db
+    // Auto-code generation: Category Code prefix + Category-scoped sequential serial (e.g. AST-01-0001 or AST-00001-0001)
+    const catRecords = (await db
+      .select()
+      .from(asset_categories)
+      .where(and(eq(asset_categories.companyId, companyId), eq(asset_categories.id, categoryId)))
+      .limit(1)) || [];
+    const catRecord = Array.isArray(catRecords) ? catRecords[0] : null;
+
+    let categoryPrefix = 'GEN';
+    if (catRecord && catRecord.code && catRecord.code.trim()) {
+      const rawCode = catRecord.code.trim();
+      if (/^CAT-/i.test(rawCode)) {
+        categoryPrefix = rawCode.replace(/^CAT-/i, '').trim().toUpperCase() || rawCode.toUpperCase();
+      } else {
+        categoryPrefix = rawCode.toUpperCase();
+      }
+    } else if (catRecord && catRecord.name && catRecord.name.trim()) {
+      categoryPrefix = catRecord.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'GEN';
+    }
+
+    const catCountRes = (await db
       .select({ count: count() })
       .from(assets)
-      .where(eq(assets.companyId, companyId));
+      .where(and(eq(assets.companyId, companyId), eq(assets.categoryId, categoryId)))) || [{ count: 0 }];
 
-    const existingCount = countRes && countRes[0] ? Number(countRes[0].count) : 0;
-    const seq = String(existingCount + 1).padStart(4, '0');
-    const assetCode = `AST-${dateStr}-${seq}`;
+    const existingCatAssetCount = (Array.isArray(catCountRes) && catCountRes[0]) ? Number(catCountRes[0].count) : 0;
+    let serialNum = existingCatAssetCount + 1;
+    let assetCode = `AST-${categoryPrefix}-${String(serialNum).padStart(4, '0')}`;
+
+    let isCodeUnique = false;
+    let attempts = 0;
+    while (!isCodeUnique && attempts < 100) {
+      const checkRes = (await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(and(eq(assets.companyId, companyId), eq(assets.assetCode, assetCode)))
+        .limit(1)) || [];
+      const existingCodeCheck = Array.isArray(checkRes) ? checkRes[0] : null;
+
+      if (!existingCodeCheck) {
+        isCodeUnique = true;
+      } else {
+        serialNum += 1;
+        assetCode = `AST-${categoryPrefix}-${String(serialNum).padStart(4, '0')}`;
+        attempts += 1;
+      }
+    }
 
 
     const costNum = Number(acquisitionCost);
@@ -2737,6 +2774,139 @@ router.get('/:id/disposals', requireAuth, checkPlugin('asset-management'), async
   } catch (error: any) {
     console.error('GET /api/assets/:id/disposals error:', error);
     return res.status(500).json({ error: error.message || 'Failed to fetch asset disposal history' });
+  }
+});
+
+// ==========================================
+// ASSET LOCATIONS CRUD
+// ==========================================
+
+// GET /api/assets/locations — List all locations (with branch info and sub-count)
+router.get('/locations', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const locationsList = await db
+      .select({
+        id: asset_locations.id,
+        companyId: asset_locations.companyId,
+        branchId: asset_locations.branchId,
+        branchName: branches.name,
+        parentId: asset_locations.parentId,
+        name: asset_locations.name,
+        description: asset_locations.description,
+        status: asset_locations.status,
+        createdAt: asset_locations.createdAt,
+        updatedAt: asset_locations.updatedAt
+      })
+      .from(asset_locations)
+      .leftJoin(branches, eq(asset_locations.branchId, branches.id))
+      .where(eq(asset_locations.companyId, companyId))
+      .orderBy(asset_locations.name);
+
+    return res.json({ locations: locationsList });
+  } catch (error: any) {
+    console.error('GET /api/assets/locations error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset locations' });
+  }
+});
+
+// POST /api/assets/locations — Create a location
+router.post('/locations', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { branchId, parentId, name, description, status } = req.body || {};
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Location name is required' });
+    }
+
+    const [newLocation] = await db
+      .insert(asset_locations)
+      .values({
+        companyId,
+        branchId: branchId ? Number(branchId) : null,
+        parentId: parentId || null,
+        name: name.trim(),
+        description: description || null,
+        status: status || 'Active'
+      })
+      .returning();
+
+    return res.status(201).json({ location: newLocation });
+  } catch (error: any) {
+    console.error('POST /api/assets/locations error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create asset location' });
+  }
+});
+
+// PUT /api/assets/locations/:id — Update a location
+router.put('/locations/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+    const { branchId, parentId, name, description, status } = req.body || {};
+
+    const [updated] = await db
+      .update(asset_locations)
+      .set({
+        branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
+        parentId: parentId !== undefined ? (parentId || null) : undefined,
+        name: name ? name.trim() : undefined,
+        description: description !== undefined ? (description || null) : undefined,
+        status: status || undefined,
+        updatedAt: new Date()
+      })
+      .where(and(eq(asset_locations.id, id), eq(asset_locations.companyId, companyId)))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Asset location not found' });
+    }
+
+    return res.json({ location: updated });
+  } catch (error: any) {
+    console.error('PUT /api/assets/locations/:id error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update asset location' });
+  }
+});
+
+// DELETE /api/assets/locations/:id — Delete a location
+router.delete('/locations/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+
+    // Prevent deletion if sub-locations exist
+    const children = await db
+      .select({ count: count() })
+      .from(asset_locations)
+      .where(and(eq(asset_locations.parentId, id), eq(asset_locations.companyId, companyId)));
+
+    if (Number(children[0]?.count) > 0) {
+      return res.status(400).json({ error: 'Cannot delete a location that has sub-locations. Remove sub-locations first.' });
+    }
+
+    const [deleted] = await db
+      .delete(asset_locations)
+      .where(and(eq(asset_locations.id, id), eq(asset_locations.companyId, companyId)))
+      .returning();
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Asset location not found' });
+    }
+
+    return res.json({ message: 'Location deleted successfully' });
+  } catch (error: any) {
+    console.error('DELETE /api/assets/locations/:id error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to delete asset location' });
   }
 });
 

@@ -945,5 +945,21 @@ export const asset_verification_details = pgTable('asset_verification_details', 
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// ==========================================
+// ASSET LOCATIONS
+// ==========================================
+
+export const asset_locations = pgTable('asset_locations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  branchId: integer('branch_id').references(() => branches.id, { onDelete: 'cascade' }),
+  parentId: uuid('parent_id'), // self-reference filled via raw sql below
+  name: text('name').notNull(),
+  description: text('description'),
+  status: text('status').default('Active').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 
 
