@@ -63,14 +63,27 @@ export default function AssetLocation() {
       setLoading(true);
       const token = await getToken();
       if (!token) return;
-      const [locRes, branchRes] = await Promise.all([
+      
+      const [locResult, branchResult] = await Promise.allSettled([
         fetchWithAuth('/api/assets/locations', token),
         fetchWithAuth('/api/branches', token)
       ]);
-      setLocations(locRes.locations || []);
-      setBranches(Array.isArray(branchRes) ? branchRes : (branchRes?.branches || []));
+
+      if (locResult.status === 'fulfilled') {
+        setLocations(locResult.value?.locations || []);
+      } else {
+        console.error('Failed to load asset locations:', locResult.reason);
+      }
+
+      if (branchResult.status === 'fulfilled') {
+        const val = branchResult.value;
+        const branchList = Array.isArray(val) ? val : (val?.branches || val?.data || []);
+        setBranches(branchList);
+      } else {
+        console.error('Failed to load branches:', branchResult.reason);
+      }
     } catch (err) {
-      console.error('Failed to load locations:', err);
+      console.error('Failed to load locations or branches:', err);
     } finally {
       setLoading(false);
     }
@@ -520,7 +533,7 @@ export default function AssetLocation() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 bg-white"
                 >
                   <option value="">— No Branch (General) —</option>
-                  {branches.filter(b => b.status !== 'Inactive').map(b => (
+                  {branches.filter(b => !b.status || (b.status !== 'Inactive' && b.status !== 'inactive')).map(b => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>

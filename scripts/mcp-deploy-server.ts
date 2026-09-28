@@ -90,7 +90,7 @@ export async function runSqlMigration(host: string, user: string, sqlQuery: stri
     async function main() {
       await client.connect();
       const res = await client.query(${JSON.stringify(sqlQuery)});
-      console.log('SQL_MIGRATION_SUCCESS:', res.command);
+      console.log('SQL_MIGRATION_SUCCESS:', JSON.stringify(res.rows || res.command));
       await client.end();
     }
     main().catch(err => { console.error('SQL_MIGRATION_ERROR:', err.message); client.end(); });
