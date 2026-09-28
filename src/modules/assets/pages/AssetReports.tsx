@@ -41,6 +41,12 @@ interface AssetRegisterItem {
   status: string;
   sourceType: string;
   serialNumber?: string;
+  locationName?: string;
+  brandName?: string;
+  modelName?: string;
+  specificationName?: string;
+  uomName?: string;
+  sizeValue?: string;
 }
 
 interface DepreciationScheduleItem {
@@ -97,6 +103,13 @@ export default function AssetReports() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [search, setSearch] = useState<string>('');
 
+  const [selectedLocation, setSelectedLocation] = useState<string>('');
+  const [selectedBrand, setSelectedBrand] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedSpec, setSelectedSpec] = useState<string>('');
+  const [locations, setLocations] = useState<any[]>([]);
+  const [attributes, setAttributes] = useState<any[]>([]);
+
   const [startMonth, setStartMonth] = useState<string>('');
   const [endMonth, setEndMonth] = useState<string>('');
 
@@ -116,14 +129,39 @@ export default function AssetReports() {
     async function fetchCategories() {
       try {
         const token = await getToken();
-        const data = await fetchWithAuth('/api/assets/categories', token);
-        setCategories(data.categories || []);
+        const [catData, locData] = await Promise.all([
+          fetchWithAuth('/api/assets/categories', token),
+          fetchWithAuth('/api/assets/locations', token).catch(() => ({ locations: [] }))
+        ]);
+        setCategories(catData.categories || []);
+        setLocations(locData.locations || []);
       } catch (err) {
         console.error('Failed to load categories', err);
       }
     }
     fetchCategories();
   }, [getToken]);
+
+  useEffect(() => {
+    const fetchAttributes = async () => {
+      if (!selectedCategory) {
+        setAttributes([]);
+        setSelectedBrand('');
+        setSelectedModel('');
+        setSelectedSpec('');
+        return;
+      }
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithAuth(`/api/assets/attributes/${selectedCategory}`, token);
+        setAttributes(res.attributes || []);
+      } catch (err) {
+        console.error('Failed to fetch attributes', err);
+      }
+    };
+    fetchAttributes();
+  }, [selectedCategory, getToken]);
 
   // Fetch Report Data based on Active Tab
   const loadReportData = async () => {
@@ -136,6 +174,10 @@ export default function AssetReports() {
         if (search) params.append('search', search);
         if (statusFilter) params.append('status', statusFilter);
         if (selectedCategory) params.append('categoryId', selectedCategory);
+        if (selectedLocation) params.append('locationId', selectedLocation);
+        if (selectedBrand) params.append('brandId', selectedBrand);
+        if (selectedModel) params.append('modelId', selectedModel);
+        if (selectedSpec) params.append('specificationId', selectedSpec);
 
         const data = await fetchWithAuth(`/api/assets/reports/register?${params.toString()}`, token);
         setRegisterData(data.register || []);
@@ -165,7 +207,7 @@ export default function AssetReports() {
 
   useEffect(() => {
     loadReportData();
-  }, [activeTab, selectedCategory, statusFilter, startMonth, endMonth]);
+  }, [activeTab, selectedCategory, selectedLocation, selectedBrand, selectedModel, selectedSpec, statusFilter, startMonth, endMonth]);
 
   // Export to CSV helper
   const exportToCSV = () => {
@@ -318,7 +360,7 @@ export default function AssetReports() {
             </div>
 
             {/* Category Filter */}
-            <div className="w-44">
+            <div className="w-44 shrink-0">
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
@@ -330,6 +372,66 @@ export default function AssetReports() {
                 ))}
               </select>
             </div>
+
+            {activeTab === 'register' && (
+              <>
+                <div className="w-40 shrink-0">
+                  <select
+                    value={selectedLocation}
+                    onChange={(e) => setSelectedLocation(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange bg-white"
+                  >
+                    <option value="">All Locations</option>
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedCategory && (
+                  <>
+                    <div className="w-36 shrink-0">
+                      <select
+                        value={selectedBrand}
+                        onChange={(e) => setSelectedBrand(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange bg-white"
+                      >
+                        <option value="">All Brands</option>
+                        {attributes.filter(a => a.attributeName === 'Brand').map(a => (
+                          <option key={a.id} value={a.id}>{a.value}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="w-36 shrink-0">
+                      <select
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange bg-white"
+                      >
+                        <option value="">All Models</option>
+                        {attributes.filter(a => a.attributeName === 'Model').map(a => (
+                          <option key={a.id} value={a.id}>{a.value}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="w-36 shrink-0">
+                      <select
+                        value={selectedSpec}
+                        onChange={(e) => setSelectedSpec(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange bg-white"
+                      >
+                        <option value="">All Specs</option>
+                        {attributes.filter(a => a.attributeName === 'Specification').map(a => (
+                          <option key={a.id} value={a.id}>{a.value}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
 
             {/* Status Filter */}
             <div className="w-40">
@@ -447,11 +549,11 @@ export default function AssetReports() {
                   <th className="py-3 px-4">Asset Code</th>
                   <th className="py-3 px-4">Name</th>
                   <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4">Method & Rate</th>
+                  <th className="py-3 px-4">Brand / Model</th>
+                  <th className="py-3 px-4">Spec / Size</th>
+                  <th className="py-3 px-4">Location</th>
                   <th className="py-3 px-4">Branch / Dept</th>
                   <th className="py-3 px-4">Custodian</th>
-                  <th className="py-3 px-4 text-right">Acq. Cost</th>
-                  <th className="py-3 px-4 text-right">Accum. Depr.</th>
                   <th className="py-3 px-4 text-right">Net Book Value</th>
                   <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4 text-center">Action</th>
@@ -479,21 +581,15 @@ export default function AssetReports() {
                         )}
                       </td>
                       <td className="py-3 px-4 text-slate-600">{asset.categoryName || '-'}</td>
-                      <td className="py-3 px-4 text-slate-600 font-medium text-xs">
-                        {asset.depreciationMethod === 'Declining Balance' ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-semibold">
-                            DB {Number(asset.decliningRate || 0) > 0 ? `(${asset.decliningRate}%)` : '(Auto)'}
-                          </span>
-                        ) : asset.depreciationMethod === 'None' ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                            Non-Depr
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700">
-                            Straight Line
-                          </span>
-                        )}
+                      <td className="py-3 px-4 text-slate-600">
+                        {asset.brandName || '-'}
+                        {asset.modelName && <span className="block text-xs text-slate-400">{asset.modelName}</span>}
                       </td>
+                      <td className="py-3 px-4 text-slate-600 text-xs">
+                        {asset.specificationName || '-'}
+                        {asset.sizeValue && <span className="block text-slate-400">{asset.sizeValue} {asset.uomName || ''}</span>}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600">{asset.locationName || '-'}</td>
                       <td className="py-3 px-4 text-slate-600">
                         {asset.branchName || 'Head Office'}
                         {asset.departmentName && (
@@ -501,12 +597,6 @@ export default function AssetReports() {
                         )}
                       </td>
                       <td className="py-3 px-4 text-slate-600">{asset.custodianName || 'Unassigned'}</td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-800">
-                        {currencySymbol}{Number(asset.acquisitionCost || 0).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4 text-right text-slate-600">
-                        {currencySymbol}{Number(asset.accumulatedDepreciation || 0).toLocaleString()}
-                      </td>
                       <td className="py-3 px-4 text-right font-semibold text-emerald-600">
                         {currencySymbol}{Number(asset.currentBookValue || 0).toLocaleString()}
                       </td>

@@ -1,9 +1,9 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
+import { asset_attributes, asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'drizzle-orm';
@@ -504,7 +504,7 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
-    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, year } = req.query;
+    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, year, locationId } = req.query;
 
     const conditions = [eq(assets.companyId, companyId)];
 
@@ -513,6 +513,9 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
     }
     if (branchId && !isNaN(Number(branchId))) {
       conditions.push(eq(assets.branchId, Number(branchId)));
+    }
+    if (locationId && typeof locationId === 'string') {
+      conditions.push(eq(assets.locationId, locationId));
     }
     if (warehouseId && !isNaN(Number(warehouseId))) {
       conditions.push(eq(assets.warehouseId, Number(warehouseId)));
@@ -759,7 +762,7 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
-    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, page = '1', limit = '50' } = req.query;
+    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, locationId, page = '1', limit = '50' } = req.query;
 
     const conditions = [eq(assets.companyId, companyId)];
 
@@ -768,6 +771,9 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
     }
     if (branchId && !isNaN(Number(branchId))) {
       conditions.push(eq(assets.branchId, Number(branchId)));
+    }
+    if (locationId && typeof locationId === 'string') {
+      conditions.push(eq(assets.locationId, locationId));
     }
     if (warehouseId && !isNaN(Number(warehouseId))) {
       conditions.push(eq(assets.warehouseId, Number(warehouseId)));
@@ -812,6 +818,17 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
         branchName: branches.name,
         warehouseId: assets.warehouseId,
         warehouseName: warehouses.name,
+        locationId: assets.locationId,
+        locationName: asset_locations.name,
+        brandId: assets.brandId,
+        brandName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.brandId})`,
+        modelId: assets.modelId,
+        modelName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.modelId})`,
+        specificationId: assets.specificationId,
+        specificationName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.specificationId})`,
+        uomId: assets.uomId,
+        uomName: sql<string>`(SELECT name FROM units WHERE id = ${assets.uomId})`,
+        sizeValue: assets.sizeValue,
         custodianUid: assets.custodianUid,
         custodianName: users.name,
         departmentId: assets.departmentId,
@@ -836,6 +853,7 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
       .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
       .leftJoin(branches, eq(assets.branchId, branches.id))
       .leftJoin(warehouses, eq(assets.warehouseId, warehouses.id))
+      .leftJoin(asset_locations, eq(assets.locationId, asset_locations.id))
       .leftJoin(users, eq(assets.custodianUid, users.uid))
       .leftJoin(departments, eq(assets.departmentId, departments.id))
       .where(and(...conditions))
@@ -1018,6 +1036,17 @@ router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
         branchName: branches.name,
         warehouseId: assets.warehouseId,
         warehouseName: warehouses.name,
+        locationId: assets.locationId,
+        locationName: asset_locations.name,
+        brandId: assets.brandId,
+        brandName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.brandId})`,
+        modelId: assets.modelId,
+        modelName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.modelId})`,
+        specificationId: assets.specificationId,
+        specificationName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.specificationId})`,
+        uomId: assets.uomId,
+        uomName: sql<string>`(SELECT name FROM units WHERE id = ${assets.uomId})`,
+        sizeValue: assets.sizeValue,
         custodianUid: assets.custodianUid,
         custodianName: users.name,
         departmentId: assets.departmentId,
@@ -1045,6 +1074,7 @@ router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
       .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
       .leftJoin(branches, eq(assets.branchId, branches.id))
       .leftJoin(warehouses, eq(assets.warehouseId, warehouses.id))
+      .leftJoin(asset_locations, eq(assets.locationId, asset_locations.id))
       .leftJoin(users, eq(assets.custodianUid, users.uid))
       .leftJoin(departments, eq(assets.departmentId, departments.id))
       .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
@@ -1086,7 +1116,13 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
       nextMaintenanceDue,
       sourceType,
       sourceGrnId,
-      status
+      status,
+      locationId,
+      brandId,
+      modelId,
+      specificationId,
+      uomId,
+      sizeValue
     } = req.body || {};
 
     if (!name || !categoryId || acquisitionCost === undefined) {
@@ -1153,26 +1189,32 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
         assetCode,
         name,
         categoryId,
-        branchId: branchId ? Number(branchId) : null,
-        warehouseId: warehouseId ? Number(warehouseId) : null,
+        branchId: branchId || null,
+        locationId: locationId || null,
+        brandId: brandId || null,
+        modelId: modelId || null,
+        specificationId: specificationId || null,
+        uomId: uomId || null,
+        sizeValue: sizeValue || null,
+        warehouseId: warehouseId || null,
         custodianUid: custodianUid || null,
-        departmentId: departmentId ? Number(departmentId) : null,
-        acquisitionDate: acquisitionDate ? new Date(acquisitionDate) : new Date(),
-        acquisitionCost: String(costNum),
-        salvageValue: String(salvageNum),
+        departmentId: departmentId || null,
+        acquisitionDate: new Date(acquisitionDate),
+        acquisitionCost: costNum.toString(),
+        salvageValue: salvageNum.toString(),
         depreciationMethod: depreciationMethod || 'Straight Line',
-        decliningRate: decliningRate !== undefined ? String(decliningRate) : '0.00',
-        usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : 36,
+        decliningRate: decliningRate ? String(decliningRate) : '0.00',
+        usefulLifeMonths: Number(usefulLifeMonths) || 36,
         depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : null,
         accumulatedDepreciation: '0.00',
         currentBookValue: initialBookValue,
-        status: status || 'Active',
+        status: status || 'Draft',
         sourceType: sourceType || 'Manual',
-        sourceGrnId: sourceGrnId ? Number(sourceGrnId) : null,
+        sourceGrnId: sourceGrnId || null,
         serialNumber: serialNumber || null,
         warrantyExpiryDate: warrantyExpiryDate ? new Date(warrantyExpiryDate) : null,
         nextMaintenanceDue: nextMaintenanceDue ? new Date(nextMaintenanceDue) : null,
-        createdByUid: req.user?.uid || null
+        createdByUid: req.user?.uid
       })
       .returning();
 
@@ -1296,7 +1338,13 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
       serialNumber,
       warrantyExpiryDate,
       nextMaintenanceDue,
-      status
+      status,
+      locationId,
+      brandId,
+      modelId,
+      specificationId,
+      uomId,
+      sizeValue
     } = req.body || {};
 
     const [existingAsset] = await db
@@ -1319,6 +1367,12 @@ router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
         name,
         categoryId,
         branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
+        locationId: locationId !== undefined ? (locationId ? locationId : null) : undefined,
+        brandId: brandId !== undefined ? (brandId ? brandId : null) : undefined,
+        modelId: modelId !== undefined ? (modelId ? modelId : null) : undefined,
+        specificationId: specificationId !== undefined ? (specificationId ? specificationId : null) : undefined,
+        uomId: uomId !== undefined ? (uomId ? Number(uomId) : null) : undefined,
+        sizeValue: sizeValue !== undefined ? (sizeValue ? sizeValue : null) : undefined,
         warehouseId: warehouseId !== undefined ? (warehouseId ? Number(warehouseId) : null) : undefined,
         custodianUid: custodianUid !== undefined ? (custodianUid ? custodianUid : null) : undefined,
         departmentId: departmentId !== undefined ? (departmentId ? Number(departmentId) : null) : undefined,

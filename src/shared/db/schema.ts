@@ -826,6 +826,15 @@ export const asset_categories = pgTable('asset_categories', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+export const asset_attributes = pgTable('asset_attributes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  categoryId: uuid('category_id').references(() => asset_categories.id, { onDelete: 'cascade' }).notNull(),
+  attributeType: text('attribute_type').notNull(), // 'Brand', 'Model', 'Specification'
+  value: text('value').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const assets = pgTable('assets', {
   id: uuid('id').defaultRandom().primaryKey(),
   companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
@@ -833,6 +842,12 @@ export const assets = pgTable('assets', {
   name: text('name').notNull(),
   categoryId: uuid('category_id').references(() => asset_categories.id).notNull(),
   branchId: integer('branch_id').references(() => branches.id),
+  locationId: uuid('location_id').references(() => asset_locations.id),
+  brandId: uuid('brand_id').references(() => asset_attributes.id),
+  modelId: uuid('model_id').references(() => asset_attributes.id),
+  specificationId: uuid('specification_id').references(() => asset_attributes.id),
+  sizeValue: text('size_value'),
+  uomId: integer('uom_id').references(() => units.id),
   warehouseId: integer('warehouse_id').references(() => warehouses.id),
   custodianUid: text('custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
   departmentId: integer('department_id').references(() => departments.id),

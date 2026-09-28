@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
@@ -19,7 +19,7 @@ router.get('/register', requireAuth, checkPlugin('asset-management'), async (req
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
-    const { categoryId, branchId, departmentId, status, search } = req.query;
+    const { categoryId, branchId, departmentId, status, search, locationId, brandId, modelId, specificationId } = req.query;
 
     const conditions = [eq(assets.companyId, companyId)];
 
@@ -34,6 +34,18 @@ router.get('/register', requireAuth, checkPlugin('asset-management'), async (req
     }
     if (status && typeof status === 'string') {
       conditions.push(eq(assets.status, status));
+    }
+    if (locationId && typeof locationId === 'string') {
+      conditions.push(eq(assets.locationId, locationId));
+    }
+    if (brandId && typeof brandId === 'string') {
+      conditions.push(eq(assets.brandId, brandId));
+    }
+    if (modelId && typeof modelId === 'string') {
+      conditions.push(eq(assets.modelId, modelId));
+    }
+    if (specificationId && typeof specificationId === 'string') {
+      conditions.push(eq(assets.specificationId, specificationId));
     }
     if (search && typeof search === 'string' && search.trim() !== '') {
       const s = `%${search.trim()}%`;
@@ -55,6 +67,12 @@ router.get('/register', requireAuth, checkPlugin('asset-management'), async (req
         branchName: branches.name,
         departmentName: departments.name,
         custodianName: users.name,
+        locationName: sql<string | null>`(SELECT name FROM asset_locations WHERE id = ${assets.locationId})`,
+        brandName: sql<string | null>`(SELECT value FROM asset_attributes WHERE id = ${assets.brandId})`,
+        modelName: sql<string | null>`(SELECT value FROM asset_attributes WHERE id = ${assets.modelId})`,
+        specificationName: sql<string | null>`(SELECT value FROM asset_attributes WHERE id = ${assets.specificationId})`,
+        uomName: sql<string | null>`(SELECT name FROM units WHERE id = ${assets.uomId})`,
+        sizeValue: assets.sizeValue,
         acquisitionDate: assets.acquisitionDate,
         acquisitionCost: assets.acquisitionCost,
         salvageValue: assets.salvageValue,

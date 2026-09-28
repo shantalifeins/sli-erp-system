@@ -15,6 +15,13 @@
       "when": 1784091694425,
       "tag": "0001_early_captain_america",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790578866361,
+      "tag": "0002_light_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

@@ -45,6 +45,7 @@ export default function AssetDashboard() {
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedCustodian, setSelectedCustodian] = useState('');
@@ -52,6 +53,7 @@ export default function AssetDashboard() {
 
   // Dropdown Metadata
   const [branchesList, setBranchesList] = useState<any[]>([]);
+  const [locationsList, setLocationsList] = useState<any[]>([]);
   const [categoriesList, setCategoriesList] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
 
@@ -74,22 +76,25 @@ export default function AssetDashboard() {
       const params = new URLSearchParams();
       if (searchQuery) params.append('search', searchQuery);
       if (selectedBranch) params.append('branchId', selectedBranch);
+      if (selectedLocation) params.append('locationId', selectedLocation);
       if (selectedCategory) params.append('categoryId', selectedCategory);
       if (selectedStatus) params.append('status', selectedStatus);
       if (selectedCustodian) params.append('custodianUid', selectedCustodian);
       if (selectedYear) params.append('year', selectedYear);
 
-      const [dashRes, branchRes, catRes, userRes] = await Promise.all([
+      const [dashRes, branchRes, catRes, userRes, locRes] = await Promise.all([
         fetchWithAuth(`/api/assets/dashboard?${params.toString()}`, token),
         fetchWithAuth('/api/branches', token).catch(() => ({ branches: [] })),
         fetchWithAuth('/api/assets/categories', token).catch(() => ({ categories: [] })),
-        fetchWithAuth('/api/users', token).catch(() => ([]))
+        fetchWithAuth('/api/users', token).catch(() => ({ users: [] })),
+        fetchWithAuth('/api/assets/locations', token).catch(() => ({ locations: [] }))
       ]);
 
       setDashboardData(dashRes);
       setBranchesList(branchRes.branches || branchRes || []);
       setCategoriesList(catRes.categories || []);
       setUsersList(Array.isArray(userRes) ? userRes : (userRes?.users || userRes?.data || []));
+      setLocationsList(locRes.locations || []);
     } catch (err) {
       console.error('Failed to load asset dashboard data:', err);
     } finally {
@@ -99,11 +104,12 @@ export default function AssetDashboard() {
 
   useEffect(() => {
     loadDashboardData();
-  }, [getToken, searchQuery, selectedBranch, selectedCategory, selectedStatus, selectedCustodian, selectedYear]);
+  }, [getToken, searchQuery, selectedBranch, selectedLocation, selectedCategory, selectedStatus, selectedCustodian, selectedYear]);
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedBranch('');
+    setSelectedLocation('');
     setSelectedCategory('');
     setSelectedStatus('');
     setSelectedCustodian('');
@@ -213,6 +219,17 @@ export default function AssetDashboard() {
           </select>
 
           <select
+            value={selectedLocation}
+            onChange={(e) => setSelectedLocation(e.target.value)}
+            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+          >
+            <option value="">All Asset Locations</option>
+            {locationsList.filter((l: any) => !selectedBranch || l.branchId === Number(selectedBranch)).map((l: any) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+
+          <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20"
@@ -260,7 +277,7 @@ export default function AssetDashboard() {
             ))}
           </select>
 
-          {(searchQuery || selectedBranch || selectedCategory || selectedStatus || selectedCustodian || selectedYear) && (
+          {(searchQuery || selectedBranch || selectedLocation || selectedCategory || selectedStatus || selectedCustodian || selectedYear) && (
             <button
               onClick={handleResetFilters}
               className="px-3 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors flex items-center gap-1 border border-rose-200"
