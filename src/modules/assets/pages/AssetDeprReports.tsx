@@ -10,6 +10,7 @@ import {
   FileText,
   BarChart3,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { useAuth } from "@/src/shared/components/AuthProvider";
 import { useCurrency } from "@/src/shared/components/SettingsProvider";
 import { fetchWithAuth } from "@/src/shared/lib/api";
@@ -140,40 +141,92 @@ export default function AssetDeprReports() {
       maximumFractionDigits: 2,
     })}`;
 
-  const exportSummaryCSV = () => {
+  const exportSummaryExcel = () => {
     if (!summaryData) return;
-    const headers = [
-      "Particulars","Rate %",
-      "Cost Opening","Cost Addition","Cost Disposal","Cost Closing",
-      "Depr Opening","Depr Charge","Depr Written Off","Depr Closing","WDV",
-    ];
-    const csvRows = summaryData.rows.map((r) => [
-      r.categoryName, r.ratePercent,
-      r.costOpeningBal, r.costAddition, r.costDisposal, r.costClosingBal,
-      r.deprOpeningBal, r.deprCharge, r.deprWrittenOff, r.deprClosingBal, r.wdv,
-    ]);
+    const excelRows = summaryData.rows.map((r, idx) => ({
+      "SL": idx + 1,
+      "Particulars / Category": r.categoryName,
+      "Cost Opening Bal": r.costOpeningBal,
+      "Cost Addition": r.costAddition,
+      "Cost Disposal": r.costDisposal,
+      "Cost Closing Bal": r.costClosingBal,
+      "Depr Rate %": r.ratePercent > 0 ? `${r.ratePercent}%` : "-",
+      "Depr Opening Bal": r.deprOpeningBal,
+      "Depr Charge": r.deprCharge,
+      "Depr Written Off": r.deprWrittenOff,
+      "Depr Closing Bal": r.deprClosingBal,
+      "WDV (Net Book Value)": r.wdv,
+    }));
+
     const t = summaryData.totals;
-    csvRows.push(["Total","",t.costOpeningBal,t.costAddition,t.costDisposal,t.costClosingBal,t.deprOpeningBal,t.deprCharge,t.deprWrittenOff,t.deprClosingBal,t.wdv]);
-    downloadCSV([headers, ...csvRows].map((r) => r.join(",")).join("\n"), `depr_summary_${startMonth}_${endMonth}.csv`);
+    excelRows.push({
+      "SL": "" as any,
+      "Particulars / Category": "Total",
+      "Cost Opening Bal": t.costOpeningBal,
+      "Cost Addition": t.costAddition,
+      "Cost Disposal": t.costDisposal,
+      "Cost Closing Bal": t.costClosingBal,
+      "Depr Rate %": "",
+      "Depr Opening Bal": t.deprOpeningBal,
+      "Depr Charge": t.deprCharge,
+      "Depr Written Off": t.deprWrittenOff,
+      "Depr Closing Bal": t.deprClosingBal,
+      "WDV (Net Book Value)": t.wdv,
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(excelRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Depreciation Summary");
+    XLSX.writeFile(workbook, `Depreciation_Summary_Report_${startMonth}_to_${endMonth}.xlsx`);
   };
 
-  const exportDetailCSV = () => {
+  const exportDetailExcel = () => {
     if (!detailData) return;
-    const headers = ["Date","FS Category","Description","Opening","Addition","Acc Dep","Net Cost","Year End","Rate %","Depreciation"];
-    const csvRows = detailData.rows.map((r) => [r.date,r.categoryName,r.description,r.opening,r.addition,r.accDep,r.netCost,r.yearEnd,r.rate,r.depreciation]);
-    downloadCSV([headers, ...csvRows].map((r) => r.join(",")).join("\n"), `depr_detailed_${startMonth}_${endMonth}.csv`);
+    const excelRows = detailData.rows.map((r, idx) => ({
+      "SL": idx + 1,
+      "Date": r.date,
+      "FS Category": r.categoryName,
+      "Asset Code": r.assetCode || "",
+      "Description": r.description,
+      "Opening Cost": r.opening,
+      "Addition": r.addition,
+      "Acc Depr": r.accDep,
+      "Net Cost": r.netCost,
+      "Year End": r.yearEnd,
+      "Rate %": r.rate > 0 ? `${r.rate}%` : "-",
+      "Depreciation Charge": r.depreciation,
+    }));
+
+    const t = detailData.totals;
+    excelRows.push({
+      "SL": "" as any,
+      "Date": "",
+      "FS Category": "Total",
+      "Asset Code": "",
+      "Description": "",
+      "Opening Cost": t.opening,
+      "Addition": 0,
+      "Acc Depr": 0,
+      "Net Cost": t.netCost,
+      "Year End": "",
+      "Rate %": "",
+      "Depreciation Charge": t.depreciation,
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(excelRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Depreciation Detailed");
+    XLSX.writeFile(workbook, `Depreciation_Detailed_Report_${startMonth}_to_${endMonth}.xlsx`);
   };
 
-  const downloadCSV = (csv: string, filename: string) => {
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
+  const handlePrint = () => {
+    window.print();
   };
+
+  const isCurrentTabHasData = activeTab === "summary" ? Boolean(summaryData) : Boolean(detailData);
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50 print:bg-white">
+    <div id="printable-depr-reports" className="flex flex-col min-h-screen bg-gray-50 print:bg-white printable-area">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 print:hidden">
         <div className="flex items-center justify-between">
@@ -187,15 +240,18 @@ export default function AssetDeprReports() {
             <h1 className="text-lg font-semibold text-gray-800">Depreciation Reports</h1>
           </div>
           <div className="flex items-center gap-2">
-            <button id="depr-reports-export-csv"
-              onClick={activeTab === "summary" ? exportSummaryCSV : exportDetailCSV}
-              disabled={!summaryData && !detailData}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors">
-              <Download className="w-4 h-4" />Export CSV
+            <button id="depr-reports-export-excel"
+              onClick={activeTab === "summary" ? exportSummaryExcel : exportDetailExcel}
+              disabled={!isCurrentTabHasData}
+              title={!isCurrentTabHasData ? "Generate a report first to export" : "Export to Excel (.xlsx)"}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-slate-700 shadow-sm">
+              <Download className="w-4 h-4 text-emerald-600" />Export Excel (.xlsx)
             </button>
-            <button id="depr-reports-print" onClick={() => window.print()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-              <Printer className="w-4 h-4" />Print
+            <button id="depr-reports-print" onClick={handlePrint}
+              disabled={!isCurrentTabHasData}
+              title={!isCurrentTabHasData ? "Generate a report first to print" : "Print Report"}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-slate-700 shadow-sm">
+              <Printer className="w-4 h-4 text-purple-600" />Print Report
             </button>
           </div>
         </div>
