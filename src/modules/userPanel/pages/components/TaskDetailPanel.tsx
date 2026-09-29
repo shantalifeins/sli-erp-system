@@ -11,7 +11,7 @@ interface TaskDetailPanelProps {
 }
 
 export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetailPanelProps) {
-  const { getToken, user } = useAuth();
+  const { getToken, user, dbUser } = useAuth();
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState('');
@@ -165,7 +165,7 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
           </div>
           
           <div className="flex items-center gap-1">
-            {task?.assignedByUid === user?.uid && (
+            {task?.assignedByUid === (dbUser?.uid || user?.id) && (
               <button 
                 onClick={handleDelete}
                 className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors"
@@ -210,7 +210,7 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
                 </div>
                 <div>
                   <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Assigned To</span>
-                  {task.assignedToUid === user?.uid ? (
+                  {task.assignedToUid === (dbUser?.uid || user?.id) ? (
                     <div className="w-full">
                       <SearchableSelect
                         value={task.assignedToUid}
@@ -277,11 +277,11 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
                 
                 <div className="space-y-4 mb-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                   {task.comments?.slice().reverse().map((c: any) => (
-                    <div key={c.id} className={`flex gap-3 ${c.authorUid === user?.uid ? 'flex-row-reverse' : ''}`}>
+                    <div key={c.id} className={`flex gap-3 ${c.authorUid === (dbUser?.uid || user?.id) ? 'flex-row-reverse' : ''}`}>
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center text-orange-700 font-bold text-xs flex-shrink-0 border border-orange-200">
                         {(c.author?.name || c.author?.email || 'U').charAt(0).toUpperCase()}
                       </div>
-                      <div className={`flex flex-col max-w-[75%] ${c.authorUid === user?.uid ? 'items-end' : 'items-start'}`}>
+                      <div className={`flex flex-col max-w-[75%] ${c.authorUid === (dbUser?.uid || user?.id) ? 'items-end' : 'items-start'}`}>
                         <div className="flex items-baseline gap-2 mb-1">
                           <span className="text-xs font-bold text-slate-700">{c.author?.name || c.author?.email || 'Unknown'}</span>
                           <span className="text-[10px] text-slate-400">
@@ -289,7 +289,7 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
                           </span>
                         </div>
                         <div className={`text-sm px-4 py-2 rounded-2xl ${
-                          c.authorUid === user?.uid 
+                          c.authorUid === (dbUser?.uid || user?.id) 
                             ? 'bg-brand-orange text-white rounded-tr-sm' 
                             : 'bg-slate-100 text-slate-700 rounded-tl-sm'
                         }`}>

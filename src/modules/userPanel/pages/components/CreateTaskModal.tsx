@@ -10,7 +10,7 @@ interface CreateTaskModalProps {
 }
 
 export default function CreateTaskModal({ onClose, onSuccess }: CreateTaskModalProps) {
-  const { getToken, user } = useAuth();
+  const { getToken, user, dbUser } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [error, setError] = useState('');
@@ -21,7 +21,7 @@ export default function CreateTaskModal({ onClose, onSuccess }: CreateTaskModalP
     priority: 'Medium',
     startDate: '',
     dueDate: '',
-    assignedToUid: user?.uid || ''
+    assignedToUid: dbUser?.uid || user?.id || ''
   });
 
   useEffect(() => {
