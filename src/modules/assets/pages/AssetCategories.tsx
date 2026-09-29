@@ -81,7 +81,7 @@ export default function AssetCategories() {
       defaultDepreciationMethod: category.defaultDepreciationMethod || 'Straight Line',
       defaultUsefulLifeMonths: category.defaultUsefulLifeMonths || 36,
       defaultSalvagePercent: category.defaultSalvagePercent || '0.00',
-      defaultDecliningRate: category.defaultDecliningRate || '0.00',
+      defaultDecliningRate: category.defaultDecliningRate ? (Number(category.defaultDecliningRate) * 100).toString() : '0.00',
       defaultMaintenanceInterval: category.defaultMaintenanceInterval || 'None',
       defaultMaintenanceType: category.defaultMaintenanceType || 'Preventive',
       fixedAssetAccount: category.fixedAssetAccount || '',
@@ -106,10 +106,15 @@ export default function AssetCategories() {
         : '/api/assets/categories';
       const method = editingCategory ? 'PUT' : 'POST';
 
+      const payload = { ...formData };
+      if (payload.defaultDecliningRate) {
+        payload.defaultDecliningRate = (Number(payload.defaultDecliningRate) / 100).toFixed(4);
+      }
+
       await fetchWithAuth(url, token, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       setShowForm(false);

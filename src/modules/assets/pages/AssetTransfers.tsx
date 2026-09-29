@@ -25,7 +25,7 @@ export default function AssetTransfers() {
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const getPermission = (menuName: string) => {
-    return permissions?.find((p: any) => p.menu === menuName);
+    return permissions?.find((p: any) => p.module === menuName);
   };
 
   const canView = isSuperAdmin || getPermission('Asset Transfers')?.canView;
@@ -368,16 +368,18 @@ export default function AssetTransfers() {
                   <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-1.5">
                     Destination Custodian
                   </label>
-                  <select
+                  <SearchableSelect
+                    options={[
+                      { label: 'No custodian change', value: '' },
+                      ...users.map(u => ({
+                        label: `${u.name || u.email} (${u.role || u.designation || 'User'})`,
+                        value: u.uid || String(u.id)
+                      }))
+                    ]}
                     value={toCustodianUid}
-                    onChange={(e) => setToCustodianUid(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-brand-orange outline-none bg-white"
-                  >
-                    <option value="">No custodian change</option>
-                    {users.map(u => (
-                      <option key={u.uid || u.id} value={u.uid || String(u.id)}>{u.name || u.email} ({u.role || u.designation || 'User'})</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setToCustodianUid(val)}
+                    placeholder="Select destination custodian..."
+                  />
                 </div>
               </div>
 

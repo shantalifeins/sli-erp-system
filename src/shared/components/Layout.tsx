@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown, MapPin } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown, MapPin, ListTodo } from 'lucide-react';
 
 
 import { cn } from '@/src/shared/lib/utils';
@@ -297,6 +297,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const userPanelMenus = [
     { name: 'Dashboard', href: '/user-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('User Dashboard')?.canView },
     { name: 'Global Tasks', href: '/inbox', icon: Bell, show: isSuperAdmin || getPermission('Global Tasks')?.canView },
+    { name: 'To-Do List', href: '/my-tasks', icon: ListTodo, show: isSuperAdmin || getPermission('To-Do List')?.canView !== false }, // Allow by default
     { name: 'Item Requisitions', href: '/item-requisition', icon: FileText, show: isSuperAdmin || getPermission('Item Requisitions')?.canView },
     { name: 'My Profile', href: '/profile', icon: UserIcon, show: isSuperAdmin || getPermission('My Profile')?.canView !== false }, // Allow by default unless explicitly denied
   ].filter(nav => nav.show !== false);

@@ -30,6 +30,7 @@ import ssoRouter from './src/modules/auth/api/sso.js';
 import profileChangeRouter from './src/modules/userPanel/api/profileChange.js';
 import assetsRouter from './src/modules/assets/api/routes.js';
 import assetReportsRouter from './src/modules/assets/api/reports.js';
+import todoRoutes from './src/modules/userPanel/api/todoRoutes.js';
 
 import { evaluateWorkflowPath } from './src/shared/lib/bpmnParser.js';
 import { hashPassword, verifyPassword, generateAuthToken } from './src/shared/lib/authUtils.js';
@@ -826,6 +827,7 @@ async function startServer() {
 
 // Mount User Panel routes (protected by auth and plugin check)
 app.use('/api/user-panel', requireAuth, checkPlugin('user-panel'), userPanelRoutes);
+app.use('/api/todo', requireAuth, checkPlugin('user-panel'), todoRoutes);
 app.use('/api/assets/reports', requireAuth, checkPlugin('asset-management'), assetReportsRouter);
 app.use('/api/assets', requireAuth, checkPlugin('asset-management'), assetsRouter);
 app.use('/api/inventory-reports', requireAuth, inventoryReportsRouter);

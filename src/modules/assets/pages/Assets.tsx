@@ -550,7 +550,7 @@ export default function Assets() {
                   </label>
                   <select
                     value={formData.branchId}
-                    onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, branchId: e.target.value, locationId: '' })}
                     className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
                   >
                     <option value="">Unassigned</option>
@@ -1006,6 +1006,15 @@ export default function Assets() {
                           }`}>
                             {asset.status}
                           </span>
+                          {(asset.lastVerificationStatus === 'Misplaced' || asset.lastVerificationStatus === 'Missing') && (
+                            <div className="mt-1.5 flex justify-center">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                                asset.lastVerificationStatus === 'Misplaced' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                              }`}>
+                                {asset.lastVerificationStatus === 'Misplaced' ? '⚠️ Misplaced' : '❌ Missing'}
+                              </span>
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-4 text-right flex items-center justify-end gap-1">
                           {asset.status === 'Draft' && (canApprove || canEdit) && (

@@ -195,7 +195,9 @@ export default function AssetReports() {
         const data = await fetchWithAuth('/api/assets/reports/valuation', token);
         setValuationData(data);
       } else if (activeTab === 'alerts') {
-        const data = await fetchWithAuth('/api/assets/reports/alerts', token);
+        const params = new URLSearchParams();
+        if (selectedLocation) params.append('locationId', selectedLocation);
+        const data = await fetchWithAuth(`/api/assets/reports/alerts?${params.toString()}`, token);
         setAlertsData(data);
       }
     } catch (err: any) {
@@ -373,22 +375,22 @@ export default function AssetReports() {
               </select>
             </div>
 
-            {activeTab === 'register' && (
-              <>
-                <div className="w-40 shrink-0">
-                  <select
-                    value={selectedLocation}
-                    onChange={(e) => setSelectedLocation(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange bg-white"
-                  >
-                    <option value="">All Locations</option>
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
-                </div>
+            {(activeTab === 'register' || activeTab === 'alerts') && (
+              <div className="w-40 shrink-0">
+                <select
+                  value={selectedLocation}
+                  onChange={(e) => setSelectedLocation(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange bg-white"
+                >
+                  <option value="">All Locations</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-                {selectedCategory && (
+            {activeTab === 'register' && selectedCategory && (
                   <>
                     <div className="w-36 shrink-0">
                       <select
@@ -430,9 +432,6 @@ export default function AssetReports() {
                     </div>
                   </>
                 )}
-              </>
-            )}
-
             {/* Status Filter */}
             <div className="w-40">
               <select

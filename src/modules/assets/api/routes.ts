@@ -847,7 +847,8 @@ router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRe
         qrCode: assets.qrCode,
         warrantyExpiryDate: assets.warrantyExpiryDate,
         nextMaintenanceDue: assets.nextMaintenanceDue,
-        createdAt: assets.createdAt
+        createdAt: assets.createdAt,
+        lastVerificationStatus: sql<string>`(SELECT verification_status FROM asset_verification_details WHERE asset_id = ${assets.id} ORDER BY created_at DESC LIMIT 1)`
       })
       .from(assets)
       .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))

@@ -129,7 +129,7 @@ export default function App() {
             <Route path="/admin/workflow-designer" element={<PrivateRoute><WorkflowDesigner /></PrivateRoute>} />
             {/* User Panel Routes */}
             <Route path="/user-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="user-panel"><UserDashboard /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/my-tasks" element={<Navigate to="/inbox" replace />} />
+
             <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, numeric, jsonb, uuid, uniqueIndex } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, numeric, jsonb, uuid, uniqueIndex, date } from 'drizzle-orm/pg-core';
 
 // --- Multi-Company & Plugins Architecture ---
 
@@ -976,5 +976,29 @@ export const asset_locations = pgTable('asset_locations', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// ==========================================
+// TO-DO LIST (USER PANEL)
+// ==========================================
 
+export const todo_tasks = pgTable('todo_tasks', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  priority: text('priority').default('Medium'), // Low, Medium, High
+  status: text('status').default('To Do'), // To Do, In Progress, Completed
+  assignedByUid: text('assigned_by_uid').references(() => users.uid, { onUpdate: 'cascade' }),
+  assignedToUid: text('assigned_to_uid').references(() => users.uid, { onUpdate: 'cascade' }),
+  startDate: date('start_date'),
+  dueDate: date('due_date'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
 
+export const todo_comments = pgTable('todo_comments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  taskId: uuid('task_id').references(() => todo_tasks.id, { onDelete: 'cascade' }).notNull(),
+  authorUid: text('author_uid').references(() => users.uid, { onUpdate: 'cascade' }).notNull(),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});

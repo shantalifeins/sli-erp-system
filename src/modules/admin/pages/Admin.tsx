@@ -155,6 +155,7 @@ export default function Admin() {
       menus: [
         { name: "User Dashboard", actions: ["canView"] },
         { name: "Global Tasks", actions: ["canView"] },
+        { name: "To-Do List", actions: ["canView", "canCreate", "canEdit", "canDelete", "canAssign"] },
         { name: "Item Requisitions", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "My Profile", actions: ["canView", "canEdit"] }
       ]

@@ -11,6 +11,8 @@ export default function UserDashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
   const [myAssets, setMyAssets] = useState<any[]>([]);
+  const [todoSummary, setTodoSummary] = useState<any>(null);
+  const [recentTodos, setRecentTodos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,12 +20,16 @@ export default function UserDashboard() {
       try {
         const token = await getToken();
         if (!token) return;
-        const [result, assetsResult] = await Promise.all([
+        const [result, assetsResult, todoSummResult, todoRecentResult] = await Promise.all([
           fetchWithAuth('/api/user-panel/dashboard', token),
-          fetchWithAuth('/api/assets/my-assets', token).catch(() => ({ assets: [] }))
+          fetchWithAuth('/api/assets/my-assets', token).catch(() => ({ assets: [] })),
+          fetchWithAuth('/api/todo/summary', token).catch(() => null),
+          fetchWithAuth('/api/todo?limit=5', token).catch(() => [])
         ]);
         setData(result);
         setMyAssets(assetsResult.assets || []);
+        setTodoSummary(todoSummResult);
+        setRecentTodos(Array.isArray(todoRecentResult) ? todoRecentResult : []);
       } catch (err) {
         console.error('Failed to load user dashboard:', err);
       } finally {
@@ -229,6 +235,85 @@ export default function UserDashboard() {
                 );
               })}
             </div>
+          </section>
+          
+          {/* To-Do Summary Section */}
+          <section>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-slate-400" />
+                My To-Do Tasks
+              </h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => navigate('/my-tasks')} className="text-sm font-medium text-brand-orange hover:text-orange-700 transition-colors">
+                  View All Tasks
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+              {[
+                { label: 'Total Tasks', value: todoSummary?.total || 0, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' },
+                { label: 'To Do', value: todoSummary?.toDo || 0, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+                { label: 'In Progress', value: todoSummary?.inProgress || 0, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
+                { label: 'Completed', value: todoSummary?.completed || 0, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+                { label: 'Overdue', value: todoSummary?.overdue || 0, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
+              ].map((stat, i) => (
+                <div key={i} className={`p-4 rounded-xl border ${stat.bg} cursor-pointer hover:shadow-md transition-shadow`} onClick={() => navigate('/my-tasks')}>
+                  <div className="text-2xl font-bold mb-1">{stat.value}</div>
+                  <div className={`text-[10px] font-bold uppercase tracking-wider ${stat.color}`}>{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {recentTodos.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    <tr>
+                      <th className="p-4">Task</th>
+                      <th className="p-4">Priority</th>
+                      <th className="p-4">Due Date</th>
+                      <th className="p-4 text-center">Status</th>
+                      <th className="p-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {recentTodos.map((todo) => (
+                      <tr key={todo.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="p-4 font-medium text-slate-900">{todo.title}</td>
+                        <td className="p-4">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            todo.priority === 'High' ? 'text-rose-600 bg-rose-50 border-rose-200' :
+                            todo.priority === 'Medium' ? 'text-amber-600 bg-amber-50 border-amber-200' :
+                            'text-emerald-600 bg-emerald-50 border-emerald-200'
+                          }`}>
+                            {todo.priority}
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          {todo.dueDate ? new Date(todo.dueDate).toLocaleDateString() : '-'}
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            todo.status === 'Completed' ? 'text-emerald-600 bg-emerald-50 border-emerald-200' :
+                            todo.status === 'In Progress' ? 'text-blue-600 bg-blue-50 border-blue-200' :
+                            'text-amber-600 bg-amber-50 border-amber-200'
+                          }`}>
+                            {todo.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right">
+                          <button onClick={() => navigate('/my-tasks')} className="text-brand-orange hover:text-orange-700 font-semibold text-xs transition-colors">
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
           <section>
             <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">

@@ -46,7 +46,7 @@ The `Layout` component provides both a side navigation bar and a **Top Module Na
 
 | Module | Active Route Matching | Sidebar & Top Tab Items |
 | :--- | :--- | :--- |
-| **User Panel** | `/user-dashboard`, `/inbox`, `/my-tasks`, `/item-requisition`, `/profile` | Dashboard, Global Tasks (`/inbox`), Item Requisitions, My Profile |
+| **User Panel** | `/user-dashboard`, `/inbox`, `/my-tasks`, `/item-requisition`, `/profile` | Dashboard, Global Tasks (`/inbox`), To-Do List (`/my-tasks`), Item Requisitions, My Profile |
 | **Administration** | `/admin/**` | System Settings (Companies, Workflows), User Settings (Depts, Units, Designations, Roles, Users, Org Chart) |
 | **Procurement** | `/procurement-dashboard`, `/purchase`, `/wo`, `/vendors`, `/rfq`, `/cs`, `/invoices`, `/procurement-report` | Dashboard, Purchase Requisitions, RFQ, Comparative Statement, Purchase Orders, Invoices & Payments, Reports |
 | **Inventory** | `/inventory-dashboard`, `/inventory`, `/grn`, `/qc`, `/stock-*`, `/requisition-list`, `/inventory-report` | Dashboard, Requisition List, Stock In, Stock Out, Stock Transfer, Transfer Receive, Goods Receipt (GRN), Inventory Reports, Inventory Settings |
