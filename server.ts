@@ -35,6 +35,7 @@ import procurementReportsRouter from './src/modules/procurement/api/reports.js';
 import ssoRouter from './src/modules/auth/api/sso.js';
 import profileChangeRouter from './src/modules/userPanel/api/profileChange.js';
 import assetsRouter from './src/modules/assets/api/routes.js';
+import digitalAssetsRouter from './src/modules/digitalAssets/api/routes.js';
 import assetReportsRouter from './src/modules/assets/api/reports.js';
 import todoRoutes from './src/modules/userPanel/api/todoRoutes.js';
 
@@ -849,7 +850,7 @@ app.use('/api/inventory-reports', requireAuth, inventoryReportsRouter);
 app.use('/api/procurement-reports', requireAuth, procurementReportsRouter);
 app.use('/api/auth/sso', ssoRouter);
 app.use('/api/profile/change-request', profileChangeRouter);
-import digitalAssetsRouter from './src/modules/digitalAssets/api/routes.js';
+
 app.use('/api/digital-assets', requireAuth, checkPlugin('asset-management'), digitalAssetsRouter);
 
 // â”€â”€â”€ User Profile API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -4228,7 +4229,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const grnId = grnItem[0].grnId;
       const grnRecord = await db.select().from(grn).where(eq(grn.id, grnId));
       const warehouseId = grnRecord[0]?.warehouseId;
-      const companyId = grnRecord[0]?.companyId;
+
 
       // Call centralized stock addition logic (handles both Physical & Digital Assets)
       await handleGrnStockAddition(companyId, warehouseId, grnItemId, newlyPassed, req.user.uid);
