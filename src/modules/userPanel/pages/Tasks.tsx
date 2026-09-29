@@ -7,8 +7,8 @@ import {
   Plus, Calendar, Flag, MessageSquare
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import CreateTaskModal from './components/CreateTaskModal';
-import TaskDetailPanel from './components/TaskDetailPanel';
+import CreateTaskModal from '@/src/modules/userPanel/pages/components/CreateTaskModal';
+import TaskDetailPanel from '@/src/modules/userPanel/pages/components/TaskDetailPanel';
 
 export default function UserPanelTasks() {
   const { getToken } = useAuth();
