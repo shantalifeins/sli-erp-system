@@ -6,6 +6,7 @@ import { Box, Plus, X, ArrowLeft, Upload } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
 import { BulkUploadModal } from '../components/BulkUploadModal';
+import { ItemForm } from '../components/ItemForm';
 
 export default function Inventory() {
   const { getToken, dbUser, permissions } = useAuth();
@@ -204,164 +205,26 @@ export default function Inventory() {
             <h3 className="text-lg font-bold text-slate-800">New Inventory Item</h3>
           </div>
           <div className="p-6 overflow-y-auto flex-1">
-          <form onSubmit={handleSubmit} className="space-y-4 max-w-3xl">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Item Code</label>
-                <input value={itemCode} onChange={e => setItemCode(e.target.value)} required className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Item Name</label>
-                <input value={name} onChange={e => setName(e.target.value)} required className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Category</label>
-                {!isNewCategory ? (
-                  <select 
-                    value={category} 
-                    onChange={e => {
-                      if (e.target.value === 'ADD_NEW') {
-                        setIsNewCategory(true);
-                        setCategory('');
-                      } else {
-                        handleCategoryChange(e.target.value);
-                      }
-                    }} 
-                    required 
-                    className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2 bg-white"
-                  >
-                    <option value="">-- Select Category --</option>
-                    {categories.map(c => (
-                      <option key={c.id} value={c.name}>{c.name}</option>
-                    ))}
-                    <option value="ADD_NEW" className="font-bold text-brand-orange">+ Add New Category</option>
-                  </select>
-                ) : (
-                  <div className="flex gap-2">
-                    <input 
-                      value={category} 
-                      onChange={e => handleCategoryChange(e.target.value)} 
-                      placeholder="Enter new category..." 
-                      required 
-                      className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" 
-                    />
-                    <button type="button" onClick={() => { setIsNewCategory(false); setCategory(''); }} className="px-2 text-slate-400 hover:text-slate-600 bg-slate-100 rounded border border-slate-200">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">UOM</label>
-                <select value={uom} onChange={e => setUom(e.target.value)} className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2 bg-white">
-                  <option value="Pcs">Pcs</option>
-                  <option value="Kg">Kg</option>
-                  <option value="Ltr">Ltr</option>
-                  <option value="Box">Box</option>
-                  <option value="Pack">Pack</option>
-                  <option value="Sft">Sft</option>
-                  <option value="Set">Set</option>
-                  <option value="Mtr">Mtr</option>
-                  <option value="Unit">Unit</option>
-                  <option value="Roll">Roll</option>
-                  <option value="Pair">Pair</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Base Price (per {uom})</label>
-                <input type="number" step="0.01" min="0" value={basePrice} onChange={e => setBasePrice(e.target.value)} placeholder="Optional" className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Location / Aisle</label>
-                <input value={location} onChange={e => setLocation(e.target.value)} className="block w-full rounded-md border-slate-200 shadow-sm focus:border-brand-orange focus:ring-brand-orange sm:text-sm border p-2" />
-              </div>
-            </div>
-            
-            <div className="space-y-3 mt-4">
-              <div className="flex items-center gap-2">
-                <input 
-                  type="checkbox" 
-                  id="isFixedAsset" 
-                  checked={isFixedAsset} 
-                  onChange={e => handleFixedAssetToggle(e.target.checked)} 
-                  className="rounded border-slate-300 text-brand-orange focus:ring-brand-orange h-4 w-4" 
-                />
-                <label htmlFor="isFixedAsset" className="text-sm font-semibold text-slate-700 cursor-pointer">
-                  Is Fixed Asset?
-                </label>
-              </div>
-
-              {isFixedAsset && (
-                <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-lg space-y-1.5">
-                  <label className="block text-[10px] font-bold text-purple-700 uppercase tracking-widest">
-                    Asset Category *
-                  </label>
-                  <select
-                    required={isFixedAsset}
-                    value={assetCategoryId}
-                    onChange={e => setAssetCategoryId(e.target.value)}
-                    className="block w-full rounded-md border-purple-200 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm border p-2 bg-white text-slate-800 font-medium"
-                  >
-                    <option value="">Select Fixed Asset Category...</option>
-                    {assetCategories.map(cat => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name} ({cat.code})
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-purple-600/90 font-medium">
-                    Selected category will automatically be assigned when auto-creating Fixed Assets upon GRN QC pass.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Item Type *</label>
-              <div className="flex gap-6 p-4 bg-slate-50 border border-slate-100 rounded-lg">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input 
-                    type="radio" 
-                    name="itemType" 
-                    required 
-                    checked={isAdminItem} 
-                    onChange={() => { setIsAdminItem(true); setIsItItem(false); }} 
-                    className="border-slate-300 text-brand-orange focus:ring-brand-orange w-4 h-4" 
-                  />
-                  <span className="text-sm font-medium text-slate-700">Admin Item</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input 
-                    type="radio" 
-                    name="itemType" 
-                    required 
-                    checked={isItItem} 
-                    onChange={() => { setIsItItem(true); setIsAdminItem(false); }} 
-                    className="border-slate-300 text-brand-orange focus:ring-brand-orange w-4 h-4" 
-                  />
-                  <span className="text-sm font-medium text-slate-700">IT Item</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-100">
-              <button 
-                type="button" 
-                onClick={() => setShowForm(false)} 
-                className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                type="submit" 
-                className="bg-brand-orange text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm hover:bg-[#e06214] transition-colors"
-              >
-                Save Item
-              </button>
-            </div>
-          </form>
+          
+        <ItemForm
+          initialData={{}} // We can wire this up properly later, for now just empty object since we don't have editingItem state setup
+          categories={categories}
+          assetCategories={assetCategories}
+          onSubmit={async (data: any) => {
+             try {
+                const token = await getToken();
+                const res = await fetchWithAuth('/api/inventory', token, { method: 'POST', body: JSON.stringify(data) });
+                if (res) {
+                   setShowForm(false);
+                   loadData();
+                }
+             } catch (e) {
+                console.error(e);
+             }
+          }}
+          onCancel={() => setShowForm(false)}
+        />
+        
           </div>
         </div>
       )}

@@ -530,8 +530,32 @@ export const inventory_items = pgTable('inventory_items', {
   isAdminItem: boolean('is_admin_item').default(false),
   isItItem: boolean('is_it_item').default(false),
   isDigitalAsset: boolean('is_digital_asset').default(false), // Digital Asset flag: true = no physical stock, no warehouse entry
-  requiresQc: boolean('requires_qc').default(false),          // QC flag: false = GRN auto-pass, true = manual QC required
-});
+    requiresQc: boolean('requires_qc').default(false),          // QC flag: false = GRN auto-pass, true = manual QC required
+  assetNature: text('asset_nature').default('Physical'),
+  usagePurpose: text('usage_purpose').default('Internal Use'),
+  accountingTreatment: text('accounting_treatment').default('Inventory'),
+  trackingRequired: boolean('tracking_required').default(false),
+  trackingMethod: text('tracking_method').default('None'),
+  receiptMode: text('receipt_mode').default('Physical Receipt'),
+  itemCategoryId: integer('item_category_id').references(() => item_categories.id),
+  capitalizationThreshold: numeric('capitalization_threshold'),
+  usefulLifeMonths: integer('useful_life_months'),
+  depreciationMethod: text('depreciation_method'),
+  salvagePercent: numeric('salvage_percent'),
+  digitalAssetType: text('digital_asset_type'),
+  defaultLicenseType: text('default_license_type'),
+  defaultBillingCycle: text('default_billing_cycle'),
+  defaultAmortizationMonths: integer('default_amortization_months'),
+  defaultCostCenterId: integer('default_cost_center_id').references(() => cost_centers.id),
+  status: text('status').default('Active'),
+  description: text('description'),
+  barcode: text('barcode'),
+  createdBy: text('created_by').references(() => users.uid, { onUpdate: 'cascade' }),
+  updatedBy: text('updated_by').references(() => users.uid, { onUpdate: 'cascade' }),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  invItemsCompanyCodeUnq: uniqueIndex('inv_items_company_code_unq').on(table.companyId, table.itemCode),
+}));
 
 export const stock_transactions = pgTable('stock_transactions', {
   id: serial('id').primaryKey(),

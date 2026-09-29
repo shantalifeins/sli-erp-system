@@ -4830,15 +4830,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   });
 
   // Inventory Endpoints
-  app.get("/api/inventory", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!requireTenant(companyId, res)) return;
-      if (!companyId) return res.json([]);
-      const items = await db.select().from(inventory_items).where(eq(inventory_items.companyId, companyId)).orderBy(desc(inventory_items.id));
-      res.json(items);
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to fetch inventory" });
+  
     }
   });
 
@@ -4854,11 +4846,164 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
+  
+  // --- PHASE 2: NEW ITEM MASTER API ---
+  app.get("/api/inventory", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      
+      const { status, nature, treatment, q, page, limit } = req.query;
+      let conditions = [eq(inventory_items.companyId, companyId)];
+      
+      if (status) conditions.push(eq(inventory_items.status, String(status)));
+      if (nature) conditions.push(eq(inventory_items.assetNature, String(nature)));
+      if (treatment) conditions.push(eq(inventory_items.accountingTreatment, String(treatment)));
+      if (q) conditions.push(ilike(inventory_items.name, `%${q}%`));
+      
+      const items = await db.select().from(inventory_items)
+        .where(and(...conditions))
+        .orderBy(desc(inventory_items.id));
+        
+      res.json(items);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch inventory" });
+    }
+  });
+
   app.post("/api/inventory", requireAuth, requirePermission('Inventory Items', 'canCreate'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
-      if (!companyId) return res.status(400).json({ error: "No company context" });
+      
+      const existing = await db.select().from(inventory_items).where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.itemCode, req.body.itemCode))).limit(1);
+      if (existing.length > 0) return res.status(409).json({ error: "Item Code already exists" });
+      
+      const payload = req.body;
+      delete payload.quantityInStock; // ensure it's not set here
+
+      const result = await db.insert(inventory_items).values({
+        companyId,
+        createdBy: req.user!.uid,
+        ...payload
+      }).returning();
+      res.json(result[0]);
+    } catch (error: any) {
+      console.error("DB Error:", error);
+      res.status(500).json({ error: "Failed to add inventory item" });
+    }
+  });
+
+  app.get("/api/inventory/:id", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      const { id } = req.params;
+      if(isNaN(Number(id))) return next('route'); // skip to other routes if not numeric
+      
+      const item = await db.select().from(inventory_items).where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.id, Number(id)))).limit(1);
+      if (item.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json(item[0]);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch item" });
+    }
+  });
+
+  app.put("/api/inventory/:id", requireAuth, requirePermission('Inventory Items', 'canEdit'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      const { id } = req.params;
+      
+      const existing = await db.select().from(inventory_items).where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.id, Number(id)))).limit(1);
+      if (existing.length === 0) return res.status(404).json({ error: "Not found" });
+      
+      const payload = req.body;
+      
+      // Immutability check
+      const immutableFields = ['assetNature', 'accountingTreatment', 'trackingMethod', 'receiptMode', 'uom'];
+      for (const field of immutableFields) {
+        if (payload[field] && payload[field] !== (existing[0] as any)[field]) {
+           // We might want to allow it if no usage exists, but strict for now
+           const transactions = await db.select({ count: count() }).from(stock_transactions).where(eq(stock_transactions.itemId, Number(id)));
+           if (transactions[0].count > 0) {
+             return res.status(409).json({ error: `Cannot change ${field} after item has been used` });
+           }
+        }
+      }
+
+      const result = await db.update(inventory_items).set({
+        ...payload,
+        updatedBy: req.user!.uid,
+        updatedAt: new Date()
+      }).where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.id, Number(id)))).returning();
+      
+      res.json(result[0]);
+    } catch (error: any) {
+      console.error("DB Error:", error);
+      res.status(500).json({ error: "Failed to update item" });
+    }
+  });
+
+  app.patch("/api/inventory/:id/status", requireAuth, requirePermission('Inventory Items', 'canEdit'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      const { id } = req.params;
+      const { status } = req.body;
+      
+      const result = await db.update(inventory_items).set({ status, updatedBy: req.user!.uid, updatedAt: new Date() })
+        .where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.id, Number(id)))).returning();
+      res.json(result[0]);
+    } catch (error: any) {
+      console.error("DB Error:", error);
+      res.status(500).json({ error: "Failed to update status" });
+    }
+  });
+
+  app.delete("/api/inventory/:id", requireAuth, requirePermission('Inventory Items', 'canDelete'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      const { id } = req.params;
+      
+      // Soft-block check (check stock_transactions)
+      const transactions = await db.select({ count: count() }).from(stock_transactions).where(eq(stock_transactions.itemId, Number(id)));
+      if (transactions[0].count > 0) {
+        return res.status(409).json({ error: "Cannot delete item. It has transaction history. Please deactivate it instead." });
+      }
+
+      await db.delete(inventory_items).where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.id, Number(id))));
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("DB Error:", error);
+      res.status(500).json({ error: "Failed to delete item" });
+    }
+  });
+
+  app.get("/api/inventory/:id/usage", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      const { id } = req.params;
+      
+      // Simple usage count mock (could aggregate PRs, POs, GRNs)
+      const transactions = await db.select({ count: count() }).from(stock_transactions).where(eq(stock_transactions.itemId, Number(id)));
+      
+      res.json({
+        transactionCount: transactions[0].count,
+        poCount: 0,
+        grnCount: 0
+      });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch usage" });
+    }
+  });
+  // --- END PHASE 2 NEW ROUTES ---
+
       const { itemCode, name, category, uom, quantityInStock, reorderLevel, location, isFixedAsset, assetCategoryId, basePrice, isAdminItem, isItItem } = req.body;
       const result = await db.insert(inventory_items).values({
         companyId,
