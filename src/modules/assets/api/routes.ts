@@ -1017,81 +1017,6 @@ router.delete('/locations/:id', requireAuth, checkPlugin('asset-management'), as
 });
 
 
-// GET /api/assets/:id — Get single asset by ID
-router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-
-    const { id } = req.params;
-
-    const [assetRecord] = await db
-      .select({
-        id: assets.id,
-        companyId: assets.companyId,
-        assetCode: assets.assetCode,
-        name: assets.name,
-        categoryId: assets.categoryId,
-        categoryName: asset_categories.name,
-        branchId: assets.branchId,
-        branchName: branches.name,
-        warehouseId: assets.warehouseId,
-        warehouseName: warehouses.name,
-        locationId: assets.locationId,
-        locationName: asset_locations.name,
-        brandId: assets.brandId,
-        brandName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.brandId})`,
-        modelId: assets.modelId,
-        modelName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.modelId})`,
-        specificationId: assets.specificationId,
-        specificationName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.specificationId})`,
-        uomId: assets.uomId,
-        uomName: sql<string>`(SELECT name FROM units WHERE id = ${assets.uomId})`,
-        sizeValue: assets.sizeValue,
-        custodianUid: assets.custodianUid,
-        custodianName: users.name,
-        departmentId: assets.departmentId,
-        departmentName: departments.name,
-        acquisitionDate: assets.acquisitionDate,
-        acquisitionCost: assets.acquisitionCost,
-        salvageValue: assets.salvageValue,
-        depreciationMethod: assets.depreciationMethod,
-        usefulLifeMonths: assets.usefulLifeMonths,
-        depreciationStartDate: assets.depreciationStartDate,
-        accumulatedDepreciation: assets.accumulatedDepreciation,
-        currentBookValue: assets.currentBookValue,
-        status: assets.status,
-        sourceType: assets.sourceType,
-        sourceGrnId: assets.sourceGrnId,
-        serialNumber: assets.serialNumber,
-        qrCode: assets.qrCode,
-        warrantyExpiryDate: assets.warrantyExpiryDate,
-        nextMaintenanceDue: assets.nextMaintenanceDue,
-        createdByUid: assets.createdByUid,
-        createdAt: assets.createdAt,
-        updatedAt: assets.updatedAt
-      })
-      .from(assets)
-      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
-      .leftJoin(branches, eq(assets.branchId, branches.id))
-      .leftJoin(warehouses, eq(assets.warehouseId, warehouses.id))
-      .leftJoin(asset_locations, eq(assets.locationId, asset_locations.id))
-      .leftJoin(users, eq(assets.custodianUid, users.uid))
-      .leftJoin(departments, eq(assets.departmentId, departments.id))
-      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
-      .limit(1);
-
-    if (!assetRecord) {
-      return res.status(404).json({ error: 'Asset not found' });
-    }
-
-    return res.json({ asset: assetRecord });
-  } catch (error: any) {
-    console.error('GET /api/assets/:id error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to fetch asset details' });
-  }
-});
-
 // POST /api/assets — Create asset with auto code generation AST-YYYYMMDD-XXXX
 router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
@@ -1313,90 +1238,6 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
   } catch (error: any) {
     console.error('POST /api/assets error:', error);
     return res.status(500).json({ error: error.message || 'Failed to create asset' });
-  }
-});
-
-// PUT /api/assets/:id — Update asset details
-router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-
-    const { id } = req.params;
-    const {
-      name,
-      categoryId,
-      branchId,
-      warehouseId,
-      custodianUid,
-      departmentId,
-      acquisitionCost,
-      salvageValue,
-      depreciationMethod,
-      decliningRate,
-      usefulLifeMonths,
-      depreciationStartDate,
-      serialNumber,
-      warrantyExpiryDate,
-      nextMaintenanceDue,
-      status,
-      locationId,
-      brandId,
-      modelId,
-      specificationId,
-      uomId,
-      sizeValue
-    } = req.body || {};
-
-    const [existingAsset] = await db
-      .select()
-      .from(assets)
-      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
-      .limit(1);
-
-    if (!existingAsset) {
-      return res.status(404).json({ error: 'Asset not found' });
-    }
-
-    const costNum = acquisitionCost !== undefined ? Number(acquisitionCost) : Number(existingAsset.acquisitionCost);
-    const accumNum = Number(existingAsset.accumulatedDepreciation || 0);
-    const updatedBookValue = String(costNum - accumNum);
-
-    const [updatedAsset] = await db
-      .update(assets)
-      .set({
-        name,
-        categoryId,
-        branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
-        locationId: locationId !== undefined ? (locationId ? locationId : null) : undefined,
-        brandId: brandId !== undefined ? (brandId ? brandId : null) : undefined,
-        modelId: modelId !== undefined ? (modelId ? modelId : null) : undefined,
-        specificationId: specificationId !== undefined ? (specificationId ? specificationId : null) : undefined,
-        uomId: uomId !== undefined ? (uomId ? Number(uomId) : null) : undefined,
-        sizeValue: sizeValue !== undefined ? (sizeValue ? sizeValue : null) : undefined,
-        warehouseId: warehouseId !== undefined ? (warehouseId ? Number(warehouseId) : null) : undefined,
-        custodianUid: custodianUid !== undefined ? (custodianUid ? custodianUid : null) : undefined,
-        departmentId: departmentId !== undefined ? (departmentId ? Number(departmentId) : null) : undefined,
-        acquisitionCost: acquisitionCost !== undefined ? String(costNum) : undefined,
-        salvageValue: salvageValue !== undefined ? String(salvageValue) : undefined,
-        depreciationMethod,
-        decliningRate: decliningRate !== undefined ? String(decliningRate) : undefined,
-        usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : undefined,
-        depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : undefined,
-        currentBookValue: updatedBookValue,
-        serialNumber,
-        warrantyExpiryDate: warrantyExpiryDate !== undefined ? (warrantyExpiryDate ? new Date(warrantyExpiryDate) : null) : undefined,
-        nextMaintenanceDue: nextMaintenanceDue !== undefined ? (nextMaintenanceDue ? new Date(nextMaintenanceDue) : null) : undefined,
-        status,
-        updatedAt: new Date()
-      })
-      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
-      .returning();
-
-    return res.json({ asset: updatedAsset });
-  } catch (error: any) {
-    console.error('PUT /api/assets/:id error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to update asset' });
   }
 });
 
@@ -2967,6 +2808,167 @@ router.get('/:id/disposals', requireAuth, checkPlugin('asset-management'), async
   }
 });
 
+
+
+// GET /api/assets/:id — Get single asset by ID
+router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+
+    const [assetRecord] = await db
+      .select({
+        id: assets.id,
+        companyId: assets.companyId,
+        assetCode: assets.assetCode,
+        name: assets.name,
+        categoryId: assets.categoryId,
+        categoryName: asset_categories.name,
+        branchId: assets.branchId,
+        branchName: branches.name,
+        warehouseId: assets.warehouseId,
+        warehouseName: warehouses.name,
+        locationId: assets.locationId,
+        locationName: asset_locations.name,
+        brandId: assets.brandId,
+        brandName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.brandId})`,
+        modelId: assets.modelId,
+        modelName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.modelId})`,
+        specificationId: assets.specificationId,
+        specificationName: sql<string>`(SELECT value FROM asset_attributes WHERE id = ${assets.specificationId})`,
+        uomId: assets.uomId,
+        uomName: sql<string>`(SELECT name FROM units WHERE id = ${assets.uomId})`,
+        sizeValue: assets.sizeValue,
+        custodianUid: assets.custodianUid,
+        custodianName: users.name,
+        departmentId: assets.departmentId,
+        departmentName: departments.name,
+        acquisitionDate: assets.acquisitionDate,
+        acquisitionCost: assets.acquisitionCost,
+        salvageValue: assets.salvageValue,
+        depreciationMethod: assets.depreciationMethod,
+        usefulLifeMonths: assets.usefulLifeMonths,
+        depreciationStartDate: assets.depreciationStartDate,
+        accumulatedDepreciation: assets.accumulatedDepreciation,
+        currentBookValue: assets.currentBookValue,
+        status: assets.status,
+        sourceType: assets.sourceType,
+        sourceGrnId: assets.sourceGrnId,
+        serialNumber: assets.serialNumber,
+        qrCode: assets.qrCode,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue,
+        createdByUid: assets.createdByUid,
+        createdAt: assets.createdAt,
+        updatedAt: assets.updatedAt
+      })
+      .from(assets)
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .leftJoin(branches, eq(assets.branchId, branches.id))
+      .leftJoin(warehouses, eq(assets.warehouseId, warehouses.id))
+      .leftJoin(asset_locations, eq(assets.locationId, asset_locations.id))
+      .leftJoin(users, eq(assets.custodianUid, users.uid))
+      .leftJoin(departments, eq(assets.departmentId, departments.id))
+      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
+      .limit(1);
+
+    if (!assetRecord) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    return res.json({ asset: assetRecord });
+  } catch (error: any) {
+    console.error('GET /api/assets/:id error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset details' });
+  }
+});
+
+
+// PUT /api/assets/:id — Update asset details
+router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+    const {
+      name,
+      categoryId,
+      branchId,
+      warehouseId,
+      custodianUid,
+      departmentId,
+      acquisitionCost,
+      salvageValue,
+      depreciationMethod,
+      decliningRate,
+      usefulLifeMonths,
+      depreciationStartDate,
+      serialNumber,
+      warrantyExpiryDate,
+      nextMaintenanceDue,
+      status,
+      locationId,
+      brandId,
+      modelId,
+      specificationId,
+      uomId,
+      sizeValue
+    } = req.body || {};
+
+    const [existingAsset] = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
+      .limit(1);
+
+    if (!existingAsset) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    const costNum = acquisitionCost !== undefined ? Number(acquisitionCost) : Number(existingAsset.acquisitionCost);
+    const accumNum = Number(existingAsset.accumulatedDepreciation || 0);
+    const updatedBookValue = String(costNum - accumNum);
+
+    const [updatedAsset] = await db
+      .update(assets)
+      .set({
+        name,
+        categoryId,
+        branchId: branchId !== undefined ? (branchId ? Number(branchId) : null) : undefined,
+        locationId: locationId !== undefined ? (locationId ? locationId : null) : undefined,
+        brandId: brandId !== undefined ? (brandId ? brandId : null) : undefined,
+        modelId: modelId !== undefined ? (modelId ? modelId : null) : undefined,
+        specificationId: specificationId !== undefined ? (specificationId ? specificationId : null) : undefined,
+        uomId: uomId !== undefined ? (uomId ? Number(uomId) : null) : undefined,
+        sizeValue: sizeValue !== undefined ? (sizeValue ? sizeValue : null) : undefined,
+        warehouseId: warehouseId !== undefined ? (warehouseId ? Number(warehouseId) : null) : undefined,
+        custodianUid: custodianUid !== undefined ? (custodianUid ? custodianUid : null) : undefined,
+        departmentId: departmentId !== undefined ? (departmentId ? Number(departmentId) : null) : undefined,
+        acquisitionCost: acquisitionCost !== undefined ? String(costNum) : undefined,
+        salvageValue: salvageValue !== undefined ? String(salvageValue) : undefined,
+        depreciationMethod,
+        decliningRate: decliningRate !== undefined ? String(decliningRate) : undefined,
+        usefulLifeMonths: usefulLifeMonths ? Number(usefulLifeMonths) : undefined,
+        depreciationStartDate: depreciationStartDate ? new Date(depreciationStartDate) : undefined,
+        currentBookValue: updatedBookValue,
+        serialNumber,
+        warrantyExpiryDate: warrantyExpiryDate !== undefined ? (warrantyExpiryDate ? new Date(warrantyExpiryDate) : null) : undefined,
+        nextMaintenanceDue: nextMaintenanceDue !== undefined ? (nextMaintenanceDue ? new Date(nextMaintenanceDue) : null) : undefined,
+        status,
+        updatedAt: new Date()
+      })
+      .where(and(eq(assets.id, id), eq(assets.companyId, companyId)))
+      .returning();
+
+    return res.json({ asset: updatedAsset });
+  } catch (error: any) {
+    console.error('PUT /api/assets/:id error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update asset' });
+  }
+});
 
 export default router;
 

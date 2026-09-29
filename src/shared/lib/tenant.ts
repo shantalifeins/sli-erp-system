@@ -15,16 +15,14 @@ export const resolveTenantId = async (req: AuthRequest | Request): Promise<strin
     if ((req.user as any).companyId) return (req.user as any).companyId;
   }
 
-  // Fallback to first company in database (e.g. for Super Admin without company_id)
-  try {
-    const fallbackCompany = await db.select({ id: companies.id }).from(companies).limit(1);
-    if (fallbackCompany.length > 0) {
-      return fallbackCompany[0].id;
-    }
-  } catch (err) {
-    console.error('resolveTenantId fallback error:', err);
-  }
-
   return undefined;
+};
+
+export const requireTenant = (companyId: string | undefined, res: any): boolean => {
+  if (!companyId) {
+    res.status(403).json({ error: 'Tenant context required' });
+    return false;
+  }
+  return true;
 };
 

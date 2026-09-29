@@ -53,8 +53,7 @@ export const requireAuth = async (
     const secretsToTry = Array.from(new Set([
       process.env.JWT_SECRET,
       process.env.SUPABASE_JWT_SECRET,
-      process.env.VITE_SUPABASE_ANON_KEY,
-      'sli_erp_secret_key_2026'
+      process.env.VITE_SUPABASE_ANON_KEY
     ].filter(Boolean))) as string[];
 
     for (const secret of secretsToTry) {
@@ -69,15 +68,7 @@ export const requireAuth = async (
       }
     }
 
-    // If secrets fail (e.g. Supabase token signed with external project secret), attempt token payload decoding & DB verification
-    if (!user) {
-      try {
-        const decoded = jwt.decode(token) as any;
-        if (decoded && (decoded.sub || decoded.uid || decoded.email)) {
-          user = { id: decoded.sub || decoded.uid, email: decoded.email };
-        }
-      } catch (decErr) {}
-    }
+    // If secrets fail (e.g. Supabase token signed with external project secret), wait for Supabase API fallback if configured
 
     if (!user) {
       // Last resort: query Supabase API if configured

@@ -1,5 +1,11 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
+
+// Startup Guard: Ensure security secrets are present
+if (!process.env.JWT_SECRET && !process.env.SUPABASE_JWT_SECRET && !process.env.VITE_SUPABASE_ANON_KEY) {
+  console.error('FATAL: JWT_SECRET or VITE_SUPABASE_ANON_KEY must be configured.');
+  if (process.env.NODE_ENV === 'production') process.exit(1);
+}
 import WebSocket from 'ws';
 if (typeof (globalThis as any).WebSocket === 'undefined') {
   (globalThis as any).WebSocket = WebSocket;
@@ -516,6 +522,14 @@ export const resolveTenantId = async (req: AuthRequest | express.Request): Promi
   return undefined;
 };
 
+export const requireTenant = (companyId: string | undefined, res: any): boolean => {
+  if (!companyId) {
+    res.status(403).json({ error: 'Tenant context required' });
+    return false;
+  }
+  return true;
+};
+
 import helmet from 'helmet';
 
 app.use(helmet());
@@ -835,6 +849,8 @@ app.use('/api/inventory-reports', requireAuth, inventoryReportsRouter);
 app.use('/api/procurement-reports', requireAuth, procurementReportsRouter);
 app.use('/api/auth/sso', ssoRouter);
 app.use('/api/profile/change-request', profileChangeRouter);
+import digitalAssetsRouter from './src/modules/digitalAssets/api/routes.js';
+app.use('/api/digital-assets', requireAuth, checkPlugin('asset-management'), digitalAssetsRouter);
 
 // â”€â”€â”€ User Profile API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // GET /api/profile â€“ current user's profile
@@ -1134,14 +1150,16 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       let companyId = await resolveTenantId(req);
       
       // TEMPORARY LOCAL FIX: If no company context is set in JWT, default to the first company
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) {
-          companyId = fallbackCompany[0].id;
-        } else {
-          return res.json({ plugins: [] });
-        }
+      if (!companyId && req.user?.role === 'Super Admin') {
+        // Super Admin gets all active plugins if no company specified
+        const activePlugins = await db
+          .select({ slug: plugins.slug, settings: company_plugins.settings })
+          .from(company_plugins)
+          .innerJoin(plugins, eq(company_plugins.pluginId, plugins.id))
+          .where(eq(company_plugins.status, 'active'));
+        return res.json({ plugins: activePlugins });
       }
+      if (!requireTenant(companyId, res)) return;
       
       const activePlugins = await db
         .select({ slug: plugins.slug, settings: company_plugins.settings })
@@ -1359,10 +1377,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/branches", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.json([]);
 
       const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId)).orderBy(branches.name);
@@ -1822,10 +1837,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/departments", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.json([]);
 
       const allDepts = await db.select().from(departments).where(eq(departments.companyId, companyId)).orderBy(departments.name);
@@ -1839,10 +1851,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/departments", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
 
       const { code, name, managerUid, parentId } = req.body;
@@ -1897,10 +1906,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/units", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.json([]);
 
       const allUnits = await db.select().from(units).where(eq(units.companyId, companyId)).orderBy(units.name);
@@ -1914,10 +1920,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/units", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
 
       const { code, name, departmentId, managerUid } = req.body;
@@ -2136,10 +2139,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/bpmn/definitions", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company required" });
       const { id, name, documentType, department, xmlData } = req.body;
       
@@ -2257,10 +2257,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/workflows/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       
       let workflow = [];
       if (companyId) {
@@ -3015,10 +3012,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/vendors/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const existingDbVendors = await db.select({ name: vendors.name, bin: vendors.bin, tin: vendors.tin, status: vendors.status })
@@ -3066,10 +3060,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/vendors/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const { fileData } = req.body;
@@ -4109,7 +4100,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const itemNames = poItemRecords.map(pi => pi.itemName);
         let itemIds: number[] = [];
         if (itemNames.length > 0) {
-          const invItems = await db.select().from(inventory_items).where(inArray(inventory_items.name, itemNames));
+          const invItems = await db.select().from(inventory_items).where(and(inArray(inventory_items.name, itemNames), eq(inventory_items.companyId, companyId)));
           itemIds = invItems.map(i => i.id);
         }
         const hasAccess = await verifyWarehouseAccess(dbUser.uid, dbUser.role, Number(warehouseId), itemIds);
@@ -4184,6 +4175,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
 
   app.post("/api/qc/inspection", requireAuth, async (req: AuthRequest, res) => {
     try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });
       const { grnItemId, inspectedQty, passedQty, failedQty, remarks } = req.body;
 
@@ -4197,7 +4190,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
         const poItemResult = await db.select().from(po_items).where(eq(po_items.id, grnItemResult[0].poItemId)).limit(1);
         let itemIds: number[] = [];
         if (poItemResult.length > 0) {
-           const invItems = await db.select().from(inventory_items).where(eq(inventory_items.name, poItemResult[0].itemName)).limit(1);
+           const invItems = await db.select().from(inventory_items).where(and(eq(inventory_items.name, poItemResult[0].itemName), eq(inventory_items.companyId, companyId))).limit(1);
            if (invItems.length > 0) itemIds.push(invItems[0].id);
         }
         
@@ -4636,10 +4629,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/inventory/categories", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.json([]);
       const categories = await db.select().from(item_categories).where(eq(item_categories.companyId, companyId)).orderBy(desc(item_categories.id));
       res.json(categories);
@@ -4652,10 +4642,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/inventory/categories", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
       const { name, description, status } = req.body;
       const result = await db.insert(item_categories).values({
@@ -4675,10 +4662,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/inventory/categories/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const existingCats = await db.select({ name: item_categories.name, description: item_categories.description, status: item_categories.status })
@@ -4722,10 +4706,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/inventory/categories/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const { fileData } = req.body;
@@ -4850,10 +4831,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/inventory", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.json([]);
       const items = await db.select().from(inventory_items).where(eq(inventory_items.companyId, companyId)).orderBy(desc(inventory_items.id));
       res.json(items);
@@ -4877,10 +4855,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/inventory", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
       const { itemCode, name, category, uom, quantityInStock, reorderLevel, location, isFixedAsset, assetCategoryId, basePrice, isAdminItem, isItItem } = req.body;
       const result = await db.insert(inventory_items).values({
@@ -4909,10 +4884,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/inventory/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       // Fetch existing item categories and asset categories for this company
@@ -4976,10 +4948,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/inventory/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(403).json({ error: "Company context required" });
 
       const { fileData } = req.body;
@@ -5737,11 +5706,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       } else {
         companyId = await resolveTenantId(req);
       }
-
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
 
       const updates = req.body; // Expecting { key1: value1, key2: value2 }
@@ -5840,10 +5805,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/units", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.json([]);
 
       const allUnits = await db.select().from(units).where(eq(units.companyId, companyId)).orderBy(units.name);
@@ -5857,10 +5819,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.post("/api/units", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
 
       const { code, name, departmentId, managerUid } = req.body;
@@ -5915,10 +5874,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   app.get("/api/admin/organogram/departments", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
-      if (!companyId) {
-        const fallbackCompany = await db.select().from(companies).limit(1);
-        if (fallbackCompany.length > 0) companyId = fallbackCompany[0].id;
-      }
+      if (!requireTenant(companyId, res)) return;
       if (!companyId) return res.status(400).json({ error: "No company context" });
 
       const allDepts = await db
@@ -7671,229 +7627,6 @@ async function handleGrnStockAddition(companyId: string, warehouseId: number, gr
     console.error('Error auto-registering asset on QC pass:', assetErr);
   }
 }
-
-  // ==========================================
-  // DIGITAL ASSETS API ROUTES (Phase 2/3)
-  // ==========================================
-
-  app.get("/api/digital-assets", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const assets = await db.select({
-        id: digital_assets.id,
-        assetCode: digital_assets.assetCode,
-        name: digital_assets.name,
-        assetType: digital_assets.assetType,
-        status: digital_assets.status,
-        acquisitionCost: digital_assets.acquisitionCost,
-        expiryDate: digital_assets.expiryDate,
-        vendorId: digital_assets.vendorId,
-        vendorName: vendors.name
-      })
-      .from(digital_assets)
-      .leftJoin(vendors, eq(digital_assets.vendorId, vendors.id))
-      .where(eq(digital_assets.companyId, companyId))
-      .orderBy(desc(digital_assets.createdAt));
-      res.json(assets);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to fetch digital assets" });
-    }
-  });
-
-  app.get("/api/digital-assets/:id", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { id } = req.params;
-      const asset = await db.select().from(digital_assets).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId))).limit(1);
-      if (asset.length === 0) return res.status(404).json({ error: "Not found" });
-      
-      const renewals = await db.select().from(digital_asset_renewals).where(eq(digital_asset_renewals.digitalAssetId, id)).orderBy(desc(digital_asset_renewals.renewalDate));
-      const usersList = await db.select({
-        id: digital_asset_users.id,
-        assignedUid: digital_asset_users.assignedUid,
-        userName: users.name,
-        userEmail: users.email,
-        assignedAt: digital_asset_users.assignedAt,
-        status: digital_asset_users.status
-      })
-      .from(digital_asset_users)
-      .leftJoin(users, eq(digital_asset_users.assignedUid, users.uid))
-      .where(eq(digital_asset_users.digitalAssetId, id));
-
-      const amortizations = await db.select().from(digital_asset_amortization).where(eq(digital_asset_amortization.digitalAssetId, id)).orderBy(desc(digital_asset_amortization.periodDate));
-
-      res.json({ ...asset[0], renewals, users: usersList, amortizations });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to fetch asset details" });
-    }
-  });
-
-  app.post("/api/digital-assets", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const payload = req.body;
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const assetCode = `DIG-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      const [newAsset] = await db.insert(digital_assets).values({
-        companyId,
-        assetCode,
-        name: payload.name,
-        assetType: payload.assetType || 'Software License',
-        vendorId: payload.vendorId || null,
-        departmentId: payload.departmentId || null,
-        custodianUid: payload.custodianUid || null,
-        licenseKeyEncrypted: payload.licenseKeyEncrypted || null,
-        portalUrl: payload.portalUrl || null,
-        activationDate: payload.activationDate ? new Date(payload.activationDate) : new Date(),
-        expiryDate: payload.expiryDate ? new Date(payload.expiryDate) : null,
-        acquisitionCost: String(payload.acquisitionCost || '0'),
-        currency: payload.currency || 'BDT',
-        status: payload.status || 'Active',
-        autoRenewal: payload.autoRenewal || false,
-        createdByUid: req.user!.uid
-      }).returning();
-
-      res.json(newAsset);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to create digital asset" });
-    }
-  });
-
-  app.put("/api/digital-assets/:id", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { id } = req.params;
-      const payload = req.body;
-
-      const [updatedAsset] = await db.update(digital_assets).set({
-        name: payload.name,
-        assetType: payload.assetType,
-        vendorId: payload.vendorId || null,
-        departmentId: payload.departmentId || null,
-        custodianUid: payload.custodianUid || null,
-        licenseKeyEncrypted: payload.licenseKeyEncrypted || null,
-        portalUrl: payload.portalUrl || null,
-        activationDate: payload.activationDate ? new Date(payload.activationDate) : undefined,
-        expiryDate: payload.expiryDate ? new Date(payload.expiryDate) : null,
-        acquisitionCost: payload.acquisitionCost ? String(payload.acquisitionCost) : undefined,
-        currency: payload.currency,
-        status: payload.status,
-        autoRenewal: payload.autoRenewal,
-        updatedAt: new Date()
-      }).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId))).returning();
-
-      res.json(updatedAsset);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to update digital asset" });
-    }
-  });
-
-  app.post("/api/digital-assets/:id/renew", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { id } = req.params;
-      const { renewalDate, newExpiryDate, amount, notes } = req.body;
-
-      const [renewal] = await db.insert(digital_asset_renewals).values({
-        companyId,
-        digitalAssetId: id,
-        renewalDate: new Date(renewalDate),
-        newExpiryDate: new Date(newExpiryDate),
-        amount: String(amount),
-        notes,
-        renewedByUid: req.user!.uid
-      }).returning();
-
-      await db.update(digital_assets).set({
-        expiryDate: new Date(newExpiryDate),
-        status: 'Active',
-        updatedAt: new Date()
-      }).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId)));
-
-      res.json(renewal);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to record renewal" });
-    }
-  });
-
-  app.post("/api/digital-assets/:id/users", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { id } = req.params;
-      const { assignedUid, assignedAt, notes } = req.body;
-
-      const [assetUser] = await db.insert(digital_asset_users).values({
-        companyId,
-        digitalAssetId: id,
-        assignedUid,
-        assignedAt: assignedAt ? new Date(assignedAt) : new Date(),
-        status: 'Active',
-        notes
-      }).returning();
-
-      res.json(assetUser);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to assign user" });
-    }
-  });
-
-  app.post("/api/digital-assets/users/:userId/revoke", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { userId } = req.params;
-      
-      const [revoked] = await db.update(digital_asset_users).set({
-        status: 'Revoked',
-        revokedAt: new Date()
-      }).where(and(eq(digital_asset_users.id, userId), eq(digital_asset_users.companyId, companyId))).returning();
-      
-      res.json(revoked);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to revoke user" });
-    }
-  });
-
-  app.post("/api/digital-assets/:id/amortize", requireAuth, async (req: AuthRequest, res) => {
-    try {
-      let companyId = await resolveTenantId(req);
-      if (!companyId) return res.status(403).json({ error: "Company required" });
-      const { id } = req.params;
-      const { periodNumber, periodDate, amortizationAmount, accumulatedAmortization, bookValueAfter } = req.body;
-
-      const [amort] = await db.insert(digital_asset_amortization).values({
-        companyId,
-        digitalAssetId: id,
-        periodNumber: Number(periodNumber),
-        periodDate: new Date(periodDate),
-        amortizationAmount: String(amortizationAmount),
-        accumulatedAmortization: String(accumulatedAmortization),
-        bookValueAfter: String(bookValueAfter),
-        status: 'Posted',
-        postedAt: new Date(),
-        postedByUid: req.user!.uid
-      }).returning();
-
-      res.json(amort);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to post amortization" });
-    }
-  });
 
 if (!process.env.VITEST && process.env.NODE_ENV !== "test") {
   startServer();

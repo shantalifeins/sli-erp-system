@@ -7,3 +7,9 @@ coverage/
 !.env.example
 
 .vercel
+
+# Temp & Logs
+repomix-output.xml
+*.bak
+debug.txt
+vercel-*.txt

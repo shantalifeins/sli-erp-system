@@ -16,7 +16,8 @@ Welcome to the **SLI ERP System**! This comprehensive guide provides developers 
 
 ### Multi-Tenancy Model
 - **Tenant Isolation**: Almost all tables contain a `companyId` (UUID) column.
-- **Middleware**: API requests parse the `x-tenant-id` header via `resolveTenantId(req)` in `server.ts` to restrict database queries strictly to the active company. Cross-tenant fallbacks are prohibited.
+- **Middleware Guard**: API requests parse the `x-tenant-id` header via `resolveTenantId(req)` in `server.ts`. Every endpoint enforcing tenant context calls `requireTenant(companyId, res)` to restrict database queries strictly to the active company. Cross-tenant fallbacks (defaulting to the first company) are strictly prohibited.
+- **Security Hardening**: The system implements a fail-fast approach on startup. If security secrets (`JWT_SECRET` or `VITE_SUPABASE_ANON_KEY`) are missing, the server will crash in production rather than utilizing hardcoded unsecure fallbacks. Additionally, `jwt.decode()` fallbacks are disabled in favor of proper signature verification.
 - **Role Isolation**: RBAC tables (`roles`, `role_permissions`) enforce a compound unique constraint (`companyId` + `name`) to prevent global role name collisions.
 - **Role Permission Customization**: The `hierarchy` array in `Admin.tsx` maps each menu strictly to the actions it supports in the frontend/backend. Toggling a module or menu level checkbox automatically checks all corresponding nested actions for rapid onboarding.
 
