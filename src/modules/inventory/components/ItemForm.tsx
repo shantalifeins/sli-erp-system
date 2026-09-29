@@ -1,10 +1,10 @@
 import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { inventoryItemSchema, InventoryItemPayload } from '../lib/itemSchema';
+import { inventoryItemSchema } from '../lib/itemSchema';
 
 export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, assetCategories }: any) {
-  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<InventoryItemPayload>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
     resolver: zodResolver(inventoryItemSchema),
     defaultValues: {
       itemCode: initialData.itemCode || '',

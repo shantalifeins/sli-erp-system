@@ -94,7 +94,13 @@ export const profile_change_requests = pgTable('profile_change_requests', {
   status: text('status').default('Pending'), // Pending, Approved, Rejected
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
-});
+  poId: integer('po_id').references(() => purchase_orders.id),
+  poItemId: integer('po_item_id').references(() => po_items.id),
+  sourceGrnItemId: integer('source_grn_item_id').references(() => grn_items.id),
+  unitIndex: integer('unit_index'),
+}, (table) => ({
+  assetsGrnItemUnitUnq: uniqueIndex('assets_grn_item_unit_unq').on(table.sourceGrnItemId, table.unitIndex),
+}));
 
 // Roles table (Dynamic Roles)
 export const roles = pgTable('roles', {
@@ -408,6 +414,13 @@ export const po_items = pgTable('po_items', {
   quantity: integer('quantity').notNull(),
   uom: text('uom').notNull(),
   unitPrice: numeric('unit_price').notNull(),
+  itemId: integer('item_id').references(() => inventory_items.id),
+  prItemId: integer('pr_item_id').references(() => pr_items.id),
+  lineNo: integer('line_no'),
+  receivedQuantity: integer('received_quantity').default(0),
+  invoicedQuantity: integer('invoiced_quantity').default(0),
+  taxRate: numeric('tax_rate').default('0'),
+  description: text('description'),
 });
 
 // Goods Receive Note (GRN)
@@ -432,6 +445,8 @@ export const grn_items = pgTable('grn_items', {
   status: text('status').default('Pending QC'), // Pending QC, Passed, Failed
   batchNumber: text('batch_number'), // Optional batch number from supplier
   expiryDate: timestamp('expiry_date'), // Optional expiry date for perishables
+  condition: text('condition'),
+  remarks: text('remarks'),
 });
 
 // QC Inspections
@@ -895,8 +910,14 @@ export const assets = pgTable('assets', {
   nextMaintenanceDue: timestamp('next_maintenance_due'),
   createdByUid: text('created_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
+    updatedAt: timestamp('updated_at').defaultNow(),
+  poId: integer('po_id').references(() => purchase_orders.id),
+  poItemId: integer('po_item_id').references(() => po_items.id),
+  sourceGrnItemId: integer('source_grn_item_id').references(() => grn_items.id),
+  unitIndex: integer('unit_index'),
+}, (table) => ({
+  assetsGrnItemUnitUnq: uniqueIndex('assets_grn_item_unit_unq').on(table.sourceGrnItemId, table.unitIndex),
+}));
 
 export const asset_depreciation_schedule = pgTable('asset_depreciation_schedule', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -1137,3 +1158,39 @@ export const digital_asset_amortization = pgTable('digital_asset_amortization', 
   postedByUid: text('posted_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// --- PHASE 3 ---
+export const grn_item_serials = pgTable('grn_item_serials', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  grnItemId: integer('grn_item_id').references(() => grn_items.id).notNull(),
+  serialNumber: text('serial_number').notNull(),
+}, (table) => ({
+  grnSerialsUnq: uniqueIndex('grn_serials_unq').on(table.companyId, table.serialNumber),
+}));
+
+export const digital_acceptances = pgTable('digital_acceptances', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  grnId: integer('grn_id').references(() => grn.id),
+  poItemId: integer('po_item_id').references(() => po_items.id),
+  acceptedByUid: text('accepted_by_uid').references(() => users.uid, { onUpdate: 'cascade' }),
+  acceptedAt: timestamp('accepted_at').defaultNow(),
+  licenseType: text('license_type'),
+  seats: integer('seats').default(1),
+  startDate: timestamp('start_date'),
+  endDate: timestamp('end_date'),
+  agreementRef: text('agreement_ref'),
+  entitlementRef: text('entitlement_ref'),
+  status: text('status').default('Pending'),
+});
+
+export const document_sequences = pgTable('document_sequences', {
+  id: serial('id').primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  docType: text('doc_type').notNull(),
+  year: integer('year').notNull(),
+  lastNo: integer('last_no').default(0),
+}, (table) => ({
+  docSeqUnq: uniqueIndex('doc_seq_unq').on(table.companyId, table.docType, table.year),
+}));

@@ -17,6 +17,7 @@ import { requireAuth, AuthRequest } from './src/shared/middleware/auth.js';
 import { checkPlugin } from './src/shared/middleware/checkPlugin.js';
 
 import { db } from './src/shared/db/index.js';
+import { receiptService } from './src/modules/inventory/services/receiptService.js';
 import { users, roles, purchase_requisitions, rfq, rfq_vendors, quotations, comparative_statements, purchase_orders, po_items, grn, grn_items, qc_inspections, invoices, payments, approval_workflows, pr_approvals, document_approvals, pr_items, role_permissions, departments, designations, system_settings, bpmn_definitions, bpmn_instances, inbox_tasks, warehouse_stock } from './src/shared/db/schema.js';
 import { vendors, inventory_items, notifications, notification_settings, smtp_settings, stock_transactions, item_categories, stock_out_requests, global_stock_ledger, digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from './src/shared/db/schema.js';
 import { plugins, companies, company_plugins, units, branches, warehouses, warehouse_managers, vendor_evaluations, stock_transfers, stock_transfer_items, profile_change_requests, work_orders } from './src/shared/db/schema.js';
@@ -7594,185 +7595,26 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
 // Helper function to handle stock addition and digital asset auto-creation
 async function handleGrnStockAddition(companyId: string, warehouseId: number, grnItemId: number, newlyPassed: number, reqUserUid: string) {
   if (newlyPassed <= 0 || !warehouseId || !companyId) return;
-  const grnItem = await db.select().from(grn_items).where(eq(grn_items.id, grnItemId));
-  if (!grnItem.length) return;
-  const poItem = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
-  if (!poItem.length) return;
-
-  const targetName = poItem[0].itemName.trim();
-  let inv = await db.select().from(inventory_items).where(
-    and(
-      eq(inventory_items.companyId, companyId),
-      ilike(inventory_items.name, targetName)
-    )
-  );
-
-  let invItemId: number;
-  let isDigitalAsset = false;
-  if (inv.length === 0) {
-    const [newInv] = await db.insert(inventory_items).values({
-      companyId,
-      itemCode: `ITEM-${Date.now()}`,
-      name: poItem[0].itemName,
-      category: (poItem[0] as any)?.category || 'General',
-      uom: poItem[0].uom || 'Pcs',
-      basePrice: String(poItem[0].unitPrice || '0.00'),
-      quantityInStock: 0 // Will add below
-    }).returning();
-    invItemId = newInv.id;
-    inv = [newInv];
-  } else {
-    invItemId = inv[0].id;
-    isDigitalAsset = inv[0].isDigitalAsset || false;
-  }
-
-  if (isDigitalAsset) {
-    // 1. Digital Asset Auto-Creation (Virtual GRN - Bypass physical stock)
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    for (let k = 0; k < newlyPassed; k++) {
-      const assetCode = `DIG-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
-      await db.insert(digital_assets).values({
-        companyId,
-        assetCode,
-        name: poItem[0].itemName.trim(),
-        assetType: 'Software License',
-        sourceGrnId: grnItem[0].grnId,
-        sourcePurchaseOrderId: poItem[0].poId,
-        acquisitionCost: String(poItem[0].unitPrice || '0.00'),
-        currency: 'BDT',
-        status: 'Draft',
-        inventoryItemId: invItemId,
-        createdByUid: reqUserUid
-      });
-    }
-    // Update Global quantity (license count tracker) and WAC
-    const currentQty = inv[0].quantityInStock || 0;
-    const currentPrice = Number(inv[0].basePrice || 0);
-    const incomingPrice = Number(poItem[0].unitPrice || 0);
-    const newTotalQty = currentQty + newlyPassed;
-    const newWac = newTotalQty > 0 ? ((currentQty * currentPrice) + (newlyPassed * incomingPrice)) / newTotalQty : currentPrice;
+  await db.transaction(async (tx) => {
+    const grnItemResult = await tx.select().from(grn_items).where(eq(grn_items.id, grnItemId));
+    if (!grnItemResult.length) return;
+    const grnResult = await tx.select().from(grn).where(eq(grn.id, grnItemResult[0].grnId));
+    if (!grnResult.length) return;
     
-    await db.update(inventory_items).set({
-      quantityInStock: newTotalQty,
-      basePrice: String(newWac.toFixed(2))
-    }).where(eq(inventory_items.id, invItemId));
-    
-    // Note: global_stock_ledger tracks cost without qty for digital, warehouse_stock skipped.
-    const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
-    if (gsl.length > 0) {
-       await db.update(global_stock_ledger).set({
-         totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
-         closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
-         lastUpdated: new Date()
-       }).where(eq(global_stock_ledger.id, gsl[0].id));
-    } else {
-       await db.insert(global_stock_ledger).values({
-         companyId, itemId: invItemId, openingBalance: 0, totalStockIn: newlyPassed, totalStockOut: 0, closingBalance: newlyPassed, lastUpdated: new Date()
-       });
-    }
-    return; // Stop here, digital assets don't enter physical warehouse stock
-  }
-
-  // --- Physical Asset/Consumable Flow ---
-  
-  // 1. Update Global quantityInStock & WAC
-  const currentQty = inv[0].quantityInStock || 0;
-  const currentPrice = Number(inv[0].basePrice || 0);
-  const incomingPrice = Number(poItem[0].unitPrice || 0);
-  const newTotalQty = currentQty + newlyPassed;
-  const newWac = newTotalQty > 0 ? ((currentQty * currentPrice) + (newlyPassed * incomingPrice)) / newTotalQty : currentPrice;
-
-  await db.update(inventory_items).set({
-    quantityInStock: newTotalQty,
-    basePrice: String(newWac.toFixed(2))
-  }).where(eq(inventory_items.id, invItemId));
-
-  // 2. Update warehouse_stock
-  const ws = await db.select().from(warehouse_stock).where(and(eq(warehouse_stock.warehouseId, warehouseId), eq(warehouse_stock.itemId, invItemId)));
-  if (ws.length > 0) {
-    await db.update(warehouse_stock).set({
-      quantity: (ws[0].quantity || 0) + newlyPassed,
-      lastUpdated: new Date()
-    }).where(eq(warehouse_stock.id, ws[0].id));
-  } else {
-    await db.insert(warehouse_stock).values({
+    await receiptService.processGrnAddition(
+      tx,
       companyId,
       warehouseId,
-      itemId: invItemId,
-      quantity: newlyPassed,
-      lastUpdated: new Date()
-    });
-  }
-
-  // 3. Update global_stock_ledger
-  const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
-  if (gsl.length > 0) {
-    await db.update(global_stock_ledger).set({
-      totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
-      closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
-      lastUpdated: new Date()
-    }).where(eq(global_stock_ledger.id, gsl[0].id));
-  } else {
-    await db.insert(global_stock_ledger).values({
-      companyId,
-      itemId: invItemId,
-      openingBalance: 0,
-      totalStockIn: newlyPassed,
-      totalStockOut: 0,
-      closingBalance: newlyPassed,
-      lastUpdated: new Date()
-    });
-  }
-
-  // 4. Auto-register Fixed Asset
-  try {
-    const isFixed = inv[0]?.isFixedAsset || (poItem[0] as any)?.category === 'Fixed Asset' || (inv[0]?.category && inv[0].category.toLowerCase().includes('asset'));
-    if (isFixed) {
-      let requesterUid: string | null = null;
-      const parentPo = await db.select().from(purchase_orders).where(eq(purchase_orders.id, poItem[0].poId)).limit(1);
-      if (parentPo.length > 0 && parentPo[0].prId) {
-        const parentPr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPo[0].prId)).limit(1);
-        if (parentPr.length > 0) {
-          if (parentPr[0].sourceIrId) {
-            const originalIr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPr[0].sourceIrId)).limit(1);
-            if (originalIr.length > 0) requesterUid = originalIr[0].uid || (originalIr[0] as any).createdBy || null;
-          }
-          if (!requesterUid) requesterUid = parentPr[0].uid || (parentPr[0] as any).createdBy || null;
-        }
-      }
-
-      let assetCatId = inv[0]?.assetCategoryId;
-      if (!assetCatId) {
-        const catList = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
-        if (catList.length > 0) assetCatId = catList[0].id;
-      }
-
-      if (assetCatId) {
-        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        for (let k = 0; k < newlyPassed; k++) {
-          const assetCode = `AST-IR-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
-          await db.insert(assets).values({
-            companyId,
-            assetCode,
-            name: poItem[0].itemName.trim(),
-            categoryId: assetCatId,
-            warehouseId,
-            custodianUid: requesterUid || null,
-            acquisitionDate: new Date(),
-            acquisitionCost: String(poItem[0].unitPrice || '0.00'),
-            salvageValue: '0.00',
-            currentBookValue: String(poItem[0].unitPrice || '0.00'),
-            status: 'Active',
-            sourceType: 'GRN',
-            sourceGrnId: grnItem[0].grnId,
-            createdByUid: reqUserUid
-          });
-        }
-      }
-    }
-  } catch (assetErr) {
-    console.error('Error auto-registering asset on QC pass:', assetErr);
-  }
+      grnResult[0].id,
+      grnResult[0].grnNumber,
+      reqUserUid,
+      [{
+         grnItemId,
+         poItemId: grnItemResult[0].poItemId,
+         passedQty: newlyPassed
+      }]
+    );
+  });
 }
 
 if (!process.env.VITEST && process.env.NODE_ENV !== "test") {
