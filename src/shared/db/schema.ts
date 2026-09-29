@@ -529,6 +529,8 @@ export const inventory_items = pgTable('inventory_items', {
   basePrice: numeric('base_price'),
   isAdminItem: boolean('is_admin_item').default(false),
   isItItem: boolean('is_it_item').default(false),
+  isDigitalAsset: boolean('is_digital_asset').default(false), // Digital Asset flag: true = no physical stock, no warehouse entry
+  requiresQc: boolean('requires_qc').default(false),          // QC flag: false = GRN auto-pass, true = manual QC required
 });
 
 export const stock_transactions = pgTable('stock_transactions', {
@@ -1000,5 +1002,114 @@ export const todo_comments = pgTable('todo_comments', {
   taskId: uuid('task_id').references(() => todo_tasks.id, { onDelete: 'cascade' }).notNull(),
   authorUid: text('author_uid').references(() => users.uid, { onUpdate: 'cascade' }).notNull(),
   body: text('body').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// --- Digital Asset Management Tables ---
+
+export const digital_assets = pgTable('digital_assets', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+
+  // Identity
+  assetCode: text('asset_code').notNull().unique(), // DIG-YYYYMMDD-XXXX
+  name: text('name').notNull(),
+  assetType: text('asset_type').notNull(),
+  // 'Software License' | 'SaaS Subscription' | 'Cloud Service' | 'Domain/Hosting' | 'API Service' | 'Security Certificate' | 'Other'
+
+  // Links
+  vendorId: integer('vendor_id').references(() => vendors.id),
+  inventoryItemId: integer('inventory_item_id').references(() => inventory_items.id),
+  sourceGrnId: integer('source_grn_id').references(() => grn.id),
+  sourcePurchaseOrderId: integer('source_po_id').references(() => purchase_orders.id),
+
+  // Custodian
+  custodianUid: text('custodian_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  departmentId: integer('department_id').references(() => departments.id),
+  branchId: integer('branch_id').references(() => branches.id),
+
+  // License info
+  licenseType: text('license_type'), // 'Perpetual' | 'Subscription' | 'Trial' | 'Open Source' | 'Enterprise'
+  totalSeats: integer('total_seats').default(1),
+  usedSeats: integer('used_seats').default(0),
+
+  // Billing
+  billingCycle: text('billing_cycle').default('One-Time'), // 'One-Time' | 'Monthly' | 'Quarterly' | 'Half-Yearly' | 'Annually'
+  acquisitionCost: numeric('acquisition_cost').default('0.00'),
+  recurringCost: numeric('recurring_cost').default('0.00'),
+  currency: text('currency').default('BDT'),
+
+  // Validity
+  activationDate: timestamp('activation_date'),
+  expiryDate: timestamp('expiry_date'),
+  autoRenewal: boolean('auto_renewal').default(false),
+  renewalReminderDays: integer('renewal_reminder_days').default(30),
+
+  // Access info (sensitive — encrypted at app layer)
+  portalUrl: text('portal_url'),
+  loginEmail: text('login_email'),
+  licenseKeyEncrypted: text('license_key_encrypted'),
+  apiKeyEncrypted: text('api_key_encrypted'),
+  notes: text('notes'),
+
+  // Amortization
+  amortizationMonths: integer('amortization_months'), // null = no amortization (one-time expense)
+  amortizationGlAccount: text('amortization_gl_account'),
+  prepaidGlAccount: text('prepaid_gl_account'),
+
+  status: text('status').default('Draft').notNull(),
+  // 'Draft' | 'Active' | 'Expired' | 'Suspended' | 'Cancelled' | 'Pending Renewal'
+
+  createdByUid: text('created_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const digital_asset_renewals = pgTable('digital_asset_renewals', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  digitalAssetId: uuid('digital_asset_id').references(() => digital_assets.id, { onDelete: 'cascade' }).notNull(),
+
+  renewalDate: timestamp('renewal_date').notNull(),
+  amount: numeric('amount').notNull(),
+  currency: text('currency').default('BDT'),
+
+  // Payment link (GRN-less invoice flow)
+  invoiceId: integer('invoice_id').references(() => invoices.id),
+  paymentId: integer('payment_id').references(() => payments.id),
+
+  newExpiryDate: timestamp('new_expiry_date').notNull(),
+  renewedByUid: text('renewed_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
+  notes: text('notes'),
+  status: text('status').default('Scheduled').notNull(),
+  // 'Scheduled' | 'Paid' | 'Overdue' | 'Cancelled'
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const digital_asset_users = pgTable('digital_asset_users', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  digitalAssetId: uuid('digital_asset_id').references(() => digital_assets.id, { onDelete: 'cascade' }).notNull(),
+  assignedUid: text('assigned_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }).notNull(),
+  assignedAt: timestamp('assigned_at').defaultNow(),
+  revokedAt: timestamp('revoked_at'),
+  status: text('status').default('Active').notNull(), // 'Active' | 'Revoked'
+  notes: text('notes'),
+});
+
+export const digital_asset_amortization = pgTable('digital_asset_amortization', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  digitalAssetId: uuid('digital_asset_id').references(() => digital_assets.id, { onDelete: 'cascade' }).notNull(),
+
+  periodNumber: integer('period_number').notNull(),      // 1, 2, 3 ...
+  periodDate: timestamp('period_date').notNull(),         // Month start date
+  amortizationAmount: numeric('amortization_amount').notNull(),
+  accumulatedAmortization: numeric('accumulated_amortization').notNull(),
+  bookValueAfter: numeric('book_value_after').notNull(),  // Remaining prepaid balance
+
+  status: text('status').default('Scheduled').notNull(), // 'Scheduled' | 'Posted' | 'Cancelled'
+  postedAt: timestamp('posted_at'),
+  postedByUid: text('posted_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow(),
 });

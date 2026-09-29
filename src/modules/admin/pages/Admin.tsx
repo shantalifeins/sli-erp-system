@@ -173,7 +173,13 @@ export default function Admin() {
         { name: "Asset Disposal", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] },
         { name: "Asset Reports", actions: ["canView"] },
-        { name: "Depreciation Reports", actions: ["canView"] }
+        { name: "Depreciation Reports", actions: ["canView"] },
+        // --- Digital Assets Submenu Permissions ---
+        { name: "Digital Asset Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
+        { name: "Digital Subscriptions", actions: ["canView", "canCreate", "canEdit"] },
+        { name: "License Vault", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
+        { name: "Digital Amortization", actions: ["canView", "canCreate"] },
+        { name: "Digital Asset Reports", actions: ["canView"] },
       ]
     }
   ];

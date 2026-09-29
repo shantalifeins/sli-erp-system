@@ -306,6 +306,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Asset Dashboard')?.canView || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Management')?.canView },
     { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
     { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
+    {
+      name: 'Digital Assets',
+      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView || getPermission('Digital Asset Reports')?.canView,
+      icon: Network,
+      subMenus: [
+        { name: 'Register', href: '/digital-assets', icon: Box, show: isSuperAdmin || getPermission('Digital Asset Register')?.canView },
+        { name: 'Subscriptions', href: '/digital-assets/subscriptions', icon: Layers, show: isSuperAdmin || getPermission('Digital Subscriptions')?.canView },
+        { name: 'License Vault', href: '/digital-assets/vault', icon: Shield, show: isSuperAdmin || getPermission('License Vault')?.canView },
+        { name: 'Amortization', href: '/digital-assets/amortization', icon: TrendingDown, show: isSuperAdmin || getPermission('Digital Amortization')?.canView },
+        { name: 'Reports', href: '/digital-assets/reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Digital Asset Reports')?.canView }
+      ]
+    },
     { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
     { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
     { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },

@@ -12,7 +12,7 @@ import { checkPlugin } from './src/shared/middleware/checkPlugin.js';
 
 import { db } from './src/shared/db/index.js';
 import { users, roles, purchase_requisitions, rfq, rfq_vendors, quotations, comparative_statements, purchase_orders, po_items, grn, grn_items, qc_inspections, invoices, payments, approval_workflows, pr_approvals, document_approvals, pr_items, role_permissions, departments, designations, system_settings, bpmn_definitions, bpmn_instances, inbox_tasks, warehouse_stock } from './src/shared/db/schema.js';
-import { vendors, inventory_items, notifications, notification_settings, smtp_settings, stock_transactions, item_categories, stock_out_requests, global_stock_ledger } from './src/shared/db/schema.js';
+import { vendors, inventory_items, notifications, notification_settings, smtp_settings, stock_transactions, item_categories, stock_out_requests, global_stock_ledger, digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from './src/shared/db/schema.js';
 import { plugins, companies, company_plugins, units, branches, warehouses, warehouse_managers, vendor_evaluations, stock_transfers, stock_transfer_items, profile_change_requests, work_orders } from './src/shared/db/schema.js';
 // Phase 1 new table imports
 import { stock_reservations, physical_stock_counts, physical_count_details, stock_adjustments, vendor_quality_metrics, stock_consumption_history, rejected_item_dispositions } from './src/shared/db/schema.js';
@@ -4130,13 +4130,45 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const newGrnId = grnResult[0].id;
 
       if (items && items.length > 0) {
-        const insertItems = items.map((i: any) => ({
-          grnId: newGrnId,
-          poItemId: i.poItemId,
-          quantityReceived: i.quantityReceived,
-          status: 'Pending QC'
-        }));
-        await db.insert(grn_items).values(insertItems);
+        let allPassed = true;
+        for (const i of items) {
+          let requiresQc = true;
+          const poItemRecord = await db.select().from(po_items).where(eq(po_items.id, i.poItemId)).limit(1);
+          if (poItemRecord.length > 0) {
+            const invRecord = await db.select().from(inventory_items).where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, poItemRecord[0].itemName.trim()))).limit(1);
+            if (invRecord.length > 0 && invRecord[0].requiresQc === false) {
+              requiresQc = false;
+            }
+          }
+
+          const [newGrnItem] = await db.insert(grn_items).values({
+            grnId: newGrnId,
+            poItemId: i.poItemId,
+            quantityReceived: i.quantityReceived,
+            status: requiresQc ? 'Pending QC' : 'Passed'
+          }).returning();
+
+          if (!requiresQc) {
+            // Auto-create QC record for audit trail
+            await db.insert(qc_inspections).values({
+              grnItemId: newGrnItem.id,
+              inspectedQty: i.quantityReceived,
+              passedQty: i.quantityReceived,
+              failedQty: 0,
+              remarks: 'Auto-passed (QC not required)',
+              inspectedBy: req.user!.uid
+            });
+            // Update stock and create digital asset if applicable
+            await handleGrnStockAddition(companyId, warehouseId, newGrnItem.id, i.quantityReceived, req.user!.uid);
+          } else {
+            allPassed = false;
+          }
+        }
+        
+        // If all items in this GRN bypassed QC, mark GRN as QC Completed
+        if (allPassed) {
+          await db.update(grn).set({ status: 'QC Completed' }).where(eq(grn.id, newGrnId));
+        }
       }
 
       await db.update(purchase_orders).set({ status: 'Delivered' }).where(eq(purchase_orders.id, poId));
@@ -4205,142 +4237,8 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
       const warehouseId = grnRecord[0]?.warehouseId;
       const companyId = grnRecord[0]?.companyId;
 
-      if (newlyPassed > 0 && warehouseId && companyId) {
-        const poItem = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
-        if (poItem.length > 0) {
-          const targetName = poItem[0].itemName.trim();
-          let inv = await db.select().from(inventory_items).where(
-            and(
-              eq(inventory_items.companyId, companyId),
-              ilike(inventory_items.name, targetName)
-            )
-          );
-
-          let invItemId: number;
-          if (inv.length === 0) {
-            const [newInv] = await db.insert(inventory_items).values({
-              companyId,
-              itemCode: `ITEM-${Date.now()}`,
-              name: poItem[0].itemName,
-              category: (poItem[0] as any)?.category || 'General',
-              uom: poItem[0].uom || 'Pcs',
-              basePrice: String(poItem[0].unitPrice || '0.00'),
-              quantityInStock: newlyPassed
-            }).returning();
-            invItemId = newInv.id;
-          } else {
-            invItemId = inv[0].id;
-            // 1. Update Global quantityInStock & Weighted Average Costing (WAC)
-            const currentQty = inv[0].quantityInStock || 0;
-            const currentPrice = Number(inv[0].basePrice || 0);
-            const incomingPrice = Number(poItem[0].unitPrice || 0);
-            const newTotalQty = currentQty + newlyPassed;
-            const newWac = newTotalQty > 0 ? ((currentQty * currentPrice) + (newlyPassed * incomingPrice)) / newTotalQty : currentPrice;
-
-            await db.update(inventory_items).set({
-              quantityInStock: newTotalQty,
-              basePrice: String(newWac.toFixed(2))
-            }).where(eq(inventory_items.id, invItemId));
-          }
-
-          // 2. Update warehouse_stock
-          const ws = await db.select().from(warehouse_stock).where(and(eq(warehouse_stock.warehouseId, warehouseId), eq(warehouse_stock.itemId, invItemId)));
-          if (ws.length > 0) {
-            await db.update(warehouse_stock).set({
-              quantity: (ws[0].quantity || 0) + newlyPassed,
-              lastUpdated: new Date()
-            }).where(eq(warehouse_stock.id, ws[0].id));
-          } else {
-            await db.insert(warehouse_stock).values({
-              companyId,
-              warehouseId,
-              itemId: invItemId,
-              quantity: newlyPassed,
-              lastUpdated: new Date()
-            });
-          }
-
-            // 3. Update global_stock_ledger
-            const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
-            if (gsl.length > 0) {
-              await db.update(global_stock_ledger).set({
-                totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
-                closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
-                lastUpdated: new Date()
-              }).where(eq(global_stock_ledger.id, gsl[0].id));
-            } else {
-              await db.insert(global_stock_ledger).values({
-                companyId,
-                itemId: invItemId,
-                openingBalance: 0,
-                totalStockIn: newlyPassed,
-                totalStockOut: 0,
-                closingBalance: newlyPassed,
-                lastUpdated: new Date()
-              });
-            }
-
-            // 4. Auto-register Fixed Asset & Auto-assign Custodian if item is a Fixed Asset
-            try {
-              const currentInv = await db.select().from(inventory_items).where(eq(inventory_items.id, invItemId)).limit(1);
-              const isFixed = currentInv[0]?.isFixedAsset || (poItem[0] as any)?.category === 'Fixed Asset' || (currentInv[0]?.category && currentInv[0].category.toLowerCase().includes('asset'));
-
-              if (isFixed) {
-                // Trace PO -> PR -> Original IR / Requester
-                let requesterUid: string | null = null;
-                const parentPo = await db.select().from(purchase_orders).where(eq(purchase_orders.id, poItem[0].poId)).limit(1);
-                if (parentPo.length > 0 && parentPo[0].prId) {
-                  const parentPr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPo[0].prId)).limit(1);
-                  if (parentPr.length > 0) {
-                    if (parentPr[0].sourceIrId) {
-                      const originalIr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPr[0].sourceIrId)).limit(1);
-                      if (originalIr.length > 0) {
-                        requesterUid = originalIr[0].uid || (originalIr[0] as any).createdBy || null;
-                      }
-                    }
-                    if (!requesterUid) {
-                      requesterUid = parentPr[0].uid || (parentPr[0] as any).createdBy || null;
-                    }
-                  }
-                }
-
-                // Match or find asset category
-                let assetCatId = currentInv[0]?.assetCategoryId;
-                if (!assetCatId) {
-                  const catList = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
-                  if (catList.length > 0) {
-                    assetCatId = catList[0].id;
-                  }
-                }
-
-                if (assetCatId) {
-                  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-                  for (let k = 0; k < newlyPassed; k++) {
-                    const assetCode = `AST-IR-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
-                    await db.insert(assets).values({
-                      companyId,
-                      assetCode,
-                      name: poItem[0].itemName.trim(),
-                      categoryId: assetCatId,
-                      warehouseId,
-                      custodianUid: requesterUid || null,
-                      acquisitionDate: new Date(),
-                      acquisitionCost: String(poItem[0].unitPrice || '0.00'),
-                      salvageValue: '0.00',
-                      currentBookValue: String(poItem[0].unitPrice || '0.00'),
-                      status: 'Active',
-                      sourceType: 'GRN',
-                      sourceGrnId: grnId,
-                      createdByUid: req.user.uid
-                    });
-                  }
-                }
-              }
-            } catch (assetErr) {
-              console.error('Error auto-registering asset on QC pass:', assetErr);
-            }
-          }
-        }
+      // Call centralized stock addition logic (handles both Physical & Digital Assets)
+      await handleGrnStockAddition(companyId, warehouseId, grnItemId, newlyPassed, req.user.uid);
 
       // Auto-create vendor_quality_metrics for supplier quality rating
       try {
@@ -7590,6 +7488,412 @@ app.post("/api/stock-transfers/:id/submit-approval", requireAuth, async (req: Au
     });
   }
 }
+// Helper function to handle stock addition and digital asset auto-creation
+async function handleGrnStockAddition(companyId: string, warehouseId: number, grnItemId: number, newlyPassed: number, reqUserUid: string) {
+  if (newlyPassed <= 0 || !warehouseId || !companyId) return;
+  const grnItem = await db.select().from(grn_items).where(eq(grn_items.id, grnItemId));
+  if (!grnItem.length) return;
+  const poItem = await db.select().from(po_items).where(eq(po_items.id, grnItem[0].poItemId));
+  if (!poItem.length) return;
+
+  const targetName = poItem[0].itemName.trim();
+  let inv = await db.select().from(inventory_items).where(
+    and(
+      eq(inventory_items.companyId, companyId),
+      ilike(inventory_items.name, targetName)
+    )
+  );
+
+  let invItemId: number;
+  let isDigitalAsset = false;
+  if (inv.length === 0) {
+    const [newInv] = await db.insert(inventory_items).values({
+      companyId,
+      itemCode: `ITEM-${Date.now()}`,
+      name: poItem[0].itemName,
+      category: (poItem[0] as any)?.category || 'General',
+      uom: poItem[0].uom || 'Pcs',
+      basePrice: String(poItem[0].unitPrice || '0.00'),
+      quantityInStock: 0 // Will add below
+    }).returning();
+    invItemId = newInv.id;
+    inv = [newInv];
+  } else {
+    invItemId = inv[0].id;
+    isDigitalAsset = inv[0].isDigitalAsset || false;
+  }
+
+  if (isDigitalAsset) {
+    // 1. Digital Asset Auto-Creation (Virtual GRN - Bypass physical stock)
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    for (let k = 0; k < newlyPassed; k++) {
+      const assetCode = `DIG-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await db.insert(digital_assets).values({
+        companyId,
+        assetCode,
+        name: poItem[0].itemName.trim(),
+        assetType: 'Software License',
+        sourceGrnId: grnItem[0].grnId,
+        sourcePurchaseOrderId: poItem[0].poId,
+        acquisitionCost: String(poItem[0].unitPrice || '0.00'),
+        currency: 'BDT',
+        status: 'Draft',
+        inventoryItemId: invItemId,
+        createdByUid: reqUserUid
+      });
+    }
+    // Update Global quantity (license count tracker) and WAC
+    const currentQty = inv[0].quantityInStock || 0;
+    const currentPrice = Number(inv[0].basePrice || 0);
+    const incomingPrice = Number(poItem[0].unitPrice || 0);
+    const newTotalQty = currentQty + newlyPassed;
+    const newWac = newTotalQty > 0 ? ((currentQty * currentPrice) + (newlyPassed * incomingPrice)) / newTotalQty : currentPrice;
+    
+    await db.update(inventory_items).set({
+      quantityInStock: newTotalQty,
+      basePrice: String(newWac.toFixed(2))
+    }).where(eq(inventory_items.id, invItemId));
+    
+    // Note: global_stock_ledger tracks cost without qty for digital, warehouse_stock skipped.
+    const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
+    if (gsl.length > 0) {
+       await db.update(global_stock_ledger).set({
+         totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
+         closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
+         lastUpdated: new Date()
+       }).where(eq(global_stock_ledger.id, gsl[0].id));
+    } else {
+       await db.insert(global_stock_ledger).values({
+         companyId, itemId: invItemId, openingBalance: 0, totalStockIn: newlyPassed, totalStockOut: 0, closingBalance: newlyPassed, lastUpdated: new Date()
+       });
+    }
+    return; // Stop here, digital assets don't enter physical warehouse stock
+  }
+
+  // --- Physical Asset/Consumable Flow ---
+  
+  // 1. Update Global quantityInStock & WAC
+  const currentQty = inv[0].quantityInStock || 0;
+  const currentPrice = Number(inv[0].basePrice || 0);
+  const incomingPrice = Number(poItem[0].unitPrice || 0);
+  const newTotalQty = currentQty + newlyPassed;
+  const newWac = newTotalQty > 0 ? ((currentQty * currentPrice) + (newlyPassed * incomingPrice)) / newTotalQty : currentPrice;
+
+  await db.update(inventory_items).set({
+    quantityInStock: newTotalQty,
+    basePrice: String(newWac.toFixed(2))
+  }).where(eq(inventory_items.id, invItemId));
+
+  // 2. Update warehouse_stock
+  const ws = await db.select().from(warehouse_stock).where(and(eq(warehouse_stock.warehouseId, warehouseId), eq(warehouse_stock.itemId, invItemId)));
+  if (ws.length > 0) {
+    await db.update(warehouse_stock).set({
+      quantity: (ws[0].quantity || 0) + newlyPassed,
+      lastUpdated: new Date()
+    }).where(eq(warehouse_stock.id, ws[0].id));
+  } else {
+    await db.insert(warehouse_stock).values({
+      companyId,
+      warehouseId,
+      itemId: invItemId,
+      quantity: newlyPassed,
+      lastUpdated: new Date()
+    });
+  }
+
+  // 3. Update global_stock_ledger
+  const gsl = await db.select().from(global_stock_ledger).where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItemId)));
+  if (gsl.length > 0) {
+    await db.update(global_stock_ledger).set({
+      totalStockIn: (gsl[0].totalStockIn || 0) + newlyPassed,
+      closingBalance: (gsl[0].closingBalance || 0) + newlyPassed,
+      lastUpdated: new Date()
+    }).where(eq(global_stock_ledger.id, gsl[0].id));
+  } else {
+    await db.insert(global_stock_ledger).values({
+      companyId,
+      itemId: invItemId,
+      openingBalance: 0,
+      totalStockIn: newlyPassed,
+      totalStockOut: 0,
+      closingBalance: newlyPassed,
+      lastUpdated: new Date()
+    });
+  }
+
+  // 4. Auto-register Fixed Asset
+  try {
+    const isFixed = inv[0]?.isFixedAsset || (poItem[0] as any)?.category === 'Fixed Asset' || (inv[0]?.category && inv[0].category.toLowerCase().includes('asset'));
+    if (isFixed) {
+      let requesterUid: string | null = null;
+      const parentPo = await db.select().from(purchase_orders).where(eq(purchase_orders.id, poItem[0].poId)).limit(1);
+      if (parentPo.length > 0 && parentPo[0].prId) {
+        const parentPr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPo[0].prId)).limit(1);
+        if (parentPr.length > 0) {
+          if (parentPr[0].sourceIrId) {
+            const originalIr = await db.select().from(purchase_requisitions).where(eq(purchase_requisitions.id, parentPr[0].sourceIrId)).limit(1);
+            if (originalIr.length > 0) requesterUid = originalIr[0].uid || (originalIr[0] as any).createdBy || null;
+          }
+          if (!requesterUid) requesterUid = parentPr[0].uid || (parentPr[0] as any).createdBy || null;
+        }
+      }
+
+      let assetCatId = inv[0]?.assetCategoryId;
+      if (!assetCatId) {
+        const catList = await db.select().from(asset_categories).where(eq(asset_categories.companyId, companyId)).limit(1);
+        if (catList.length > 0) assetCatId = catList[0].id;
+      }
+
+      if (assetCatId) {
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        for (let k = 0; k < newlyPassed; k++) {
+          const assetCode = `AST-IR-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
+          await db.insert(assets).values({
+            companyId,
+            assetCode,
+            name: poItem[0].itemName.trim(),
+            categoryId: assetCatId,
+            warehouseId,
+            custodianUid: requesterUid || null,
+            acquisitionDate: new Date(),
+            acquisitionCost: String(poItem[0].unitPrice || '0.00'),
+            salvageValue: '0.00',
+            currentBookValue: String(poItem[0].unitPrice || '0.00'),
+            status: 'Active',
+            sourceType: 'GRN',
+            sourceGrnId: grnItem[0].grnId,
+            createdByUid: reqUserUid
+          });
+        }
+      }
+    }
+  } catch (assetErr) {
+    console.error('Error auto-registering asset on QC pass:', assetErr);
+  }
+}
+
+  // ==========================================
+  // DIGITAL ASSETS API ROUTES (Phase 2/3)
+  // ==========================================
+
+  app.get("/api/digital-assets", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const assets = await db.select({
+        id: digital_assets.id,
+        assetCode: digital_assets.assetCode,
+        name: digital_assets.name,
+        assetType: digital_assets.assetType,
+        status: digital_assets.status,
+        acquisitionCost: digital_assets.acquisitionCost,
+        expiryDate: digital_assets.expiryDate,
+        vendorId: digital_assets.vendorId,
+        vendorName: vendors.name
+      })
+      .from(digital_assets)
+      .leftJoin(vendors, eq(digital_assets.vendorId, vendors.id))
+      .where(eq(digital_assets.companyId, companyId))
+      .orderBy(desc(digital_assets.createdAt));
+      res.json(assets);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch digital assets" });
+    }
+  });
+
+  app.get("/api/digital-assets/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { id } = req.params;
+      const asset = await db.select().from(digital_assets).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId))).limit(1);
+      if (asset.length === 0) return res.status(404).json({ error: "Not found" });
+      
+      const renewals = await db.select().from(digital_asset_renewals).where(eq(digital_asset_renewals.digitalAssetId, id)).orderBy(desc(digital_asset_renewals.renewalDate));
+      const usersList = await db.select({
+        id: digital_asset_users.id,
+        assignedUid: digital_asset_users.assignedUid,
+        userName: users.name,
+        userEmail: users.email,
+        assignedAt: digital_asset_users.assignedAt,
+        status: digital_asset_users.status
+      })
+      .from(digital_asset_users)
+      .leftJoin(users, eq(digital_asset_users.assignedUid, users.uid))
+      .where(eq(digital_asset_users.digitalAssetId, id));
+
+      const amortizations = await db.select().from(digital_asset_amortization).where(eq(digital_asset_amortization.digitalAssetId, id)).orderBy(desc(digital_asset_amortization.periodDate));
+
+      res.json({ ...asset[0], renewals, users: usersList, amortizations });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch asset details" });
+    }
+  });
+
+  app.post("/api/digital-assets", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const payload = req.body;
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const assetCode = `DIG-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const [newAsset] = await db.insert(digital_assets).values({
+        companyId,
+        assetCode,
+        name: payload.name,
+        assetType: payload.assetType || 'Software License',
+        vendorId: payload.vendorId || null,
+        departmentId: payload.departmentId || null,
+        custodianUid: payload.custodianUid || null,
+        licenseKeyEncrypted: payload.licenseKeyEncrypted || null,
+        portalUrl: payload.portalUrl || null,
+        activationDate: payload.activationDate ? new Date(payload.activationDate) : new Date(),
+        expiryDate: payload.expiryDate ? new Date(payload.expiryDate) : null,
+        acquisitionCost: String(payload.acquisitionCost || '0'),
+        currency: payload.currency || 'BDT',
+        status: payload.status || 'Active',
+        autoRenewal: payload.autoRenewal || false,
+        createdByUid: req.user!.uid
+      }).returning();
+
+      res.json(newAsset);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to create digital asset" });
+    }
+  });
+
+  app.put("/api/digital-assets/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { id } = req.params;
+      const payload = req.body;
+
+      const [updatedAsset] = await db.update(digital_assets).set({
+        name: payload.name,
+        assetType: payload.assetType,
+        vendorId: payload.vendorId || null,
+        departmentId: payload.departmentId || null,
+        custodianUid: payload.custodianUid || null,
+        licenseKeyEncrypted: payload.licenseKeyEncrypted || null,
+        portalUrl: payload.portalUrl || null,
+        activationDate: payload.activationDate ? new Date(payload.activationDate) : undefined,
+        expiryDate: payload.expiryDate ? new Date(payload.expiryDate) : null,
+        acquisitionCost: payload.acquisitionCost ? String(payload.acquisitionCost) : undefined,
+        currency: payload.currency,
+        status: payload.status,
+        autoRenewal: payload.autoRenewal,
+        updatedAt: new Date()
+      }).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId))).returning();
+
+      res.json(updatedAsset);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update digital asset" });
+    }
+  });
+
+  app.post("/api/digital-assets/:id/renew", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { id } = req.params;
+      const { renewalDate, newExpiryDate, amount, notes } = req.body;
+
+      const [renewal] = await db.insert(digital_asset_renewals).values({
+        companyId,
+        digitalAssetId: id,
+        renewalDate: new Date(renewalDate),
+        newExpiryDate: new Date(newExpiryDate),
+        amount: String(amount),
+        notes,
+        renewedByUid: req.user!.uid
+      }).returning();
+
+      await db.update(digital_assets).set({
+        expiryDate: new Date(newExpiryDate),
+        status: 'Active',
+        updatedAt: new Date()
+      }).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId)));
+
+      res.json(renewal);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to record renewal" });
+    }
+  });
+
+  app.post("/api/digital-assets/:id/users", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { id } = req.params;
+      const { assignedUid, assignedAt, notes } = req.body;
+
+      const [assetUser] = await db.insert(digital_asset_users).values({
+        companyId,
+        digitalAssetId: id,
+        assignedUid,
+        assignedAt: assignedAt ? new Date(assignedAt) : new Date(),
+        status: 'Active',
+        notes
+      }).returning();
+
+      res.json(assetUser);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to assign user" });
+    }
+  });
+
+  app.post("/api/digital-assets/users/:userId/revoke", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { userId } = req.params;
+      
+      const [revoked] = await db.update(digital_asset_users).set({
+        status: 'Revoked',
+        revokedAt: new Date()
+      }).where(and(eq(digital_asset_users.id, userId), eq(digital_asset_users.companyId, companyId))).returning();
+      
+      res.json(revoked);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to revoke user" });
+    }
+  });
+
+  app.post("/api/digital-assets/:id/amortize", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { id } = req.params;
+      const { periodNumber, periodDate, amortizationAmount, accumulatedAmortization, bookValueAfter } = req.body;
+
+      const [amort] = await db.insert(digital_asset_amortization).values({
+        companyId,
+        digitalAssetId: id,
+        periodNumber: Number(periodNumber),
+        periodDate: new Date(periodDate),
+        amortizationAmount: String(amortizationAmount),
+        accumulatedAmortization: String(accumulatedAmortization),
+        bookValueAfter: String(bookValueAfter),
+        status: 'Posted',
+        postedAt: new Date(),
+        postedByUid: req.user!.uid
+      }).returning();
+
+      res.json(amort);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to post amortization" });
+    }
+  });
 
 if (!process.env.VITEST && process.env.NODE_ENV !== "test") {
   startServer();

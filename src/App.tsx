@@ -53,6 +53,11 @@ import AssetDeprReports from '@/src/modules/assets/pages/AssetDeprReports';
 import AssetLocation from '@/src/modules/assets/pages/AssetLocation';
 import PwaInstallPrompt from '@/src/shared/components/PwaInstallPrompt';
 
+import DigitalAssets from '@/src/modules/digitalAssets/pages/DigitalAssets';
+import Subscriptions from '@/src/modules/digitalAssets/pages/Subscriptions';
+import LicenseVault from '@/src/modules/digitalAssets/pages/LicenseVault';
+import Amortization from '@/src/modules/digitalAssets/pages/Amortization';
+import DigitalAssetReports from '@/src/modules/digitalAssets/pages/DigitalAssetReports';
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, dbUser, loading } = useAuth();
   if (loading) return <div className="h-screen w-full flex items-center justify-center">Loading...</div>;
@@ -107,6 +112,13 @@ export default function App() {
             <Route path="/asset-depr-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDeprReports /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-verification" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetVerification /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-location" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetLocation /></PluginProtectedRoute></PrivateRoute>} />
+            
+            {/* Digital Assets Routes */}
+            <Route path="/digital-assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssets /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/subscriptions" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Subscriptions /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/vault" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><LicenseVault /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/amortization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Amortization /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssetReports /></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Inventory Routes */}
             <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryDashboard /></PluginProtectedRoute></PrivateRoute>} />
