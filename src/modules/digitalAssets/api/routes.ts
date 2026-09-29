@@ -1,20 +1,22 @@
 import express from 'express';
 import { db } from '../../../shared/db/index.js';
-import { digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from '../../../shared/db/schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { digital_assets, vendors, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from '../../../shared/db/schema.js';
+import { eq, desc, and } from 'drizzle-orm';
 import { AuthRequest } from '../../../shared/middleware/auth.js';
 import { resolveTenantId, requireTenant } from '../../../shared/lib/tenant.js';
+import { requirePermission } from '../../../shared/middleware/permissions.js';
+import { audit_logs } from '../../../shared/db/schema.js';
 
 const router = express.Router();
 
   // DIGITAL ASSETS API ROUTES (Phase 2/3)
   // ==========================================
 
-  router.get("/", async (req: AuthRequest, res) => {
+  router.get("/", requirePermission('Digital Asset Register', 'canView'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
-      const assets = await db.select({
+      const dbAssets = await db.select({
         id: digital_assets.id,
         assetCode: digital_assets.assetCode,
         name: digital_assets.name,
@@ -23,12 +25,15 @@ const router = express.Router();
         acquisitionCost: digital_assets.acquisitionCost,
         expiryDate: digital_assets.expiryDate,
         vendorId: digital_assets.vendorId,
-        vendorName: vendors.name
-      })
+        vendorName: vendors.name, licenseKeyEncrypted: digital_assets.licenseKeyEncrypted})
       .from(digital_assets)
       .leftJoin(vendors, eq(digital_assets.vendorId, vendors.id))
       .where(eq(digital_assets.companyId, companyId))
       .orderBy(desc(digital_assets.createdAt));
+      const assets = dbAssets.map((a: any) => {
+        const { licenseKeyEncrypted, ...rest } = a;
+        return { ...rest, hasLicenseKey: !!licenseKeyEncrypted };
+      });
       res.json(assets);
     } catch (err) {
       console.error(err);
@@ -36,7 +41,7 @@ const router = express.Router();
     }
   });
 
-  router.get("/:id", async (req: AuthRequest, res) => {
+  router.get("/:id", requirePermission('Digital Asset Register', 'canView'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -59,14 +64,15 @@ const router = express.Router();
 
       const amortizations = await db.select().from(digital_asset_amortization).where(eq(digital_asset_amortization.digitalAssetId, id)).orderBy(desc(digital_asset_amortization.periodDate));
 
-      res.json({ ...asset[0], renewals, users: usersList, amortizations });
+      const { licenseKeyEncrypted, ...assetData } = asset[0];
+      res.json({ ...assetData, hasLicenseKey: !!licenseKeyEncrypted, renewals, users: usersList, amortizations });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to fetch asset details" });
     }
   });
 
-  router.post("/", async (req: AuthRequest, res) => {
+  router.post("/", requirePermission('Digital Asset Register', 'canCreate'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -100,7 +106,7 @@ const router = express.Router();
     }
   });
 
-  router.put("/:id", async (req: AuthRequest, res) => {
+  router.put("/:id", requirePermission('Digital Asset Register', 'canEdit'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -229,5 +235,32 @@ const router = express.Router();
     }
   });
 
+
+
+  router.post("/:id/reveal-secret", requirePermission('License Secret Reveal', 'canView'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!requireTenant(companyId, res)) return;
+      const { id } = req.params;
+      
+      const asset = await db.select().from(digital_assets).where(and(eq(digital_assets.id, id), eq(digital_assets.companyId, companyId))).limit(1);
+      if (asset.length === 0) return res.status(404).json({ error: "Not found" });
+
+      await db.insert(audit_logs).values({
+        companyId,
+        userId: req.user!.uid,
+        action: 'Reveal Digital Asset Secret',
+        entityType: 'digital_assets',
+        entityId: id,
+        details: `Revealed license secret for digital asset ${asset[0].assetCode}`,
+        ipAddress: req.ip || 'Unknown'
+      });
+
+      res.json({ licenseKey: asset[0].licenseKeyEncrypted }); // Simple return since it's just a demo mock
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to reveal secret" });
+    }
+  });
 
 export default router;

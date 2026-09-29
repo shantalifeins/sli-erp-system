@@ -1,3 +1,4 @@
+import { requirePermission } from '../../../shared/middleware/permissions.js';
 import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
@@ -757,7 +758,7 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
 });
 
 // GET /api/assets — List assets with filtering and pagination
-router.get('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+router.get("/", requireAuth, requirePermission('Assets Register', 'canView'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
@@ -1018,7 +1019,7 @@ router.delete('/locations/:id', requireAuth, checkPlugin('asset-management'), as
 
 
 // POST /api/assets — Create asset with auto code generation AST-YYYYMMDD-XXXX
-router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+router.post("/", requireAuth, requirePermission('Assets Register', 'canCreate'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
@@ -1246,7 +1247,7 @@ router.post('/', requireAuth, checkPlugin('asset-management'), async (req: AuthR
 // ==========================================
 
 // POST /api/assets/:id/activate — Activate asset and generate depreciation schedule
-router.post('/:id/activate', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+router.post("/:id/activate", requireAuth, requirePermission('Asset Capitalization', 'canApprove'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
@@ -1805,7 +1806,7 @@ router.post('/:id/transfer', requireAuth, checkPlugin('asset-management'), async
 });
 
 // GET /api/assets/transfers — List all asset transfers for company
-router.get('/transfers', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+router.get("/transfers", requireAuth, requirePermission('Asset Transfers', 'canView'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
@@ -1889,7 +1890,7 @@ router.get('/transfers/:transferId', requireAuth, checkPlugin('asset-management'
 });
 
 // POST /api/assets/transfers/:transferId/approve — Approve transfer
-router.post('/transfers/:transferId/approve', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+router.post("/transfers/:transferId/approve", requireAuth, requirePermission('Asset Transfers', 'canApprove'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
@@ -2887,7 +2888,7 @@ router.get('/:id', requireAuth, checkPlugin('asset-management'), async (req: Aut
 
 
 // PUT /api/assets/:id — Update asset details
-router.put('/:id', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+router.put("/:id", requireAuth, requirePermission('Assets Register', 'canEdit'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
   try {
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });

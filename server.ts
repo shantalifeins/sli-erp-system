@@ -35,6 +35,7 @@ import procurementReportsRouter from './src/modules/procurement/api/reports.js';
 import ssoRouter from './src/modules/auth/api/sso.js';
 import profileChangeRouter from './src/modules/userPanel/api/profileChange.js';
 import assetsRouter from './src/modules/assets/api/routes.js';
+import { requirePermission } from './src/shared/middleware/permissions.js';
 import digitalAssetsRouter from './src/modules/digitalAssets/api/routes.js';
 import assetReportsRouter from './src/modules/assets/api/reports.js';
 import todoRoutes from './src/modules/userPanel/api/todoRoutes.js';
@@ -4034,7 +4035,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   // ==========================================
   // Goods Receive Note (GRN) & QC Endpoints
   // ==========================================
-  app.get("/api/grn", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/grn", requireAuth, requirePermission('Goods Receipt (GRN)', 'canView'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!companyId) return res.json([]);
@@ -4077,7 +4078,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-  app.post("/api/grn", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/grn", requireAuth, requirePermission('Goods Receipt (GRN)', 'canCreate'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!companyId) return res.status(403).json({ error: "Company required" });
@@ -4174,7 +4175,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-  app.post("/api/qc/inspection", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/qc/inspection", requireAuth, requirePermission('Goods Receipt (GRN)', 'canApprove'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -4383,7 +4384,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   // ==========================================
   // Invoices & Payments Endpoints
   // ==========================================
-  app.get("/api/invoices", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/invoices", requireAuth, requirePermission('Invoices & Payments', 'canView'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!companyId) return res.status(403).json({ error: "Company required" });
@@ -4412,7 +4413,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-  app.post("/api/invoices", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/invoices", requireAuth, requirePermission('Invoices & Payments', 'canCreate'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!companyId) return res.status(403).json({ error: "Company required" });
@@ -4829,7 +4830,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   });
 
   // Inventory Endpoints
-  app.get("/api/inventory", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/inventory", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -4853,7 +4854,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-  app.post("/api/inventory", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/inventory", requireAuth, requirePermission('Inventory Items', 'canCreate'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -4946,7 +4947,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   });
 
   // Inventory Bulk Upload Endpoint
-  app.post("/api/inventory/bulk-upload", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/inventory/bulk-upload", requireAuth, requirePermission('Item Bulk Upload', 'canCreate'), async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
