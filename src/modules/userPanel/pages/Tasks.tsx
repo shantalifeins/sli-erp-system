@@ -183,10 +183,10 @@ export default function UserPanelTasks() {
                     </span>
                   )}
 
-                  {task.assignedTo?.name && (
+                  {(task.assignedTo?.name || task.assignedTo?.email) && (
                     <span className="flex items-center gap-1">
                       <Star className="w-3.5 h-3.5" />
-                      {task.assignedTo.name}
+                      {task.assignedTo.name || task.assignedTo.email}
                     </span>
                   )}
                 </div>

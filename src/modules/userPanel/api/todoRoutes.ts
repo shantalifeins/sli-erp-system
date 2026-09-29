@@ -88,7 +88,8 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
       createdAt: todo_tasks.createdAt,
       assignedTo: {
         uid: users.uid,
-        name: users.name
+        name: users.name,
+        email: users.email
       }
     })
     .from(todo_tasks)
@@ -148,7 +149,8 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res) => {
       task: todo_tasks,
       assignedTo: {
         uid: users.uid,
-        name: users.name
+        name: users.name,
+        email: users.email
       }
     })
     .from(todo_tasks)
@@ -166,7 +168,8 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res) => {
       createdAt: todo_comments.createdAt,
       authorUid: todo_comments.authorUid,
       author: {
-        name: users.name
+        name: users.name,
+        email: users.email
       }
     })
     .from(todo_comments)

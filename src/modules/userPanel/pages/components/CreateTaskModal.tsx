@@ -28,8 +28,10 @@ export default function CreateTaskModal({ onClose, onSuccess }: CreateTaskModalP
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await fetchWithAuth('/api/admin/users', token);
-        if (res && res.users) {
+        const res = await fetchWithAuth('/api/users', token);
+        if (res && Array.isArray(res)) {
+          setUsers(res);
+        } else if (res && res.users) {
           setUsers(res.users);
         }
       } catch (err) {

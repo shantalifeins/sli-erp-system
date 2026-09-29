@@ -176,7 +176,7 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
                   <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Assigned To</span>
                   <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
                     <User className="w-4 h-4 text-slate-400" />
-                    {task.assignedTo?.name || 'Unknown'}
+                    {task.assignedTo?.name || task.assignedTo?.email || 'Unknown'}
                   </div>
                 </div>
                 <div>
@@ -228,11 +228,11 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
                   {task.comments?.slice().reverse().map((c: any) => (
                     <div key={c.id} className={`flex gap-3 ${c.authorUid === user?.uid ? 'flex-row-reverse' : ''}`}>
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center text-orange-700 font-bold text-xs flex-shrink-0 border border-orange-200">
-                        {c.author?.name?.charAt(0) || 'U'}
+                        {(c.author?.name || c.author?.email || 'U').charAt(0).toUpperCase()}
                       </div>
                       <div className={`flex flex-col max-w-[75%] ${c.authorUid === user?.uid ? 'items-end' : 'items-start'}`}>
                         <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-slate-700">{c.author?.name || 'Unknown'}</span>
+                          <span className="text-xs font-bold text-slate-700">{c.author?.name || c.author?.email || 'Unknown'}</span>
                           <span className="text-[10px] text-slate-400">
                             {new Date(c.createdAt).toLocaleDateString()} {new Date(c.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </span>
