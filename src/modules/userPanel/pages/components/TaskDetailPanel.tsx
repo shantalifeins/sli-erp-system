@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { X, Send, Clock, CheckCircle2, User, Calendar, Edit3, Trash2, ArrowRight, RefreshCw, MessageSquare } from 'lucide-react';
+import SearchableSelect from '@/src/shared/components/SearchableSelect';
 
 interface TaskDetailPanelProps {
   taskId: string;
@@ -15,7 +16,26 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [users, setUsers] = useState<any[]>([]);
   const commentsEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetchWithAuth('/api/users', token);
+        if (res && Array.isArray(res)) {
+          setUsers(res);
+        } else if (res && res.users) {
+          setUsers(res.users);
+        }
+      } catch (err) {
+        console.error('Failed to load users:', err);
+      }
+    }
+    loadUsers();
+  }, [getToken]);
 
   const loadTask = async () => {
     try {
@@ -52,6 +72,22 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
       onUpdate();
     } catch (err) {
       console.error('Failed to change status:', err);
+    }
+  };
+
+  const handleAssigneeChange = async (newUid: string) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetchWithAuth(`/api/todo/${taskId}`, token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...task, assignedToUid: newUid })
+      });
+      loadTask();
+      onUpdate();
+    } catch (err) {
+      console.error('Failed to reassign:', err);
     }
   };
 
@@ -174,10 +210,25 @@ export default function TaskDetailPanel({ taskId, onClose, onUpdate }: TaskDetai
                 </div>
                 <div>
                   <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Assigned To</span>
-                  <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                    <User className="w-4 h-4 text-slate-400" />
-                    {task.assignedTo?.name || task.assignedTo?.email || 'Unknown'}
-                  </div>
+                  {task.assignedToUid === user?.uid ? (
+                    <div className="w-full">
+                      <SearchableSelect
+                        value={task.assignedToUid}
+                        onChange={handleAssigneeChange}
+                        options={users.map(u => ({
+                          value: u.uid,
+                          label: u.name || u.email,
+                          subLabel: u.designation
+                        }))}
+                        placeholder="Reassign to..."
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 mt-2">
+                      <User className="w-4 h-4 text-slate-400" />
+                      {task.assignedTo?.name || task.assignedTo?.email || 'Unknown'}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Start Date</span>

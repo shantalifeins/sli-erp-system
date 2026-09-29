@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { X, Save, AlertCircle } from 'lucide-react';
+import SearchableSelect from '@/src/shared/components/SearchableSelect';
 
 interface CreateTaskModalProps {
   onClose: () => void;
@@ -138,15 +139,16 @@ export default function CreateTaskModal({ onClose, onSuccess }: CreateTaskModalP
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Assign To</label>
-                <select
+                <SearchableSelect
                   value={formData.assignedToUid}
-                  onChange={(e) => setFormData(prev => ({ ...prev, assignedToUid: e.target.value }))}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-orange text-sm transition-shadow bg-white"
-                >
-                  {users.map(u => (
-                    <option key={u.uid} value={u.uid}>{u.name || u.email}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setFormData(prev => ({ ...prev, assignedToUid: val }))}
+                  options={users.map(u => ({
+                    value: u.uid,
+                    label: u.name || u.email,
+                    subLabel: u.designation
+                  }))}
+                  placeholder="Select a user..."
+                />
               </div>
             </div>
 
