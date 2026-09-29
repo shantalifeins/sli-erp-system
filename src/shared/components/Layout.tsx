@@ -122,7 +122,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   } else if (path === '/inventory-dashboard' || path === '/requisition-list' || path.startsWith('/requisition-report') || path.startsWith('/inventory') || path.startsWith('/grn') || path.startsWith('/qc') || path.startsWith('/stock') || path.startsWith('/vendors') || path.startsWith('/transfer-receive') || path.startsWith('/rejected-items') || path.startsWith('/stock-reconciliation')) {
     activeModule = 'inventory';
     activeModuleName = 'Inventory Management';
-  } else if (path === '/assets-dashboard' || path.startsWith('/assets') || path.startsWith('/asset-')) {
+  } else if (path === '/assets-dashboard' || path.startsWith('/assets') || path.startsWith('/asset-') || path.startsWith('/digital-assets')) {
     activeModule = 'asset-management';
     activeModuleName = 'Asset Management';
   } else if (path.startsWith('/admin')) {
@@ -303,28 +303,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ].filter(nav => nav.show !== false);
 
   const assetMenus = [
-    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Asset Dashboard')?.canView || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Management')?.canView },
-    { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
-    { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
+    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Asset Dashboard')?.canView },
     {
-      name: 'Digital Assets',
-      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView || getPermission('Digital Asset Reports')?.canView,
+      name: 'Fixed Asset',
+      icon: Box,
+      show: isSuperAdmin || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Location')?.canView || getPermission('Asset Transfers')?.canView || getPermission('Asset Maintenance')?.canView || getPermission('Asset Disposal')?.canView || getPermission('Physical Audit')?.canView,
+      subMenus: [
+        { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
+        { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
+        { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
+        { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
+        { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },
+        { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: isSuperAdmin || getPermission('Asset Disposal')?.canView },
+        { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: isSuperAdmin || getPermission('Physical Audit')?.canView },
+      ]
+    },
+    {
+      name: 'Digital Asset',
+      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView,
       icon: Network,
       subMenus: [
         { name: 'Register', href: '/digital-assets', icon: Box, show: isSuperAdmin || getPermission('Digital Asset Register')?.canView },
         { name: 'Subscriptions', href: '/digital-assets/subscriptions', icon: Layers, show: isSuperAdmin || getPermission('Digital Subscriptions')?.canView },
         { name: 'License Vault', href: '/digital-assets/vault', icon: Shield, show: isSuperAdmin || getPermission('License Vault')?.canView },
         { name: 'Amortization', href: '/digital-assets/amortization', icon: TrendingDown, show: isSuperAdmin || getPermission('Digital Amortization')?.canView },
-        { name: 'Reports', href: '/digital-assets/reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Digital Asset Reports')?.canView }
       ]
     },
-    { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
-    { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
-    { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },
-    { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: isSuperAdmin || getPermission('Asset Disposal')?.canView },
-    { name: 'Asset Reports', href: '/asset-reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Asset Reports')?.canView },
-    { name: 'Depreciation Reports', href: '/asset-depr-reports', icon: TrendingDown, show: isSuperAdmin || getPermission('Depreciation Reports')?.canView },
-    { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: isSuperAdmin || getPermission('Physical Audit')?.canView },
+    {
+      name: 'Asset Report',
+      icon: FileSpreadsheet,
+      show: isSuperAdmin || getPermission('Asset Reports')?.canView || getPermission('Digital Asset Reports')?.canView,
+      subMenus: [
+        { name: 'Fixed Asset', href: '/asset-reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Asset Reports')?.canView },
+        { name: 'Digital Asset', href: '/digital-assets/reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Digital Asset Reports')?.canView }
+      ]
+    },
+    {
+      name: 'Depreciation Report',
+      href: '/asset-depr-reports',
+      icon: TrendingDown,
+      show: isSuperAdmin || getPermission('Depreciation Reports')?.canView
+    }
   ].filter(nav => nav.show !== false);
 
   // Determine which menu to show

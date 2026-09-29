@@ -161,25 +161,34 @@ export default function Admin() {
       ]
     },
     {
-      module: "Asset Management",
+      module: "Asset Management - Fixed",
       menus: [
         { name: "Asset Dashboard", actions: ["canView"] },
         { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Asset Location", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Depreciation Schedule", actions: ["canView", "canCreate"] },
         { name: "Asset Transfers", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Asset Maintenance", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
         { name: "Asset Disposal", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
-        { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] },
-        { name: "Asset Reports", actions: ["canView"] },
-        { name: "Depreciation Reports", actions: ["canView"] },
-        // --- Digital Assets Submenu Permissions ---
+        { name: "Physical Audit", actions: ["canView", "canCreate", "canEdit"] }
+      ]
+    },
+    {
+      module: "Asset Management - Digital",
+      menus: [
         { name: "Digital Asset Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
         { name: "Digital Subscriptions", actions: ["canView", "canCreate", "canEdit"] },
         { name: "License Vault", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-        { name: "Digital Amortization", actions: ["canView", "canCreate"] },
+        { name: "Digital Amortization", actions: ["canView", "canCreate"] }
+      ]
+    },
+    {
+      module: "Asset Management - Reports",
+      menus: [
+        { name: "Asset Reports", actions: ["canView"] },
         { name: "Digital Asset Reports", actions: ["canView"] },
+        { name: "Depreciation Reports", actions: ["canView"] },
+        { name: "Depreciation Schedule", actions: ["canView", "canCreate"] }
       ]
     }
   ];
@@ -1781,7 +1790,7 @@ export default function Admin() {
                     if (mod.module === "Procurement") return activePlugins.includes("procurement");
                     if (mod.module === "Inventory Management") return activePlugins.includes("inventory");
                     if (mod.module === "User Panel") return activePlugins.includes("user-panel");
-                    if (mod.module === "Asset Management") return activePlugins.includes("asset-management");
+                    if (mod.module.startsWith("Asset Management")) return activePlugins.includes("asset-management");
                     return true;
                   }).map(mod => {
                     const modChecked = isModuleChecked(mod);
