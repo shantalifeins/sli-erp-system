@@ -24,6 +24,7 @@
     "noEmit": true
   },
   "exclude": [
+    "dist",
     "scratch",
     "scripts/migrate_p5.ts",
     "scripts/migrate_p5_manual.ts"

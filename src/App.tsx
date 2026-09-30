@@ -59,6 +59,19 @@ import Subscriptions from '@/src/modules/digitalAssets/pages/Subscriptions';
 import LicenseVault from '@/src/modules/digitalAssets/pages/LicenseVault';
 import Amortization from '@/src/modules/digitalAssets/pages/Amortization';
 import DigitalAssetReports from '@/src/modules/digitalAssets/pages/DigitalAssetReports';
+import DigitalAcceptance from '@/src/modules/digitalAssets/pages/DigitalAcceptance';
+import DigitalAssetImport from '@/src/modules/digitalAssets/pages/DigitalAssetImport';
+
+import AssetCapitalization from '@/src/modules/assets/pages/AssetCapitalization';
+import AssetAssignment from '@/src/modules/assets/pages/AssetAssignment';
+import AssetImport from '@/src/modules/assets/pages/AssetImport';
+import AssetDeprSchedule from '@/src/modules/assets/pages/AssetDeprSchedule';
+
+import OpeningStockUpload from '@/src/modules/inventory/pages/OpeningStockUpload';
+import ItemBulkUpload from '@/src/modules/inventory/pages/ItemBulkUpload';
+import StockAdjustment from '@/src/modules/inventory/pages/StockAdjustment';
+
+import TraceabilityReport from '@/src/modules/reports/pages/TraceabilityReport';
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, dbUser, loading } = useAuth();
   if (loading) return <div className="h-screen w-full flex items-center justify-center">Loading...</div>;
@@ -113,6 +126,11 @@ export default function App() {
             <Route path="/asset-depr-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDeprReports /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-verification" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetVerification /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/asset-location" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetLocation /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-capitalization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetCapitalization /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-assignment" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetAssignment /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-import" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetImport /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-depr-schedule" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDeprSchedule /></PluginProtectedRoute></PrivateRoute>} />
+
             
             {/* Digital Assets Routes */}
             <Route path="/digital-assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssets /></PluginProtectedRoute></PrivateRoute>} />
@@ -120,9 +138,12 @@ export default function App() {
             <Route path="/digital-assets/vault" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><LicenseVault /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/digital-assets/amortization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Amortization /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/digital-assets/reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssetReports /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/acceptance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAcceptance /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/import" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssetImport /></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Report Routes */}
             <Route path="/master-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><ReportsDashboard /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/traceability-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><TraceabilityReport /></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Inventory Routes */}
             <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryDashboard /></PluginProtectedRoute></PrivateRoute>} />
@@ -138,6 +159,9 @@ export default function App() {
             {/* Phase 1 New Routes */}
             <Route path="/stock-reconciliation" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockReconciliation /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/rejected-items" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><RejectedItems /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/opening-stock-upload" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><OpeningStockUpload /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/inventory-bulk-upload" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><ItemBulkUpload /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/stock-adjustment" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockAdjustment /></PluginProtectedRoute></PrivateRoute>} />
   
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
             <Route path="/admin/organogram" element={<PrivateRoute><OrganogramPage /></PrivateRoute>} />

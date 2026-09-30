@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown, MapPin, ListTodo } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Box, Users, LogOut, FileText, Shield, ArrowLeft, ChevronDown, Image as ImageIcon, User as UserIcon, Truck, ClipboardCheck, DollarSign, FileSpreadsheet, Send, Loader2, ChevronLeft, ChevronRight, Tags, Menu, X, Network, ArrowDownToLine, ArrowUpFromLine, Bell, LayoutList, Inbox, Mail, Settings, Warehouse, ClipboardList, ArrowRightLeft, LayoutGrid, AlertTriangle, Layers, Wrench, Trash2, QrCode, TrendingDown, MapPin, ListTodo, Upload, Calendar } from 'lucide-react';
 
 
 import { cn } from '@/src/shared/lib/utils';
@@ -226,10 +226,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Invoices & Payments', href: '/invoices-payments', icon: DollarSign, show: isSuperAdmin || getPermission('Invoices & Payments')?.canView },
     {
       name: 'Reports',
-      show: isSuperAdmin || getPermission('Reports')?.canView,
+      show: isSuperAdmin || getPermission('Reports')?.canView || getPermission('Traceability Report')?.canView,
       icon: FileText,
       subMenus: [
         { name: 'Procurement Report', href: '/procurement-report', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Reports')?.canView },
+        { name: 'Traceability Report', href: '/traceability-report', icon: Network, show: isSuperAdmin || getPermission('Traceability Report')?.canView },
       ]
     },
   ].filter(nav => nav.show !== false);
@@ -256,11 +257,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     },
     {
       name: 'Inventory Setting',
-      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView,
+      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView || getPermission('Item Bulk Upload')?.canView || getPermission('Opening Stock Upload')?.canView || getPermission('Stock Adjustment')?.canView,
       icon: Settings,
       subMenus: [
         { name: 'Item Categories', href: '/inventory-categories', icon: Tags, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
         { name: 'Inventory Items', href: '/inventory', icon: Box, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
+        { name: 'Item Bulk Upload', href: '/inventory-bulk-upload', icon: Upload, show: isSuperAdmin || getPermission('Item Bulk Upload')?.canView || getPermission('Item Bulk Upload')?.canCreate },
+        { name: 'Opening Stock Upload', href: '/opening-stock-upload', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Opening Stock Upload')?.canView || getPermission('Opening Stock Upload')?.canCreate },
+        { name: 'Stock Adjustment', href: '/stock-adjustment', icon: Settings, show: isSuperAdmin || getPermission('Stock Adjustment')?.canView },
         { name: 'Vendors', href: '/vendors', icon: Users, show: isSuperAdmin || getPermission('Vendors')?.canView },
       ]
     }
@@ -307,9 +311,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     {
       name: 'Fixed Asset',
       icon: Box,
-      show: isSuperAdmin || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Location')?.canView || getPermission('Asset Transfers')?.canView || getPermission('Asset Maintenance')?.canView || getPermission('Asset Disposal')?.canView || getPermission('Physical Audit')?.canView,
+      show: isSuperAdmin || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Location')?.canView || getPermission('Asset Transfers')?.canView || getPermission('Asset Maintenance')?.canView || getPermission('Asset Disposal')?.canView || getPermission('Physical Audit')?.canView || getPermission('Asset Capitalization')?.canView || getPermission('Asset Assignment')?.canView || getPermission('Asset Import')?.canCreate,
       subMenus: [
         { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
+        { name: 'Asset Capitalization', href: '/asset-capitalization', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Asset Capitalization')?.canView },
+        { name: 'Asset Assignment', href: '/asset-assignment', icon: Users, show: isSuperAdmin || getPermission('Asset Assignment')?.canView },
+        { name: 'Asset Import', href: '/asset-import', icon: Upload, show: isSuperAdmin || getPermission('Asset Import')?.canCreate },
         { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
         { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
         { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
@@ -320,10 +327,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     },
     {
       name: 'Digital Asset',
-      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView,
+      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView || getPermission('Digital Acceptance')?.canView || getPermission('Digital Asset Import')?.canCreate,
       icon: Network,
       subMenus: [
         { name: 'Register', href: '/digital-assets', icon: Box, show: isSuperAdmin || getPermission('Digital Asset Register')?.canView },
+        { name: 'Digital Acceptance', href: '/digital-assets/acceptance', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Digital Acceptance')?.canView },
+        { name: 'Digital Import', href: '/digital-assets/import', icon: Upload, show: isSuperAdmin || getPermission('Digital Asset Import')?.canCreate },
         { name: 'Subscriptions', href: '/digital-assets/subscriptions', icon: Layers, show: isSuperAdmin || getPermission('Digital Subscriptions')?.canView },
         { name: 'License Vault', href: '/digital-assets/vault', icon: Shield, show: isSuperAdmin || getPermission('License Vault')?.canView },
         { name: 'Amortization', href: '/digital-assets/amortization', icon: TrendingDown, show: isSuperAdmin || getPermission('Digital Amortization')?.canView },
@@ -343,6 +352,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       href: '/asset-depr-reports',
       icon: TrendingDown,
       show: isSuperAdmin || getPermission('Depreciation Reports')?.canView
+    },
+    {
+      name: 'Depreciation Schedule',
+      href: '/asset-depr-schedule',
+      icon: Calendar,
+      show: isSuperAdmin || getPermission('Depreciation Schedule')?.canView
     }
   ].filter(nav => nav.show !== false);
 
