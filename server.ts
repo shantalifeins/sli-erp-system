@@ -11359,6 +11359,255 @@ async function startServer() {
     },
   );
 
+  // POST /api/inventory/stock-adjustments — Manual stock adjustment
+  app.post(
+    "/api/inventory/stock-adjustments",
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "No company context" });
+
+        const { itemId, warehouseId, adjustmentQty, reason, notes, adjustedFromQty, adjustedToQty } = req.body;
+        if (!itemId || !warehouseId || adjustmentQty === undefined || !reason) {
+          return res.status(400).json({ error: "itemId, warehouseId, adjustmentQty and reason are required" });
+        }
+
+        // Update inventory_items global stock
+        const item = await db.select().from(inventory_items).where(eq(inventory_items.id, itemId)).limit(1);
+        if (!item.length) return res.status(404).json({ error: "Item not found" });
+
+        const newGlobalQty = Math.max(0, (item[0].quantityInStock || 0) + Number(adjustmentQty));
+        await db.update(inventory_items).set({ quantityInStock: newGlobalQty }).where(eq(inventory_items.id, itemId));
+
+        // Update warehouse_stock if a record exists for this item + warehouse
+        const wsRecord = await db.select().from(warehouse_stock)
+          .where(and(eq(warehouse_stock.itemId, itemId), eq(warehouse_stock.warehouseId, warehouseId)))
+          .limit(1);
+        if (wsRecord.length > 0) {
+          const newWsQty = Math.max(0, (wsRecord[0].quantity || 0) + Number(adjustmentQty));
+          await db.update(warehouse_stock).set({ quantity: newWsQty, lastUpdated: new Date() })
+            .where(eq(warehouse_stock.id, wsRecord[0].id));
+        } else {
+          // Create new warehouse_stock record if it doesn't exist
+          const initialQty = Math.max(0, Number(adjustmentQty));
+          if (initialQty > 0) {
+            await db.insert(warehouse_stock).values({
+              companyId,
+              itemId,
+              warehouseId,
+              quantity: initialQty,
+              lastUpdated: new Date(),
+            });
+          }
+        }
+
+        // Update global_stock_ledger summary for this item
+        const ledger = await db.select().from(global_stock_ledger)
+          .where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, itemId)))
+          .limit(1);
+        if (ledger.length > 0) {
+          const adj = Number(adjustmentQty);
+          await db.update(global_stock_ledger).set({
+            totalStockIn: adj > 0 ? (ledger[0].totalStockIn || 0) + adj : ledger[0].totalStockIn,
+            totalStockOut: adj < 0 ? (ledger[0].totalStockOut || 0) + Math.abs(adj) : ledger[0].totalStockOut,
+            closingBalance: newGlobalQty,
+            lastUpdated: new Date(),
+          }).where(eq(global_stock_ledger.id, ledger[0].id));
+        } else {
+          const adj = Number(adjustmentQty);
+          await db.insert(global_stock_ledger).values({
+            companyId,
+            itemId,
+            openingBalance: 0,
+            totalStockIn: adj > 0 ? adj : 0,
+            totalStockOut: adj < 0 ? Math.abs(adj) : 0,
+            closingBalance: newGlobalQty,
+          }).catch(() => {}); // non-fatal
+        }
+
+        const adjustment = await db.insert(stock_adjustments).values({
+          companyId,
+          itemId,
+          warehouseId,
+          adjustmentQty: Number(adjustmentQty),
+          reason,
+          adjustedFromQty: Number(adjustedFromQty || 0),
+          adjustedToQty: newGlobalQty,
+          adjustedByUid: req.user.uid,
+          status: 'Approved',
+        }).returning();
+
+        res.json(adjustment[0]);
+      } catch (e: any) {
+        console.error("POST /api/inventory/stock-adjustments error:", e);
+        res.status(500).json({ error: "Failed to record adjustment: " + e.message });
+      }
+    },
+  );
+
+  // GET /api/inventory/opening-stock/template — Download template Excel
+  app.get(
+    "/api/inventory/opening-stock/template",
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+        const [existingItems, existingWarehouses] = await Promise.all([
+          db.select({ id: inventory_items.id, itemCode: inventory_items.itemCode, name: inventory_items.name, uom: inventory_items.uom })
+            .from(inventory_items).where(eq(inventory_items.companyId, companyId)).orderBy(inventory_items.name),
+          db.select({ id: warehouses.id, name: warehouses.name })
+            .from(warehouses).where(eq(warehouses.companyId, companyId)).orderBy(warehouses.name),
+        ]);
+
+        const wb = XLSX.utils.book_new();
+
+        // Sheet 1: Template for data entry
+        const templateHeaders = ['Item Code *', 'Item Name (Reference)', 'Warehouse Name *', 'Opening Quantity *', 'Unit Cost (Optional)', 'Notes'];
+        const templateSample = [
+          ['ITEM-001', 'Office Chair', 'Main Warehouse', 10, 2500, 'Initial stock as of go-live'],
+          ['ITEM-002', 'Laptop', 'IT Warehouse', 5, 75000, ''],
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet([templateHeaders, ...templateSample]);
+        ws1['!cols'] = [{ wch: 16 }, { wch: 30 }, { wch: 22 }, { wch: 20 }, { wch: 18 }, { wch: 28 }];
+        XLSX.utils.book_append_sheet(wb, ws1, 'Opening Stock Template');
+
+        // Sheet 2: Items reference
+        const itemRows = existingItems.length > 0
+          ? existingItems.map(i => [i.itemCode, i.name, i.uom])
+          : [['(No items registered — add via Inventory Settings → Inventory Items first)', '', '']];
+        const ws2 = XLSX.utils.aoa_to_sheet([['Item Code', 'Item Name', 'UOM'], ...itemRows]);
+        ws2['!cols'] = [{ wch: 16 }, { wch: 35 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, ws2, 'Items Reference');
+
+        // Sheet 3: Warehouses reference
+        const whRows = existingWarehouses.length > 0
+          ? existingWarehouses.map(w => [w.name])
+          : [['(No warehouses registered — add via Admin → Warehouses first)']];
+        const ws3 = XLSX.utils.aoa_to_sheet([['Warehouse Name'], ...whRows]);
+        ws3['!cols'] = [{ wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, ws3, 'Warehouses Reference');
+
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Disposition', 'attachment; filename="opening_stock_template.xlsx"');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buf);
+      } catch (e: any) {
+        console.error("GET /api/inventory/opening-stock/template error:", e);
+        res.status(500).json({ error: "Failed to generate template" });
+      }
+    },
+  );
+
+  // POST /api/inventory/opening-stock/upload — Upload opening stock balances
+  app.post(
+    "/api/inventory/opening-stock/upload",
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "Company context required" });
+
+        const contentType = req.headers['content-type'] || '';
+        if (!contentType.includes('multipart/form-data')) {
+          return res.status(400).json({ error: "Must be multipart/form-data" });
+        }
+
+        const multer = (await import('multer')).default;
+        const upload = multer({ storage: multer.memoryStorage() });
+
+        upload.single('file')(req as any, res as any, async (err: any) => {
+          if (err) return res.status(400).json({ error: "File upload error" });
+          const file = (req as any).file;
+          if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+          try {
+            const wb = XLSX.read(file.buffer, { type: 'buffer' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+            if (rows.length < 2) return res.status(400).json({ error: "No data rows found in file" });
+
+            const [existingItems, existingWarehouses] = await Promise.all([
+              db.select({ id: inventory_items.id, itemCode: inventory_items.itemCode, name: inventory_items.name, uom: inventory_items.uom, quantityInStock: inventory_items.quantityInStock })
+                .from(inventory_items).where(eq(inventory_items.companyId, companyId)),
+              db.select({ id: warehouses.id, name: warehouses.name })
+                .from(warehouses).where(eq(warehouses.companyId, companyId)),
+            ]);
+
+            const itemsByCode = new Map(existingItems.map(i => [String(i.itemCode).toLowerCase().trim(), i]));
+            const warehousesByName = new Map(existingWarehouses.map(w => [w.name.toLowerCase().trim(), w]));
+
+            const errors: string[] = [];
+            const successes: string[] = [];
+            const dataRows = rows.slice(1);
+
+            for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+              const row = dataRows[rowIdx];
+              const rowNum = rowIdx + 2;
+              const itemCode = String(row[0] || '').trim();
+              const warehouseName = String(row[2] || '').trim();
+              const qty = parseInt(String(row[3] || '0'));
+              const unitCost = parseFloat(String(row[4] || '0')) || null;
+              const notes = String(row[5] || '').trim();
+
+              if (!itemCode) continue; // skip empty rows
+
+              const item = itemsByCode.get(itemCode.toLowerCase());
+              if (!item) { errors.push(`Row ${rowNum}: Item code "${itemCode}" not found.`); continue; }
+
+              const warehouse = warehousesByName.get(warehouseName.toLowerCase());
+              if (!warehouse) { errors.push(`Row ${rowNum}: Warehouse "${warehouseName}" not found.`); continue; }
+
+              if (isNaN(qty) || qty < 0) { errors.push(`Row ${rowNum}: Invalid quantity "${row[3]}".`); continue; }
+
+              // Update or create warehouse_stock
+              const wsRecord = await db.select().from(warehouse_stock)
+                .where(and(eq(warehouse_stock.itemId, item.id), eq(warehouse_stock.warehouseId, warehouse.id)))
+                .limit(1);
+
+              if (wsRecord.length > 0) {
+                await db.update(warehouse_stock).set({ quantity: qty, lastUpdated: new Date() })
+                  .where(eq(warehouse_stock.id, wsRecord[0].id));
+              } else {
+                await db.insert(warehouse_stock).values({
+                  companyId, itemId: item.id, warehouseId: warehouse.id, quantity: qty, lastUpdated: new Date(),
+                });
+              }
+
+              // Update global item stock
+              const newGlobalQty = qty;
+              await db.update(inventory_items).set({
+                quantityInStock: newGlobalQty,
+                ...(unitCost ? { basePrice: String(unitCost) } : {}),
+              }).where(eq(inventory_items.id, item.id));
+
+              // Stock adjustment record for audit
+              await db.insert(stock_adjustments).values({
+                companyId, itemId: item.id, warehouseId: warehouse.id,
+                adjustmentQty: qty, reason: 'Opening Stock Upload',
+                adjustedFromQty: item.quantityInStock || 0, adjustedToQty: qty,
+                adjustedByUid: req.user!.uid, status: 'Approved',
+              });
+
+              successes.push(`Row ${rowNum}: ${item.name} → Qty set to ${qty}`);
+            }
+
+            res.json({ success: true, processed: successes.length, errors, successes });
+          } catch (parseErr: any) {
+            res.status(500).json({ error: "Failed to parse file: " + parseErr.message });
+          }
+        });
+      } catch (e: any) {
+        console.error("POST /api/inventory/opening-stock/upload error:", e);
+        res.status(500).json({ error: "Upload failed: " + e.message });
+      }
+    },
+  );
+
   app.get(
     "/api/vendors/quality-metrics",
     requireAuth,

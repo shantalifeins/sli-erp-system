@@ -215,6 +215,19 @@ export default function Inventory() {
           onSubmit={async (data: any) => {
              try {
                 const token = await getToken();
+                if (!token) return;
+                
+                if (data.category && !categories.find(c => c.name.toLowerCase() === data.category.toLowerCase())) {
+                  try {
+                    await fetchWithAuth('/api/inventory/categories', token, {
+                      method: 'POST',
+                      body: JSON.stringify({ name: data.category, description: 'Auto-created' })
+                    });
+                  } catch (catErr) {
+                    console.error("Failed to auto-create category", catErr);
+                  }
+                }
+
                 const res = await fetchWithAuth('/api/inventory', token, { method: 'POST', body: JSON.stringify(data) });
                 if (res) {
                    setShowForm(false);

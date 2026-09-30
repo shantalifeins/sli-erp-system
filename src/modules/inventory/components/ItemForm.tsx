@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { inventoryItemSchema } from '../lib/itemSchema';
 
 export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, assetCategories }: any) {
-  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm({
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm({
     resolver: zodResolver(inventoryItemSchema),
     defaultValues: {
       itemCode: initialData.itemCode || '',
@@ -61,15 +61,40 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
         </div>
         <div>
           <label className="block text-sm font-medium">Category <span className="text-red-500">*</span></label>
-          <select {...register('category')} className="mt-1 w-full border rounded p-2">
-            <option value="">Select Category...</option>
-            {categories.map((c: any) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
-          </select>
+          <input 
+            {...register('category')} 
+            list="category-list"
+            className="mt-1 w-full border rounded p-2" 
+            placeholder="Select or type new category..."
+          />
+          <datalist id="category-list">
+            {(categories || []).map((c: any) => <option key={c.id || c.name} value={c.name} />)}
+          </datalist>
           {errors.category && <p className="text-red-500 text-xs">{errors.category.message}</p>}
         </div>
         <div>
           <label className="block text-sm font-medium">UOM <span className="text-red-500">*</span></label>
           <input {...register('uom')} className="mt-1 w-full border rounded p-2" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 border-t pt-4">
+        <div>
+          <label className="block text-sm font-medium">Item Type (Warehouse Routing) <span className="text-red-500">*</span></label>
+          <select 
+            className="mt-1 w-full border rounded p-2"
+            onChange={(e) => {
+              const val = e.target.value;
+              setValue('isAdminItem', val === 'Admin', { shouldValidate: true, shouldDirty: true });
+              setValue('isItItem', val === 'IT', { shouldValidate: true, shouldDirty: true });
+            }}
+            defaultValue={initialData.isAdminItem ? 'Admin' : initialData.isItItem ? 'IT' : 'General'}
+          >
+            <option value="General">General Item</option>
+            <option value="Admin">Admin Item</option>
+            <option value="IT">IT Item</option>
+          </select>
+          <p className="text-xs text-slate-500 mt-1">Determines warehouse location and approver permissions.</p>
         </div>
       </div>
 
@@ -120,7 +145,7 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
                 <label className="block text-sm font-medium">Asset Category</label>
                 <select {...register('assetCategoryId')} className="mt-1 w-full border rounded p-2">
                   <option value="">Select...</option>
-                  {assetCategories.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {(assetCategories || []).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
                 {errors.assetCategoryId && <p className="text-red-500 text-xs">{errors.assetCategoryId.message}</p>}
               </div>

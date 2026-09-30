@@ -257,12 +257,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     },
     {
       name: 'Inventory Setting',
-      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView || getPermission('Item Bulk Upload')?.canView || getPermission('Opening Stock Upload')?.canView || getPermission('Stock Adjustment')?.canView,
+      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView || getPermission('Opening Stock Upload')?.canView || getPermission('Stock Adjustment')?.canView,
       icon: Settings,
       subMenus: [
         { name: 'Item Categories', href: '/inventory-categories', icon: Tags, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
         { name: 'Inventory Items', href: '/inventory', icon: Box, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
-        { name: 'Item Bulk Upload', href: '/inventory-bulk-upload', icon: Upload, show: isSuperAdmin || getPermission('Item Bulk Upload')?.canView || getPermission('Item Bulk Upload')?.canCreate },
         { name: 'Opening Stock Upload', href: '/opening-stock-upload', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Opening Stock Upload')?.canView || getPermission('Opening Stock Upload')?.canCreate },
         { name: 'Stock Adjustment', href: '/stock-adjustment', icon: Settings, show: isSuperAdmin || getPermission('Stock Adjustment')?.canView },
         { name: 'Vendors', href: '/vendors', icon: Users, show: isSuperAdmin || getPermission('Vendors')?.canView },

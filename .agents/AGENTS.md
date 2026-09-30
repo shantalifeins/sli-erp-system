@@ -86,3 +86,10 @@ This document defines the strict architecture, security standards, UI convention
   - Production deployment on the live server (`10.16.49.78`) MUST ONLY occur via MCP server tooling (`scripts/mcp-deploy-server.ts`) which executes `git pull origin main` on the live server.
 - **Strict No-Direct-SSH Mandate**: The AI agent is STRICTLY FORBIDDEN from attempting direct SSH connections, storing server credentials, or executing raw SSH commands. All remote production management MUST strictly use MCP tools under strict action guardrails.
 - **Zero Supabase Installation on Live Server**: The live server runs native PostgreSQL (`AUTH_MODE=postgres`) inside `postgres_prod`. Never install or deploy Supabase services on the live server.
+
+---
+
+## 🛡️ 8. Refactoring & Regression Prevention
+- **Comprehensive Analysis Before Modification**: The agent MUST perform deep analysis of the existing codebase before modifying, overriding, or deleting existing components. Do not assume existing components are unnecessary.
+- **Preservation of Existing Functionality**: When refactoring UI or integrating new features, the agent MUST NOT break or implicitly remove existing legacy UI components, form fields, props, database schema references, or routing logic unless explicitly instructed by the user.
+- **Mandatory Validation & Testing**: After any code modification, the agent MUST thoroughly cross-check both the front-end UI and backend APIs to guarantee that older functionalities still operate exactly as intended without regressions.
