@@ -4,16 +4,17 @@ import { receiptService } from '../src/modules/inventory/services/receiptService
 
 describe('Receipt Service', () => {
   it('processes physical inventory item correctly', async () => {
+    let callCount = 0;
     // Mock the db tx
     const mockTx = {
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockImplementation((condition: any) => {
-        const queryStr = condition?.toString() || '';
-        if (queryStr.includes('po_items.id')) {
+        callCount++;
+        if (callCount === 1) {
           return [{ id: 1, itemId: 100, unitPrice: '50.00' }];
         }
-        if (queryStr.includes('inventory_items.id')) {
+        if (callCount === 2) {
           return [{ id: 100, assetNature: 'Physical', accountingTreatment: 'Inventory' }];
         }
         return [];
@@ -39,22 +40,23 @@ describe('Receipt Service', () => {
 
   it('auto-creates draft assets for capitalized physical items', async () => {
      let insertedAssets: any[] = [];
+     let callCount2 = 0;
      const mockTx = {
       select: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockImplementation((condition: any) => {
-        const queryStr = condition?.toString() || '';
-        if (queryStr.includes('po_items.id')) {
+        callCount2++;
+        if (callCount2 === 1) {
           return [{ id: 1, itemId: 100, unitPrice: '50.00', poId: 55 }];
         }
-        if (queryStr.includes('inventory_items.id')) {
+        if (callCount2 === 2) {
           return [{ id: 100, assetNature: 'Physical', accountingTreatment: 'Capitalize', itemCode: 'LAP', name: 'Laptop', assetCategoryId: 'cat-1' }];
         }
         return [];
       }),
       insert: vi.fn().mockImplementation(() => ({
          values: (vals: any) => {
-            insertedAssets.push(vals);
+            insertedAssets = insertedAssets.concat(Array.isArray(vals) ? vals : [vals]);
             return { onConflictDoNothing: vi.fn() };
          }
       }))
