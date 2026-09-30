@@ -11447,6 +11447,38 @@ async function startServer() {
     },
   );
 
+  // GET /api/inventory/stock-adjustments — Get adjustment history
+  app.get(
+    "/api/inventory/stock-adjustments",
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "No company context" });
+        const history = await db.select({
+          id: stock_adjustments.id,
+          itemName: inventory_items.name,
+          warehouseName: warehouses.name,
+          adjustmentQty: stock_adjustments.adjustmentQty,
+          reason: stock_adjustments.reason,
+          adjustedFromQty: stock_adjustments.adjustedFromQty,
+          adjustedToQty: stock_adjustments.adjustedToQty,
+          status: stock_adjustments.status,
+          createdAt: stock_adjustments.createdAt
+        })
+        .from(stock_adjustments)
+        .innerJoin(inventory_items, eq(stock_adjustments.itemId, inventory_items.id))
+        .innerJoin(warehouses, eq(stock_adjustments.warehouseId, warehouses.id))
+        .where(eq(stock_adjustments.companyId, companyId))
+        .orderBy(desc(stock_adjustments.createdAt));
+        res.json(history);
+      } catch (e: any) {
+        console.error("GET /api/inventory/stock-adjustments error:", e);
+        res.status(500).json({ error: "Failed to fetch adjustment history" });
+      }
+    }
+  );
+
   // GET /api/inventory/opening-stock/template — Download template Excel
   app.get(
     "/api/inventory/opening-stock/template",

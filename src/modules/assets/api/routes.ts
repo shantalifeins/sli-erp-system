@@ -12,6 +12,39 @@ import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'driz
 const router = Router();
 
 // ==========================================
+// 0. ASSET DASHBOARD
+// ==========================================
+router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+    
+    // Mock dashboard data to prevent Promise.all failure on frontend
+    const dashboardData = {
+      metrics: {
+        totalAssets: 0,
+        activeAssets: 0,
+        totalValue: "0",
+        currentValue: "0",
+        depreciatedValue: "0"
+      },
+      charts: {
+        byCategory: [],
+        byStatus: [],
+        valueTrend: []
+      },
+      branchSummary: [],
+      recentAssets: []
+    };
+    
+    return res.json(dashboardData);
+  } catch (error: any) {
+    console.error('GET /api/assets/dashboard error:', error);
+    return res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
+});
+
+// ==========================================
 // 1. ASSET CATEGORIES CRUD
 // ==========================================
 
@@ -2968,6 +3001,146 @@ router.put("/:id", requireAuth, requirePermission('Assets Register', 'canEdit'),
   } catch (error: any) {
     console.error('PUT /api/assets/:id error:', error);
     return res.status(500).json({ error: error.message || 'Failed to update asset' });
+  }
+});
+
+// GET /api/assets/bulk-upload/template — Download asset import template Excel
+router.get('/bulk-upload/template', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(403).json({ error: 'Company context required' });
+
+    const [existingCategories, existingBranches] = await Promise.all([
+      db.select({ id: asset_categories.id, name: asset_categories.name }).from(asset_categories).where(eq(asset_categories.companyId, companyId)),
+      db.select({ id: branches.id, name: branches.name }).from(branches).where(eq(branches.companyId, companyId))
+    ]);
+
+    const XLSX = await import('xlsx');
+    const wb = XLSX.utils.book_new();
+
+    const templateHeaders = ['Asset Name *', 'Asset Type (Physical/Digital) *', 'Category Name *', 'Branch Name', 'Purchase Date', 'Purchase Cost', 'Serial Number'];
+    const templateSample = [
+      ['Dell XPS 15', 'Physical', 'IT Equipment', 'HQ', '2025-01-01', 120000, 'SN-12345'],
+      ['Adobe CC', 'Digital', 'Software License', '', '2025-01-10', 50000, '']
+    ];
+    const ws1 = XLSX.utils.aoa_to_sheet([templateHeaders, ...templateSample]);
+    ws1['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Asset Import Template');
+
+    const catRows = existingCategories.length > 0 ? existingCategories.map(c => [c.name]) : [['(No categories)']];
+    const ws2 = XLSX.utils.aoa_to_sheet([['Category Name'], ...catRows]);
+    ws2['!cols'] = [{ wch: 30 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Categories Ref');
+
+    const brRows = existingBranches.length > 0 ? existingBranches.map(b => [b.name]) : [['(No branches)']];
+    const ws3 = XLSX.utils.aoa_to_sheet([['Branch Name'], ...brRows]);
+    ws3['!cols'] = [{ wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Branches Ref');
+
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="asset_import_template.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (e: any) {
+    console.error('GET /api/assets/bulk-upload/template error:', e);
+    res.status(500).json({ error: 'Failed to generate template' });
+  }
+});
+
+// POST /api/assets/bulk-upload — Upload fixed assets
+router.post('/bulk-upload', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(403).json({ error: 'Company context required' });
+
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return res.status(400).json({ error: 'Must be multipart/form-data' });
+    }
+
+    const multer = (await import('multer')).default;
+    const upload = multer({ storage: multer.memoryStorage() });
+
+    upload.single('file')(req as any, res as any, async (err: any) => {
+      if (err) return res.status(400).json({ error: 'File upload error' });
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+      try {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(file.buffer, { type: 'buffer' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (rows.length < 2) return res.status(400).json({ error: 'No data rows found in file' });
+
+        const [existingCategories, existingBranches] = await Promise.all([
+          db.select({ id: asset_categories.id, name: asset_categories.name }).from(asset_categories).where(eq(asset_categories.companyId, companyId)),
+          db.select({ id: branches.id, name: branches.name }).from(branches).where(eq(branches.companyId, companyId))
+        ]);
+
+        const categoriesByName = new Map(existingCategories.map(c => [c.name.toLowerCase().trim(), c]));
+        const branchesByName = new Map(existingBranches.map(b => [b.name.toLowerCase().trim(), b]));
+
+        const errors: string[] = [];
+        const successes: string[] = [];
+        const dataRows = rows.slice(1);
+
+        const newAssets = [];
+        for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+          const row = dataRows[rowIdx];
+          const rowNum = rowIdx + 2;
+          const name = String(row[0] || '').trim();
+          const assetType = String(row[1] || 'Physical').trim();
+          const categoryName = String(row[2] || '').trim();
+          const branchName = String(row[3] || '').trim();
+          const pDateStr = String(row[4] || '').trim();
+          const pCost = parseFloat(String(row[5] || '0')) || 0;
+          const serial = String(row[6] || '').trim();
+
+          if (!name) continue; // skip empty rows
+
+          const category = categoriesByName.get(categoryName.toLowerCase());
+          if (!category) { errors.push(`Row ${rowNum}: Category "${categoryName}" not found.`); continue; }
+
+          let branchId = null;
+          if (branchName) {
+            const branch = branchesByName.get(branchName.toLowerCase());
+            if (!branch) { errors.push(`Row ${rowNum}: Branch "${branchName}" not found.`); continue; }
+            branchId = branch.id;
+          }
+
+          const assetCode = `ASSET-${Date.now()}-${rowIdx}`;
+
+          newAssets.push({
+            companyId,
+            assetCode,
+            name,
+            assetType: assetType.toLowerCase() === 'digital' ? 'Digital' : 'Physical',
+            categoryId: category.id,
+            branchId,
+            purchaseDate: pDateStr ? new Date(pDateStr) : null,
+            acquisitionCost: String(pCost),
+            currentBookValue: String(pCost),
+            serialNumber: serial || null,
+            status: 'Active',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          successes.push(`Row ${rowNum}: Added ${name}`);
+        }
+
+        if (newAssets.length > 0) {
+          await db.insert(assets).values(newAssets);
+        }
+
+        res.json({ success: true, processed: successes.length, errors, successes });
+      } catch (parseErr: any) {
+        res.status(500).json({ error: 'Failed to parse file: ' + parseErr.message });
+      }
+    });
+  } catch (e: any) {
+    console.error('POST /api/assets/bulk-upload error:', e);
+    res.status(500).json({ error: 'Upload failed: ' + e.message });
   }
 });
 

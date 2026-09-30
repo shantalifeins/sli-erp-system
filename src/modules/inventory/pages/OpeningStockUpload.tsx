@@ -30,8 +30,12 @@ export default function OpeningStockUpload() {
     setIsDownloading(true);
     try {
       const token = await getToken();
+      const activeTenantId = localStorage.getItem('activeTenantId');
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (activeTenantId) headers['x-tenant-id'] = activeTenantId;
+
       const res = await fetch('/api/inventory/opening-stock/template', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
       if (!res.ok) {
         const err = await res.json();
@@ -60,12 +64,16 @@ export default function OpeningStockUpload() {
 
     try {
       const token = await getToken();
+      const activeTenantId = localStorage.getItem('activeTenantId');
       const formData = new FormData();
       formData.append('file', file);
 
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (activeTenantId) headers['x-tenant-id'] = activeTenantId;
+
       const res = await fetch('/api/inventory/opening-stock/upload', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
         body: formData,
       });
 

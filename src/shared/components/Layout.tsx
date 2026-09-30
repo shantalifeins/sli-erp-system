@@ -119,7 +119,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   } else if (path.startsWith('/procurement') || path === '/purchase-requisition' || path.startsWith('/purchase-requisition/') || path.startsWith('/pr-') || path.startsWith('/purchase') || path.startsWith('/po') || path.startsWith('/work-orders') || path.startsWith('/rfq') || path.startsWith('/cs') || path.startsWith('/invoices')) {
     activeModule = 'procurement';
     activeModuleName = 'Procurement';
-  } else if (path === '/inventory-dashboard' || path === '/requisition-list' || path.startsWith('/requisition-report') || path.startsWith('/inventory') || path.startsWith('/grn') || path.startsWith('/qc') || path.startsWith('/stock') || path.startsWith('/vendors') || path.startsWith('/transfer-receive') || path.startsWith('/rejected-items') || path.startsWith('/stock-reconciliation')) {
+  } else if (path === '/inventory-dashboard' || path === '/requisition-list' || path.startsWith('/requisition-report') || path.startsWith('/inventory') || path.startsWith('/grn') || path.startsWith('/qc') || path.startsWith('/stock') || path.startsWith('/vendors') || path.startsWith('/transfer-receive') || path.startsWith('/rejected-items') || path.startsWith('/stock-reconciliation') || path.startsWith('/opening-stock-upload') || path.startsWith('/inventory-bulk-upload') || path.startsWith('/stock-adjustment')) {
     activeModule = 'inventory';
     activeModuleName = 'Inventory Management';
   } else if (path === '/assets-dashboard' || path.startsWith('/assets') || path.startsWith('/asset-') || path.startsWith('/digital-assets')) {

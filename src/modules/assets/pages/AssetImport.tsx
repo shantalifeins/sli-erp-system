@@ -1,16 +1,52 @@
 import React, { useState } from 'react';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
+import { useAuth } from '@/src/shared/components/AuthProvider';
 
 export default function AssetImport() {
+  const { getToken } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  const [results, setResults] = useState<{ processed: number, errors: string[], successes: string[] } | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    setIsDownloading(true);
+    try {
+      const token = await getToken();
+      const activeTenantId = localStorage.getItem('activeTenantId');
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (activeTenantId) headers['x-tenant-id'] = activeTenantId;
+
+      const res = await fetch('/api/assets/bulk-upload/template', { headers });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to download template');
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'asset_import_template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(err.message || 'Error downloading template');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
       setStatus('idle');
+      setResults(null);
     }
   };
 
@@ -18,12 +54,34 @@ export default function AssetImport() {
     if (!file) return;
     setIsUploading(true);
     setStatus('idle');
-    
-    // Simulate API call for now (until connected)
-    setTimeout(() => {
+    setResults(null);
+
+    try {
+      const token = await getToken();
+      const activeTenantId = localStorage.getItem('activeTenantId');
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (activeTenantId) headers['x-tenant-id'] = activeTenantId;
+
+      const res = await fetch('/api/assets/bulk-upload', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+      setResults({ processed: data.processed || 0, errors: data.errors || [], successes: data.successes || [] });
+      setStatus(data.errors && data.errors.length > 0 && data.processed === 0 ? 'error' : 'success');
+    } catch (err: any) {
+      alert(err.message || 'Error uploading file');
+      setStatus('error');
+    } finally {
       setIsUploading(false);
-      setStatus('success');
-    }, 2000);
+    }
   };
 
   return (
@@ -35,9 +93,17 @@ export default function AssetImport() {
               <FileSpreadsheet className="w-8 h-8 text-brand-orange" />
             </div>
             <h2 className="text-2xl font-bold text-slate-800 mb-2">Fixed Asset Import</h2>
-            <p className="text-slate-500 mb-8">
+            <p className="text-slate-500 mb-4">
               Upload existing fixed assets records via Excel or CSV file.
             </p>
+            <button
+              onClick={handleDownloadTemplate}
+              disabled={isDownloading}
+              className="inline-flex items-center px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200 transition-colors mb-8 disabled:opacity-50"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {isDownloading ? 'Downloading...' : 'Download Template (XLSX)'}
+            </button>
 
             <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 bg-slate-50 relative hover:bg-slate-100 transition-colors group cursor-pointer" onClick={() => document.getElementById('file-upload')?.click()}>
               <input
@@ -73,12 +139,36 @@ export default function AssetImport() {
               </div>
             )}
 
-            {status === 'success' && (
-              <div className="mt-6 bg-green-50 text-green-700 p-4 rounded-xl flex items-start gap-3 text-left">
-                <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0 text-green-600" />
+            {status === 'success' && results && (
+              <div className="mt-6 bg-green-50 border border-green-200 text-green-700 p-6 rounded-xl text-left">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0 text-green-600" />
+                  <div>
+                    <h4 className="font-bold text-lg">Upload Processed</h4>
+                    <p className="text-sm mt-1 text-green-600 font-medium">Successfully imported {results.processed} assets.</p>
+                  </div>
+                </div>
+
+                {results.errors.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-green-200">
+                    <h5 className="font-semibold text-red-700 mb-2 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      {results.errors.length} Warning(s) / Error(s)
+                    </h5>
+                    <ul className="text-sm text-red-600 space-y-1 list-disc list-inside bg-red-50 p-3 rounded-lg border border-red-100 max-h-40 overflow-y-auto">
+                      {results.errors.map((err, i) => <li key={i}>{err}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {status === 'error' && (
+              <div className="mt-6 bg-red-50 text-red-700 p-4 rounded-xl flex items-start gap-3 text-left">
+                <AlertCircle className="w-5 h-5 mt-0.5 shrink-0 text-red-600" />
                 <div>
-                  <h4 className="font-bold">Upload Successful</h4>
-                  <p className="text-sm mt-1">The fixed assets have been successfully imported.</p>
+                  <h4 className="font-bold">Upload Failed</h4>
+                  <p className="text-sm mt-1">Please check the console for details or fix your template format.</p>
                 </div>
               </div>
             )}
