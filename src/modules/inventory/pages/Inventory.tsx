@@ -107,10 +107,6 @@ export default function Inventory() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdminItem && !isItItem) {
-      alert("Please select an Item Type (Admin Item or IT Item).");
-      return;
-    }
     try {
       const token = await getToken();
       if (!token) return;

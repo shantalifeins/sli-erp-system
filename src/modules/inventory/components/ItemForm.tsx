@@ -88,9 +88,8 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
               setValue('isAdminItem', val === 'Admin', { shouldValidate: true, shouldDirty: true });
               setValue('isItItem', val === 'IT', { shouldValidate: true, shouldDirty: true });
             }}
-            defaultValue={initialData.isAdminItem ? 'Admin' : initialData.isItItem ? 'IT' : 'General'}
+            defaultValue={initialData.isAdminItem ? 'Admin' : initialData.isItItem ? 'IT' : 'Admin'}
           >
-            <option value="General">General Item</option>
             <option value="Admin">Admin Item</option>
             <option value="IT">IT Item</option>
           </select>

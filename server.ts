@@ -3954,6 +3954,10 @@ async function startServer() {
                   hasAccess = true;
                   break;
                 }
+                if (!invItem[0].isAdminItem && !invItem[0].isItItem) {
+                  hasAccess = true;
+                  break;
+                }
               }
               if (!hasAccess) {
                 return res
@@ -8153,7 +8157,7 @@ async function startServer() {
             continue;
           }
 
-          // Item Type Validation
+          // Item Type Validation — empty defaults to Admin
           let isAdminItem = true;
           let isItItem = false;
           if (itemTypeRaw) {
