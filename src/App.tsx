@@ -50,6 +50,7 @@ import AssetTransfers from '@/src/modules/assets/pages/AssetTransfers';
 import AssetReports from '@/src/modules/assets/pages/AssetReports';
 import AssetVerification from '@/src/modules/assets/pages/AssetVerification';
 import AssetDeprReports from '@/src/modules/assets/pages/AssetDeprReports';
+import ReportsDashboard from '@/src/modules/reports/pages/ReportsDashboard';
 import AssetLocation from '@/src/modules/assets/pages/AssetLocation';
 import PwaInstallPrompt from '@/src/shared/components/PwaInstallPrompt';
 
@@ -119,6 +120,9 @@ export default function App() {
             <Route path="/digital-assets/vault" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><LicenseVault /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/digital-assets/amortization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Amortization /></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/digital-assets/reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssetReports /></PluginProtectedRoute></PrivateRoute>} />
+
+            {/* Report Routes */}
+            <Route path="/master-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><ReportsDashboard /></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Inventory Routes */}
             <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryDashboard /></PluginProtectedRoute></PrivateRoute>} />

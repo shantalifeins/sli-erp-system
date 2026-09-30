@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
-import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2, Printer, CheckSquare, Paperclip , Activity, Users } from 'lucide-react';
+import { Box, Plus, DollarSign, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2, Printer, CheckSquare, Paperclip , Activity, Users } from 'lucide-react';
 import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import { QRCodeSVG } from 'qrcode.react';
 import { BulkStickerModal, getAssetQrValue } from '../components/BulkStickerModal';
@@ -324,6 +324,22 @@ export default function Assets() {
       alert(err.message || 'Failed to reassign custodian');
     } finally {
       setIsAssigning(false);
+    }
+  };
+
+  
+  const handleCapitalize = async (id: string) => {
+    if (!window.confirm("Are you sure you want to capitalize this asset? This will lock its cost and start depreciation.")) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/assets/${id}/capitalize`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error(await res.text());
+      loadData();
+    } catch (err: any) {
+      alert("Failed to capitalize: " + err.message);
     }
   };
 
