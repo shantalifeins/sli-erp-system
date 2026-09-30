@@ -957,6 +957,21 @@ export const assets = pgTable('assets', {
   assetsGrnItemUnitUnq: uniqueIndex('assets_grn_item_unit_unq').on(table.sourceGrnItemId, table.unitIndex),
 }));
 
+export const asset_assignments = pgTable('asset_assignments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  assetId: uuid('asset_id').references(() => assets.id).notNull(),
+  assignedToUid: text('assigned_to_uid').references(() => users.uid, { onUpdate: 'cascade' }),
+  departmentId: integer('department_id').references(() => departments.id),
+  branchId: integer('branch_id').references(() => branches.id),
+  locationId: uuid('location_id').references(() => asset_locations.id),
+  assignedAt: timestamp('assigned_at').defaultNow(),
+  returnedAt: timestamp('returned_at'),
+  assignedByUid: text('assigned_by_uid').references(() => users.uid, { onUpdate: 'cascade' }),
+  status: text('status').default('Active'),
+  notes: text('notes')
+});
+
 export const asset_depreciation_schedule = pgTable('asset_depreciation_schedule', {
   id: uuid('id').defaultRandom().primaryKey(),
   companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
