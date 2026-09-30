@@ -2,7 +2,8 @@ import React from 'react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Plus, Eye, Truck, ClipboardCheck, CheckCircle, XCircle, ArrowLeft, Loader2 } from 'lucide-react';
+import { Plus, Eye, Truck, ClipboardCheck, CheckCircle, XCircle, ArrowLeft, Loader2, Paperclip } from 'lucide-react';
+import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import { cn } from '@/src/shared/lib/utils';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
@@ -510,6 +511,11 @@ export default function Grn() {
               )}
             </div>
           </div>
+      )}
+
+      {/* GRN Attachment Panel */}
+      {selectedGrn && !showCreateModal && (
+        <AttachmentPanel refType="GRN" refId={selectedGrn.id} compact />
       )}
 
       {/* Create GRN Form */}

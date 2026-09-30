@@ -2,7 +2,8 @@ import React from 'react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { ShoppingCart, Eye, Plus, ArrowLeft } from 'lucide-react';
+import { ShoppingCart, Eye, Plus, ArrowLeft, X, Paperclip } from 'lucide-react';
+import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import { cn } from '@/src/shared/lib/utils';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
@@ -30,6 +31,8 @@ export default function PurchaseOrders() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [viewingPoId, setViewingPoId] = useState<number | null>(null);
+  const viewingPo = pos.find((p: any) => p.id === viewingPoId);
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const poPerms = permissions?.find((p: any) => p.module === 'Purchase Orders') || {};
@@ -176,6 +179,7 @@ export default function PurchaseOrders() {
               <th className="px-6 py-4 text-right">Total Amount</th>
               <th className="px-6 py-4">Status</th>
               <th className="px-6 py-4">Created Date</th>
+              <th className="px-6 py-4"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -205,11 +209,42 @@ export default function PurchaseOrders() {
                   </span>
                 </td>
                 <td className="px-6 py-4">{new Date(po.createdAt).toLocaleDateString()}</td>
+                <td className="px-6 py-4">
+                  <button
+                    id={`po-attachments-btn-${po.id}`}
+                    onClick={() => setViewingPoId(viewingPoId === po.id ? null : po.id)}
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      viewingPoId === po.id
+                        ? 'bg-blue-100 text-blue-600'
+                        : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                    }`}
+                    title="Attachments"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      )}
+
+      {/* Attachment Panel — slides in below when a PO is selected */}
+      {viewingPoId && viewingPo && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+            <p className="text-sm font-semibold text-slate-700">
+              Attachments — <span className="text-brand-orange">{viewingPo.poNumber}</span>
+            </p>
+            <button onClick={() => setViewingPoId(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-4">
+            <AttachmentPanel refType="PO" refId={viewingPoId} compact />
+          </div>
+        </div>
       )}
 
       {/* Generate PO Form */}

@@ -36,7 +36,6 @@ describe('Procurement API / Integration Flow (ABC Company)', () => {
     const newPr = await db.insert(purchase_requisitions).values({
       companyId,
       prNumber: 'PR-TEST-' + crypto.randomBytes(4).toString('hex').toUpperCase(),
-      date: new Date().toISOString(),
       status: 'Pending',
       procurementMethod: 'Single Quotation',
       sourceIrId: null,

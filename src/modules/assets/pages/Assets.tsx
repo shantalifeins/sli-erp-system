@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
-import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2, Printer, CheckSquare } from 'lucide-react';
+import { Box, Plus, Search, Edit3, Filter, ArrowLeft, Building2, User, Calendar, QrCode, Zap, FileText, UserCheck, UserPlus, X, Loader2, Printer, CheckSquare, Paperclip } from 'lucide-react';
+import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import { QRCodeSVG } from 'qrcode.react';
 import { BulkStickerModal, getAssetQrValue } from '../components/BulkStickerModal';
 
@@ -49,6 +50,7 @@ export default function Assets() {
   const itemsPerPage = 10;
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [showBulkPrintModal, setShowBulkPrintModal] = useState(false);
+  const [viewingAssetId, setViewingAssetId] = useState<string | null>(null);
 
   // Form State
   const [showForm, setShowForm] = useState(false);
@@ -1035,6 +1037,15 @@ export default function Assets() {
                             <Calendar className="w-4 h-4" />
                           </button>
                           <button
+                            onClick={() => setViewingAssetId(viewingAssetId === asset.id ? null : asset.id)}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              viewingAssetId === asset.id ? 'bg-purple-100 text-purple-600' : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'
+                            }`}
+                            title="Attachments"
+                          >
+                            <Paperclip className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => setSelectedQrAsset(asset)}
                             className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
                             title="View / Print QR Tag Label"
@@ -1278,6 +1289,22 @@ export default function Assets() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Attachment Panel */}
+      {viewingAssetId && (
+        <div className="mt-6 bg-white p-6 rounded-2xl border border-purple-200 shadow-sm mb-6">
+          <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+            <h4 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <Paperclip className="w-5 h-5 text-purple-500" />
+              Asset Attachments
+            </h4>
+            <button onClick={() => setViewingAssetId(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <AttachmentPanel refType="Asset" refId={viewingAssetId} />
         </div>
       )}
 

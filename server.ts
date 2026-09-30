@@ -18,14 +18,18 @@ import { checkPlugin } from './src/shared/middleware/checkPlugin.js';
 
 import { db } from './src/shared/db/index.js';
 import { receiptService } from './src/modules/inventory/services/receiptService.js';
+import { matchingService } from './src/modules/inventory/services/matchingService.js';
+import { assetCostService } from './src/modules/assets/services/assetCostService.js';
+import { capitalizationService } from './src/modules/assets/services/capitalizationService.js';
 import { users, roles, purchase_requisitions, rfq, rfq_vendors, quotations, comparative_statements, purchase_orders, po_items, grn, grn_items, qc_inspections, invoices, payments, approval_workflows, pr_approvals, document_approvals, pr_items, role_permissions, departments, designations, system_settings, bpmn_definitions, bpmn_instances, inbox_tasks, warehouse_stock } from './src/shared/db/schema.js';
 import { vendors, inventory_items, notifications, notification_settings, smtp_settings, stock_transactions, item_categories, stock_out_requests, global_stock_ledger, digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from './src/shared/db/schema.js';
 import { plugins, companies, company_plugins, units, branches, warehouses, warehouse_managers, vendor_evaluations, stock_transfers, stock_transfer_items, profile_change_requests, work_orders } from './src/shared/db/schema.js';
 // Phase 1 new table imports
 import { stock_reservations, physical_stock_counts, physical_count_details, stock_adjustments, vendor_quality_metrics, stock_consumption_history, rejected_item_dispositions } from './src/shared/db/schema.js';
 import { asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals } from './src/shared/db/schema.js';
+import { invoice_items, digital_acceptances, attachments } from './src/shared/db/schema.js';
 
-import { eq, desc, and, ne, isNull, or, sql, inArray, like, ilike, getTableColumns } from 'drizzle-orm';
+import { eq, desc, and, ne, isNull, or, sql, inArray, like, ilike, getTableColumns, count, gt, lt, lte, gte } from 'drizzle-orm';
 import * as XLSX from 'xlsx';
 import { alias } from 'drizzle-orm/pg-core';
 import { getUser } from './src/shared/db/users.js';
@@ -40,6 +44,7 @@ import { requirePermission } from './src/shared/middleware/permissions.js';
 import digitalAssetsRouter from './src/modules/digitalAssets/api/routes.js';
 import assetReportsRouter from './src/modules/assets/api/reports.js';
 import todoRoutes from './src/modules/userPanel/api/todoRoutes.js';
+import attachmentsRouter from './src/modules/attachments/api/routes.js';
 
 import { evaluateWorkflowPath } from './src/shared/lib/bpmnParser.js';
 import { hashPassword, verifyPassword, generateAuthToken } from './src/shared/lib/authUtils.js';
@@ -59,7 +64,10 @@ const supabaseAdmin = createClient(
   }
 );
 
+import { startScheduler } from './src/shared/lib/scheduler.js';
+
 export const app = express();
+startScheduler();
 
 // Ensure asset_category_id column exists on inventory_items table
 db.execute(sql`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS asset_category_id UUID REFERENCES asset_categories(id);`)
@@ -854,6 +862,7 @@ app.use('/api/auth/sso', ssoRouter);
 app.use('/api/profile/change-request', profileChangeRouter);
 
 app.use('/api/digital-assets', requireAuth, checkPlugin('asset-management'), digitalAssetsRouter);
+app.use('/api/attachments', requireAuth, attachmentsRouter);
 
 // â”€â”€â”€ User Profile API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // GET /api/profile â€“ current user's profile
@@ -4467,6 +4476,61 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
+
+  app.post("/api/invoices/:id/match", requireAuth, requirePermission('Invoices & Payments', 'canEdit'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const invId = parseInt(req.params.id);
+      const status = await matchingService.matchInvoice(invId, req.user!.uid);
+      res.json({ matchStatus: status });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/invoices/:id/approve", requireAuth, requirePermission('Invoices & Payments', 'canApprove'), async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const invId = parseInt(req.params.id);
+      
+      const invRecord = await db.select().from(invoices).where(and(eq(invoices.id, invId), eq(invoices.companyId, companyId))).limit(1);
+      if (invRecord.length === 0) return res.status(404).json({ error: "Invoice not found" });
+      if (invRecord[0].approvalStatus === 'Approved') return res.status(400).json({ error: "Already approved" });
+      if (invRecord[0].matchStatus !== 'Matched') return res.status(400).json({ error: "Cannot approve mismatched invoice" });
+
+      await db.update(invoices).set({ approvalStatus: 'Approved' }).where(eq(invoices.id, invId));
+      
+      // Also finalize asset costs for all capitalizable lines in this invoice
+      const lines = await db.select().from(invoice_items).where(eq(invoice_items.invoiceId, invId));
+      for (const line of lines) {
+         if (line.capitalizable) {
+            await assetCostService.finalize(line.id, req.user!.uid).catch(e => console.error("Finalize error for line", line.id, e));
+         }
+      }
+      
+      res.json({ success: true, message: "Invoice approved and costs finalized" });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/assets/:id/capitalize", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      let companyId = await resolveTenantId(req);
+      if (!companyId) return res.status(403).json({ error: "Company required" });
+      const { putToUseDate } = req.body;
+      const result = await capitalizationService.capitalize(req.params.id, putToUseDate ? new Date(putToUseDate) : new Date(), req.user!.uid);
+      res.json(result);
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/invoices/:id/pay", requireAuth, async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
@@ -4832,8 +4896,6 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
 
   // Inventory Endpoints
   
-    }
-  });
 
   app.get("/api/inventory/warehouse-stock", requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -4896,7 +4958,7 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
     }
   });
 
-  app.get("/api/inventory/:id", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res) => {
+  app.get("/api/inventory/:id", requireAuth, requirePermission('Inventory Items', 'canView'), async (req: AuthRequest, res, next) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -5005,28 +5067,6 @@ app.put('/api/profile/password', requireAuth, async (req: AuthRequest, res) => {
   });
   // --- END PHASE 2 NEW ROUTES ---
 
-      const { itemCode, name, category, uom, quantityInStock, reorderLevel, location, isFixedAsset, assetCategoryId, basePrice, isAdminItem, isItItem } = req.body;
-      const result = await db.insert(inventory_items).values({
-        companyId,
-        itemCode,
-        name,
-        category,
-        uom,
-        quantityInStock: quantityInStock || 0,
-        reorderLevel: reorderLevel || 0,
-        location,
-        isFixedAsset: isFixedAsset || false,
-        assetCategoryId: isFixedAsset && assetCategoryId ? assetCategoryId : null,
-        basePrice: basePrice || null,
-        isAdminItem: isAdminItem || false,
-        isItItem: isItItem || false,
-      }).returning();
-      res.json(result[0]);
-    } catch (error: any) {
-      console.error("DB Error:", error);
-      res.status(500).json({ error: "Failed to add inventory item" });
-    }
-  });
 
   // Inventory Bulk Upload Template Endpoint
   app.get("/api/inventory/bulk-upload/template", requireAuth, async (req: AuthRequest, res) => {

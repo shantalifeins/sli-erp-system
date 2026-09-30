@@ -1,6 +1,6 @@
 import express from 'express';
 import { db } from '../../../shared/db/index.js';
-import { digital_assets, vendors, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from '../../../shared/db/schema.js';
+import { digital_assets, vendors, digital_asset_renewals, digital_asset_users, digital_asset_amortization, users } from '../../../shared/db/schema.js';
 import { eq, desc, and } from 'drizzle-orm';
 import { AuthRequest } from '../../../shared/middleware/auth.js';
 import { resolveTenantId, requireTenant } from '../../../shared/lib/tenant.js';
@@ -247,13 +247,11 @@ const router = express.Router();
       if (asset.length === 0) return res.status(404).json({ error: "Not found" });
 
       await db.insert(audit_logs).values({
-        companyId,
-        userId: req.user!.uid,
+        uid: req.user!.uid,
         action: 'Reveal Digital Asset Secret',
-        entityType: 'digital_assets',
+        entity: 'digital_assets',
         entityId: id,
-        details: `Revealed license secret for digital asset ${asset[0].assetCode}`,
-        ipAddress: req.ip || 'Unknown'
+        details: { message: `Revealed license secret for digital asset ${asset[0].assetCode}`, companyId, ip: req.ip || 'Unknown' },
       });
 
       res.json({ licenseKey: asset[0].licenseKeyEncrypted }); // Simple return since it's just a demo mock

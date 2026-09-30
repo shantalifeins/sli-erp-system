@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Plus, CheckCircle, ShieldCheck, DollarSign, FileText, ArrowLeft } from 'lucide-react';
+import { Plus, CheckCircle, ShieldCheck, DollarSign, FileText, ArrowLeft, Paperclip, X } from 'lucide-react';
+import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import { cn } from '@/src/shared/lib/utils';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
@@ -24,6 +25,8 @@ export default function InvoicesPayments() {
   const [showInvModal, setShowInvModal] = useState(false);
   const [selectedGrnId, setSelectedGrnId] = useState('');
   const [creating, setCreating] = useState(false);
+  const [viewingInvId, setViewingInvId] = useState<number | null>(null);
+  const viewingInv = invoicesList.find((i: any) => i.id === viewingInvId);
 
   const loadData = async () => {
     try {
@@ -159,6 +162,7 @@ export default function InvoicesPayments() {
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             {activeSubTab === 'invoices' ? (
+              <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50 border-b border-slate-200">
@@ -169,12 +173,13 @@ export default function InvoicesPayments() {
                       <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
                       <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                       <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                      <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredInvoices.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-12 text-center text-slate-500">
+                        <td colSpan={7} className="p-12 text-center text-slate-500">
                           <div className="flex flex-col items-center justify-center">
                             <FileText className="w-12 h-12 text-slate-300 mb-4" />
                             <p className="text-lg font-medium text-slate-600">No invoices found</p>
@@ -209,12 +214,36 @@ export default function InvoicesPayments() {
                               </button>
                             )}
                           </td>
+                          <td className="p-4">
+                            <button
+                              id={`inv-attach-btn-${inv.id}`}
+                              onClick={() => setViewingInvId(viewingInvId === inv.id ? null : inv.id)}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                viewingInvId === inv.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                              }`}
+                              title="Attachments"
+                            >
+                              <Paperclip className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
               </div>
+
+              {/* Invoice Attachment Panel */}
+              {viewingInvId && viewingInv && activeSubTab === 'invoices' && (
+                <div className="mt-4 border border-slate-200 rounded-xl">
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+                    <p className="text-sm font-semibold text-slate-700">Attachments — <span className="text-blue-600">{viewingInv.invoiceNumber}</span></p>
+                    <button onClick={() => setViewingInvId(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
+                  </div>
+                  <div className="p-4"><AttachmentPanel refType="Invoice" refId={viewingInvId} compact /></div>
+                </div>
+              )}
+            </>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">

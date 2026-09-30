@@ -94,13 +94,7 @@ export const profile_change_requests = pgTable('profile_change_requests', {
   status: text('status').default('Pending'), // Pending, Approved, Rejected
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
-  poId: integer('po_id').references(() => purchase_orders.id),
-  poItemId: integer('po_item_id').references(() => po_items.id),
-  sourceGrnItemId: integer('source_grn_item_id').references(() => grn_items.id),
-  unitIndex: integer('unit_index'),
-}, (table) => ({
-  assetsGrnItemUnitUnq: uniqueIndex('assets_grn_item_unit_unq').on(table.sourceGrnItemId, table.unitIndex),
-}));
+});
 
 // Roles table (Dynamic Roles)
 export const roles = pgTable('roles', {
@@ -490,12 +484,50 @@ export const invoices = pgTable('invoices', {
   companyId: uuid('company_id').references(() => companies.id),
   invoiceNumber: text('invoice_number').notNull().unique(),
   poId: integer('po_id').references(() => purchase_orders.id).notNull(),
-  grnId: integer('grn_id').references(() => grn.id).notNull(),
+  grnId: integer('grn_id').references(() => grn.id),
+  vendorId: integer('vendor_id').references(() => vendors.id),
+  vendorInvoiceNo: text('vendor_invoice_no'),
+  invoiceType: text('invoice_type').default('Goods'),
+  subtotal: numeric('subtotal'),
+  taxAmount: numeric('tax_amount').default('0'),
+  discountAmount: numeric('discount_amount').default('0'),
+  freightAmount: numeric('freight_amount').default('0'),
+  dueDate: timestamp('due_date'),
+  matchStatus: text('match_status').default('Matched'),
+  approvalStatus: text('approval_status').default('Pending'),
+  createdBy: text('created_by').references(() => users.uid, { onUpdate: 'cascade' }),
   amount: numeric('amount').notNull(),
   invoiceDate: timestamp('invoice_date'),
   status: text('status').default('Pending'), // Pending, Paid
   matchingNotes: text('matching_notes'),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const invoice_items = pgTable('invoice_items', {
+  id: serial('id').primaryKey(),
+  invoiceId: integer('invoice_id').references(() => invoices.id).notNull(),
+  poItemId: integer('po_item_id').references(() => po_items.id),
+  grnItemId: integer('grn_item_id').references(() => grn_items.id),
+  itemId: integer('item_id').references(() => inventory_items.id),
+  description: text('description'),
+  quantity: numeric('quantity').notNull(),
+  unitPrice: numeric('unit_price').notNull(),
+  taxAmount: numeric('tax_amount').default('0'),
+  costType: text('cost_type').default('Base'),
+  capitalizable: boolean('capitalizable').default(true)
+});
+
+export const accounting_events = pgTable('accounting_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id),
+  eventType: text('event_type').notNull(),
+  sourceType: text('source_type'),
+  sourceId: text('source_id'),
+  debitAccount: text('debit_account'),
+  creditAccount: text('credit_account'),
+  amount: numeric('amount'),
+  status: text('status').default('Pending'),
+  createdAt: timestamp('created_at').defaultNow()
 });
 
 // Payments
@@ -913,6 +945,12 @@ export const assets = pgTable('assets', {
     updatedAt: timestamp('updated_at').defaultNow(),
   poId: integer('po_id').references(() => purchase_orders.id),
   poItemId: integer('po_item_id').references(() => po_items.id),
+    invoiceId: integer('invoice_id').references(() => invoices.id),
+  invoiceItemId: integer('invoice_item_id').references(() => invoice_items.id),
+  costStatus: text('cost_status').default('Provisional'),
+  isCapitalized: boolean('is_capitalized').default(false),
+  putToUseDate: timestamp('put_to_use_date'),
+  capitalizationDate: timestamp('capitalization_date'),
   sourceGrnItemId: integer('source_grn_item_id').references(() => grn_items.id),
   unitIndex: integer('unit_index'),
 }, (table) => ({
@@ -1108,6 +1146,19 @@ export const digital_assets = pgTable('digital_assets', {
   createdByUid: text('created_by_uid').references(() => users.uid, { onDelete: 'set null', onUpdate: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
+  // Phase 5: Digital Asset Completion
+  accountingTreatment: text('accounting_treatment').default('Prepaid'),
+  poItemId: integer('po_item_id').references(() => po_items.id),
+  invoiceId: integer('invoice_id').references(() => invoices.id),
+  acceptanceId: integer('acceptance_id').references(() => digital_acceptances.id),
+  agreementRef: text('agreement_ref'),
+  entitlementRef: text('entitlement_ref'),
+  costStatus: text('cost_status').default('Provisional'),
+  putToUseDate: timestamp('put_to_use_date'),
+  serviceStartDate: timestamp('service_start_date'),
+  serviceEndDate: timestamp('service_end_date'),
+  licenseKeyIv: text('license_key_iv'),
+  licenseKeyTag: text('license_key_tag'),
 });
 
 export const digital_asset_renewals = pgTable('digital_asset_renewals', {
@@ -1194,3 +1245,22 @@ export const document_sequences = pgTable('document_sequences', {
 }, (table) => ({
   docSeqUnq: uniqueIndex('doc_seq_unq').on(table.companyId, table.docType, table.year),
 }));
+
+// ============================================================
+// Phase 6 — Attachments
+// ============================================================
+export const attachments = pgTable('attachments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  refType: text('ref_type').notNull(),     // 'PO' | 'GRN' | 'Invoice' | 'Asset' | 'DigitalAsset' | 'Item' | 'Disposal'
+  refId: text('ref_id').notNull(),          // String-typed so it works for both integer and UUID PKs
+  category: text('category'),               // 'Contract' | 'Invoice' | 'QC Report' | 'Photo' | 'Other'
+  fileName: text('file_name').notNull(),
+  mimeType: text('mime_type'),
+  sizeBytes: integer('size_bytes'),
+  storagePath: text('storage_path'),        // Local: relative path from uploads/; Supabase: bucket path
+  storageProvider: text('storage_provider').default('local'), // 'local' | 'supabase'
+  uploadedByUid: text('uploaded_by_uid').references(() => users.uid, { onUpdate: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow(),
+  deletedAt: timestamp('deleted_at'),       // Soft delete
+});

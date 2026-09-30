@@ -56,13 +56,11 @@ export const requirePermission = (
       if (action === 'canApprove' || action === 'canDelete') {
         // Log unauthorized high-privilege attempts
         await db.insert(audit_logs).values({
-          companyId,
-          userId: req.user!.uid,
+          uid: req.user!.uid,
           action: 'Unauthorized Access Attempt',
-          entityType: menu,
+          entity: menu,
           entityId: 'N/A',
-          details: `Attempted to ${action} without permission`,
-          ipAddress: req.ip || 'Unknown'
+          details: { message: `Attempted to ${action} without permission`, companyId, ip: req.ip || 'Unknown' },
         });
       }
       return res.status(403).json({ error: `Forbidden: requires ${menu}.${action}` });

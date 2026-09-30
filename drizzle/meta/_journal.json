@@ -29,6 +29,13 @@
       "when": 1790661937300,
       "tag": "0003_digital_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790679076690,
+      "tag": "0004_overjoyed_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }

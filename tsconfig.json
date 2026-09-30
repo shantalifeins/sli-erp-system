@@ -22,5 +22,10 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "scratch",
+    "scripts/migrate_p5.ts",
+    "scripts/migrate_p5_manual.ts"
+  ]
 }

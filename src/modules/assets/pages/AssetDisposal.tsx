@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
-import { Trash2, Plus, Search, ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Trash2, Plus, Search, ArrowLeft, TrendingUp, TrendingDown, DollarSign, Calendar, AlertCircle, CheckCircle2, Paperclip, X } from 'lucide-react';
+import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 
 export default function AssetDisposal() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export default function AssetDisposal() {
   // Modal State
   const [showDisposalModal, setShowDisposalModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [viewingDisposalId, setViewingDisposalId] = useState<string | null>(null);
 
   // Form State
   const [disposalForm, setDisposalForm] = useState({
@@ -185,7 +187,8 @@ export default function AssetDisposal() {
                   const gainLossNum = Number(d.gainLoss || 0);
                   const isGain = gainLossNum >= 0;
                   return (
-                    <div key={d.id} className="p-4 hover:bg-slate-50 flex items-center justify-between">
+                    <React.Fragment key={d.id}>
+                    <div className="p-4 hover:bg-slate-50 flex items-center justify-between">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-slate-800 text-base">{d.disposalType} Request</span>
@@ -203,17 +206,37 @@ export default function AssetDisposal() {
                         </div>
                       </div>
 
-                      <div className="text-right space-y-1">
+                      <div className="text-right space-y-2 flex flex-col items-end">
                         <div className={`text-sm font-bold flex items-center justify-end gap-1 ${isGain ? 'text-emerald-600' : 'text-rose-600'}`}>
                           {isGain ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                           {isGain ? '+' : ''}{currencySymbol}{gainLossNum.toLocaleString()}
                         </div>
                         <div className="text-[10px] text-slate-400">Gain / (Loss)</div>
+                        <button
+                          onClick={() => setViewingDisposalId(viewingDisposalId === d.id ? null : d.id)}
+                          className={`p-1.5 rounded flex items-center gap-1 text-[10px] font-semibold transition-colors ${
+                            viewingDisposalId === d.id ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:text-purple-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Paperclip className="w-3.5 h-3.5" /> Attachments
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                    {viewingDisposalId === d.id && (
+                      <div className="p-4 bg-slate-50 border-t border-slate-100">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-bold text-slate-700">Disposal Attachments</p>
+                          <button onClick={() => setViewingDisposalId(null)} className="p-1 hover:bg-slate-200 rounded text-slate-500">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <AttachmentPanel refType="AssetDisposal" refId={d.id} compact />
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
             )}
           </div>
         </div>
