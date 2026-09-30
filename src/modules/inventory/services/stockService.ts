@@ -19,6 +19,8 @@ export const stockService = {
     performedBy: string,
     unitCost: number = 0
   ) {
+    if (qty <= 0) return;
+
     // 1. Write stock_transaction
     await tx.insert(stock_transactions).values({
       companyId,
@@ -39,23 +41,18 @@ export const stockService = {
       await tx.insert(global_stock_ledger).values({
         companyId,
         itemId,
-        quantityInStock: qty,
-        weightedAverageCost: String(unitCost),
-        lastUpdatedBy: performedBy,
-        lastUpdatedAt: new Date()
+        openingBalance: 0,
+        totalStockIn: qty,
+        totalStockOut: 0,
+        closingBalance: qty,
+        lastUpdated: new Date()
       });
     } else {
-      const currentQty = ledger[0].quantityInStock || 0;
-      const currentWAC = parseFloat(ledger[0].weightedAverageCost || '0');
-      const newQty = currentQty + qty;
-      const newWAC = newQty > 0 ? ((currentQty * currentWAC) + (qty * unitCost)) / newQty : currentWAC;
-      
       await tx.update(global_stock_ledger)
         .set({
-          quantityInStock: newQty,
-          weightedAverageCost: String(newWAC),
-          lastUpdatedBy: performedBy,
-          lastUpdatedAt: new Date()
+          totalStockIn: (ledger[0].totalStockIn || 0) + qty,
+          closingBalance: (ledger[0].closingBalance || 0) + qty,
+          lastUpdated: new Date()
         })
         .where(eq(global_stock_ledger.id, ledger[0].id));
     }
@@ -67,16 +64,14 @@ export const stockService = {
         companyId,
         warehouseId,
         itemId,
-        quantityInStock: qty,
-        lastUpdatedBy: performedBy,
-        lastUpdatedAt: new Date()
+        quantity: qty,
+        lastUpdated: new Date()
       });
     } else {
       await tx.update(warehouse_stock)
         .set({
-          quantityInStock: (ws[0].quantityInStock || 0) + qty,
-          lastUpdatedBy: performedBy,
-          lastUpdatedAt: new Date()
+          quantity: (ws[0].quantity || 0) + qty,
+          lastUpdated: new Date()
         })
         .where(eq(warehouse_stock.id, ws[0].id));
     }
@@ -85,5 +80,76 @@ export const stockService = {
     await tx.update(inventory_items).set({
         quantityInStock: sql`COALESCE(quantity_in_stock, 0) + ${qty}`
     }).where(eq(inventory_items.id, itemId));
+  },
+
+  async moveOut(
+    tx: any, 
+    companyId: string, 
+    warehouseId: number, 
+    itemId: number, 
+    qty: number, 
+    refId: string, 
+    refType: string,
+    performedBy: string
+  ) {
+    if (qty <= 0) throw new Error('Quantity must be greater than zero');
+
+    // Fetch warehouse stock to verify availability
+    const ws = await tx.select().from(warehouse_stock).where(and(eq(warehouse_stock.companyId, companyId), eq(warehouse_stock.warehouseId, warehouseId), eq(warehouse_stock.itemId, itemId))).limit(1);
+    if (ws.length === 0 || (ws[0].quantity || 0) < qty) {
+      throw new Error(`Insufficient stock in warehouse for item ${itemId}`);
+    }
+
+    // 1. Write stock_transaction
+    await tx.insert(stock_transactions).values({
+      companyId,
+      itemId,
+      warehouseId,
+      transactionType: 'Stock Out',
+      referenceType: refType,
+      referenceId: refId,
+      quantity: qty,
+      unitCost: '0',
+      performedBy,
+      transactionDate: new Date()
+    });
+
+    // 2. Update global_stock_ledger
+    await tx.update(global_stock_ledger)
+        .set({
+          totalStockOut: sql`total_stock_out + ${qty}`,
+          closingBalance: sql`closing_balance - ${qty}`,
+          lastUpdated: new Date()
+        })
+        .where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, itemId)));
+
+    // 3. Update warehouse_stock
+    await tx.update(warehouse_stock)
+        .set({
+          quantity: (ws[0].quantity || 0) - qty,
+          lastUpdated: new Date()
+        })
+        .where(eq(warehouse_stock.id, ws[0].id));
+    
+    // Update legacy inventory_items.quantityInStock for backwards compatibility
+    await tx.update(inventory_items).set({
+        quantityInStock: sql`COALESCE(quantity_in_stock, 0) - ${qty}`
+    }).where(eq(inventory_items.id, itemId));
+  },
+
+  async adjustStock(
+    tx: any, 
+    companyId: string, 
+    warehouseId: number, 
+    itemId: number, 
+    qtyDiff: number, // Positive for adjustment in, negative for adjustment out
+    refId: string, 
+    performedBy: string
+  ) {
+     if (qtyDiff > 0) {
+        await this.moveIn(tx, companyId, warehouseId, itemId, qtyDiff, refId, 'Adjustment', performedBy);
+     } else if (qtyDiff < 0) {
+        await this.moveOut(tx, companyId, warehouseId, itemId, Math.abs(qtyDiff), refId, 'Adjustment', performedBy);
+     }
   }
 };
