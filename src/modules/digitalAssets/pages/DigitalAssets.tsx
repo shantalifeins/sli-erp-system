@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';

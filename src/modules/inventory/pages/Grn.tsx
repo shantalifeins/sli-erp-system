@@ -38,6 +38,7 @@ export default function Grn() {
   const [selectedPoId, setSelectedPoId] = useState('');
   const [selectedPo, setSelectedPo] = useState<any>(null);
   const [receiveQtys, setReceiveQtys] = useState<{ [poItemId: number]: number }>({});
+  const [receiveSerials, setReceiveSerials] = useState<{ [poItemId: number]: string }>({});
 
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -103,10 +104,19 @@ export default function Grn() {
     try {
       setIsSubmitting(true);
       const token = await getToken();
-      const itemsToReceive = Object.keys(receiveQtys).map(poItemId => ({
+      const itemsToReceive = Object.keys(receiveQtys).map(poItemId => {
+        const item = selectedPo?.items?.find((i: any) => i.id === Number(poItemId));
+        const qty = receiveQtys[Number(poItemId)];
+        let serials: string[] | undefined = undefined;
+        if (item?.trackingMethod === 'Individual Unit' && receiveSerials[Number(poItemId)]) {
+          serials = receiveSerials[Number(poItemId)].split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+        }
+        return {
         poItemId: parseInt(poItemId),
-        quantityReceived: receiveQtys[parseInt(poItemId)] || 0
-      }));
+          quantityReceived: receiveQtys[parseInt(poItemId)] || 0,
+          serials
+        };
+      });
 
       await fetchWithAuth('/api/grn', token, {
         method: 'POST',
@@ -122,6 +132,8 @@ export default function Grn() {
       setSelectedPoId('');
       setSelectedWarehouseId('');
       setReceiveQtys({});
+                        setReceiveSerials({});
+                        setReceiveSerials({});
       loadData();
     } catch (error) {
       console.error(error);

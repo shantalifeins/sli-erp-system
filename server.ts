@@ -5738,6 +5738,7 @@ async function startServer() {
         .from(purchase_requisitions)
         .where(eq(purchase_requisitions.companyId, companyId));
       const allPoItems = await db.select().from(po_items);
+      const allInvItems = await db.select().from(inventory_items).where(eq(inventory_items.companyId, companyId));
 
       const posWithDetails = pos.map((p) => {
         const vendor = allVendors.find((v) => v.id === p.vendorId);
@@ -5746,7 +5747,15 @@ async function startServer() {
           ...p,
           vendorName: vendor?.name || "",
           prNumber: pr?.prNumber || "",
-          items: allPoItems.filter((i) => i.poId === p.id),
+          items: allPoItems.filter((i) => i.poId === p.id).map(pi => {
+            const inv = allInvItems.find(ii => ii.id === pi.itemId);
+            return {
+              ...pi,
+              assetNature: inv?.assetNature || 'Physical',
+              trackingMethod: inv?.trackingMethod || 'None',
+              requiresQc: inv?.requiresQc !== false
+            };
+          }),
         };
       });
       res.json(posWithDetails);
@@ -6093,6 +6102,7 @@ async function startServer() {
                 newGrnItem.id,
                 i.quantityReceived,
                 req.user!.uid,
+                i.serials
               );
             } else {
               allPassed = false;
@@ -12073,6 +12083,7 @@ async function handleGrnStockAddition(
   grnItemId: number,
   newlyPassed: number,
   reqUserUid: string,
+  serials?: string[]
 ) {
   if (newlyPassed <= 0 || !warehouseId || !companyId) return;
   await db.transaction(async (tx) => {
@@ -12099,6 +12110,7 @@ async function handleGrnStockAddition(
           grnItemId,
           poItemId: grnItemResult[0].poItemId,
           passedQty: newlyPassed,
+          serials
         },
       ],
     );
