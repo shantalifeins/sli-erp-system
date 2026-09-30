@@ -19,6 +19,7 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
       accountingTreatment: initialData.accountingTreatment || 'Inventory',
       isAdminItem: initialData.isAdminItem || false,
       isItItem: initialData.isItItem || false,
+      isFixedAsset: initialData.isFixedAsset || false,
       trackingRequired: initialData.trackingRequired || false,
       trackingMethod: initialData.trackingMethod || 'None',
       receiptMode: initialData.receiptMode || 'Physical Receipt',
@@ -43,8 +44,7 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
     }
   });
 
-  const watchNature = watch('assetNature');
-  const watchTreatment = watch('accountingTreatment');
+  const watchIsFixedAsset = watch('isFixedAsset');
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -61,15 +61,10 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
         </div>
         <div>
           <label className="block text-sm font-medium">Category <span className="text-red-500">*</span></label>
-          <input 
-            {...register('category')} 
-            list="category-list"
-            className="mt-1 w-full border rounded p-2" 
-            placeholder="Select or type new category..."
-          />
-          <datalist id="category-list">
-            {(categories || []).map((c: any) => <option key={c.id || c.name} value={c.name} />)}
-          </datalist>
+          <select {...register('category')} className="mt-1 w-full border rounded p-2">
+            <option value="">Select Category...</option>
+            {(categories || []).map((c: any) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
+          </select>
           {errors.category && <p className="text-red-500 text-xs">{errors.category.message}</p>}
         </div>
         <div>
@@ -97,34 +92,11 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 border-t pt-4">
-        <div>
-          <label className="block text-sm font-medium">Asset Nature</label>
-          <select {...register('assetNature')} className="mt-1 w-full border rounded p-2">
-            <option value="Physical">Physical</option>
-            <option value="Digital">Digital</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Accounting Treatment</label>
-          <select {...register('accountingTreatment')} className="mt-1 w-full border rounded p-2">
-            <option value="Inventory">Inventory</option>
-            <option value="Capitalize">Capitalize</option>
-            <option value="Expense">Expense</option>
-            <option value="Prepaid">Prepaid</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Usage Purpose</label>
-          <select {...register('usagePurpose')} className="mt-1 w-full border rounded p-2">
-            <option value="Internal Use">Internal Use</option>
-            <option value="Resale">Resale</option>
-            <option value="Consumption">Consumption</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="flex gap-4 items-center">
+      <div className="flex gap-4 items-center border-t pt-4">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" {...register('isFixedAsset')} />
+          <span className="text-sm font-medium">Declare as Asset (Fixed Asset)</span>
+        </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" {...register('requiresQc')} />
           <span className="text-sm font-medium">Requires QC</span>
@@ -135,53 +107,23 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
         </label>
       </div>
 
-      {watchTreatment === 'Capitalize' && (
-        <div className="bg-gray-50 p-4 rounded border">
-          <h4 className="font-semibold mb-2">Accounting Defaults</h4>
-          <div className="grid grid-cols-2 gap-4">
-            {watchNature === 'Physical' ? (
+      {watchIsFixedAsset && (
+        <div className="bg-emerald-50/50 p-4 rounded border border-emerald-100 mt-4">
+           <h4 className="font-semibold mb-2 text-emerald-800">Asset Configuration</h4>
+           <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium">Asset Category</label>
-                <select {...register('assetCategoryId')} className="mt-1 w-full border rounded p-2">
-                  <option value="">Select...</option>
+                <label className="block text-sm font-medium">Asset Category <span className="text-red-500">*</span></label>
+                <select {...register('assetCategoryId')} className="mt-1 w-full border rounded p-2 bg-white">
+                  <option value="">Select Asset Category...</option>
                   {(assetCategories || []).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
                 {errors.assetCategoryId && <p className="text-red-500 text-xs">{errors.assetCategoryId.message}</p>}
               </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium">Digital Asset Type</label>
-                <input {...register('digitalAssetType')} className="mt-1 w-full border rounded p-2" />
-                {errors.digitalAssetType && <p className="text-red-500 text-xs">{errors.digitalAssetType.message}</p>}
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium">Useful Life (Months)</label>
-              <input type="number" {...register('usefulLifeMonths', { valueAsNumber: true })} className="mt-1 w-full border rounded p-2" />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {watchNature === 'Digital' && (
-        <div className="bg-gray-50 p-4 rounded border">
-          <h4 className="font-semibold mb-2">Digital Defaults</h4>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium">License Type</label>
-              <input {...register('defaultLicenseType')} className="mt-1 w-full border rounded p-2" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium">Amortization Months</label>
-              <input type="number" {...register('defaultAmortizationMonths', { valueAsNumber: true })} className="mt-1 w-full border rounded p-2" />
-              {errors.defaultAmortizationMonths && <p className="text-red-500 text-xs">{errors.defaultAmortizationMonths.message}</p>}
-            </div>
-          </div>
+           </div>
         </div>
       )}
 
       {errors.receiptMode && <p className="text-red-500 text-sm">{errors.receiptMode.message}</p>}
-      {errors.accountingTreatment && <p className="text-red-500 text-sm">{errors.accountingTreatment.message}</p>}
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button type="button" onClick={onCancel} className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50">Cancel</button>
