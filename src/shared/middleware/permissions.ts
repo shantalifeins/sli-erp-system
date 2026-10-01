@@ -39,8 +39,8 @@ export const requirePermission = (
       return res.status(401).json({ error: 'Unauthorized: User role not found' });
     }
 
-    // Super Admin and Admin bypass permission checks
-    if (userRole === 'Super Admin' || userRole === 'Admin') {
+    // Super Admin bypasses permission checks
+    if (userRole === 'Super Admin') {
       return next();
     }
 

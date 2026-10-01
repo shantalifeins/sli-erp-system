@@ -26,8 +26,8 @@ export const permissionHierarchy = [
       { name: "Rejected Items", actions: ["canView"] },
       { name: "Stock Reconciliation", actions: ["canView", "canCreate", "canEdit", "canApprove"] },
       { name: "Inventory Items", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
-      { name: "Item Bulk Upload", actions: ["canCreate"] },
-      { name: "Opening Stock Upload", actions: ["canCreate", "canApprove"] },
+      { name: "Item Bulk Upload", actions: ["canView", "canCreate"] },
+      { name: "Opening Stock Upload", actions: ["canView", "canCreate", "canApprove"] },
       { name: "Stock Adjustment", actions: ["canView", "canCreate", "canApprove"] },
       { name: "Inventory Reports", actions: ["canView"] },
       { name: "Requisition Report", actions: ["canView"] }
@@ -65,7 +65,7 @@ export const permissionHierarchy = [
       { name: "Assets Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
       { name: "Asset Capitalization", actions: ["canView", "canApprove"] },
       { name: "Asset Assignment", actions: ["canView", "canCreate"] },
-      { name: "Asset Import", actions: ["canCreate"] },
+      { name: "Asset Import", actions: ["canView", "canCreate"] },
       { name: "Asset Categories", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
       { name: "Asset Location", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
       { name: "Asset Transfers", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
@@ -80,7 +80,7 @@ export const permissionHierarchy = [
       { name: "Digital Asset Register", actions: ["canView", "canCreate", "canEdit", "canDelete", "canApprove"] },
       { name: "Digital Acceptance", actions: ["canView", "canCreate", "canApprove"] },
       { name: "License Secret Reveal", actions: ["canView"] },
-      { name: "Digital Asset Import", actions: ["canCreate"] },
+      { name: "Digital Asset Import", actions: ["canView", "canCreate"] },
       { name: "Digital Subscriptions", actions: ["canView", "canCreate", "canEdit"] },
       { name: "License Vault", actions: ["canView", "canCreate", "canEdit", "canDelete"] },
       { name: "Digital Amortization", actions: ["canView", "canCreate"] }

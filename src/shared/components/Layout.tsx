@@ -200,7 +200,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     if (!hasPlugin) return false;
 
     const userRole = (dbUser?.role || (dbUser as any)?.userRole || '').toLowerCase();
-    if (isGlobalSuperAdmin || userRole.includes('super admin') || userRole.includes('superadmin') || userRole === 'admin') {
+    if (isGlobalSuperAdmin || userRole.includes('super admin') || userRole.includes('superadmin')) {
       return true;
     }
 
@@ -257,11 +257,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     },
     {
       name: 'Inventory Setting',
-      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView || getPermission('Opening Stock Upload')?.canView || getPermission('Stock Adjustment')?.canView,
+      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView || getPermission('Opening Stock Upload')?.canView || getPermission('Stock Adjustment')?.canView || getPermission('Item Bulk Upload')?.canView,
       icon: Settings,
       subMenus: [
         { name: 'Item Categories', href: '/inventory-categories', icon: Tags, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
         { name: 'Inventory Items', href: '/inventory', icon: Box, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
+        { name: 'Item Bulk Upload', href: '/inventory-bulk-upload', icon: Upload, show: isSuperAdmin || getPermission('Item Bulk Upload')?.canView || getPermission('Item Bulk Upload')?.canCreate },
         { name: 'Opening Stock Upload', href: '/opening-stock-upload', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Opening Stock Upload')?.canView || getPermission('Opening Stock Upload')?.canCreate },
         { name: 'Stock Adjustment', href: '/stock-adjustment', icon: Settings, show: isSuperAdmin || getPermission('Stock Adjustment')?.canView },
         { name: 'Vendors', href: '/vendors', icon: Users, show: isSuperAdmin || getPermission('Vendors')?.canView },
@@ -310,12 +311,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     {
       name: 'Fixed Asset',
       icon: Box,
-      show: isSuperAdmin || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Location')?.canView || getPermission('Asset Transfers')?.canView || getPermission('Asset Maintenance')?.canView || getPermission('Asset Disposal')?.canView || getPermission('Physical Audit')?.canView || getPermission('Asset Capitalization')?.canView || getPermission('Asset Assignment')?.canView || getPermission('Asset Import')?.canCreate,
+      show: isSuperAdmin || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Location')?.canView || getPermission('Asset Transfers')?.canView || getPermission('Asset Maintenance')?.canView || getPermission('Asset Disposal')?.canView || getPermission('Physical Audit')?.canView || getPermission('Asset Capitalization')?.canView || getPermission('Asset Assignment')?.canView || getPermission('Asset Import')?.canView || getPermission('Asset Import')?.canCreate,
       subMenus: [
         { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
         { name: 'Asset Capitalization', href: '/asset-capitalization', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Asset Capitalization')?.canView },
         { name: 'Asset Assignment', href: '/asset-assignment', icon: Users, show: isSuperAdmin || getPermission('Asset Assignment')?.canView },
-        { name: 'Asset Import', href: '/asset-import', icon: Upload, show: isSuperAdmin || getPermission('Asset Import')?.canCreate },
+        { name: 'Asset Import', href: '/asset-import', icon: Upload, show: isSuperAdmin || getPermission('Asset Import')?.canView || getPermission('Asset Import')?.canCreate },
         { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
         { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
         { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
@@ -326,12 +327,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     },
     {
       name: 'Digital Asset',
-      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView || getPermission('Digital Acceptance')?.canView || getPermission('Digital Asset Import')?.canCreate,
+      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView || getPermission('Digital Acceptance')?.canView || getPermission('Digital Asset Import')?.canView || getPermission('Digital Asset Import')?.canCreate,
       icon: Network,
       subMenus: [
         { name: 'Register', href: '/digital-assets', icon: Box, show: isSuperAdmin || getPermission('Digital Asset Register')?.canView },
         { name: 'Digital Acceptance', href: '/digital-assets/acceptance', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Digital Acceptance')?.canView },
-        { name: 'Digital Import', href: '/digital-assets/import', icon: Upload, show: isSuperAdmin || getPermission('Digital Asset Import')?.canCreate },
+        { name: 'Digital Import', href: '/digital-assets/import', icon: Upload, show: isSuperAdmin || getPermission('Digital Asset Import')?.canView || getPermission('Digital Asset Import')?.canCreate },
         { name: 'Subscriptions', href: '/digital-assets/subscriptions', icon: Layers, show: isSuperAdmin || getPermission('Digital Subscriptions')?.canView },
         { name: 'License Vault', href: '/digital-assets/vault', icon: Shield, show: isSuperAdmin || getPermission('License Vault')?.canView },
         { name: 'Amortization', href: '/digital-assets/amortization', icon: TrendingDown, show: isSuperAdmin || getPermission('Digital Amortization')?.canView },
@@ -370,7 +371,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Module Access Guard
   const userRoleStr = (dbUser?.role || (dbUser as any)?.userRole || '').toLowerCase();
-  const isUserAdminRole = isGlobalSuperAdmin || userRoleStr.includes('super admin') || userRoleStr.includes('superadmin') || userRoleStr === 'admin';
+  const isUserAdminRole = isGlobalSuperAdmin || userRoleStr.includes('super admin') || userRoleStr.includes('superadmin');
   const isAllowedModule = isUserAdminRole || activeModule === 'user-panel' || activeModule === '' || visibleModuleTabs.some(m => m.slug === activeModule);
 
   if (!isAllowedModule && activeModule !== '') {

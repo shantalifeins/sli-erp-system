@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/src/shared/components/AuthProvider';
 import PluginProtectedRoute from '@/src/shared/components/PluginProtectedRoute';
+import PermissionProtectedRoute from '@/src/shared/components/PermissionProtectedRoute';
 import { SettingsProvider } from '@/src/shared/components/SettingsProvider';
 import { LayoutProvider } from '@/src/shared/contexts/LayoutContext';
 import Layout from '@/src/shared/components/Layout';
@@ -72,6 +73,7 @@ import ItemBulkUpload from '@/src/modules/inventory/pages/ItemBulkUpload';
 import StockAdjustment from '@/src/modules/inventory/pages/StockAdjustment';
 
 import TraceabilityReport from '@/src/modules/reports/pages/TraceabilityReport';
+
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, dbUser, loading } = useAuth();
   if (loading) return <div className="h-screen w-full flex items-center justify-center">Loading...</div>;
@@ -96,17 +98,17 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<HomeRoute><Home /></HomeRoute>} />
             <Route path="/inbox" element={<PrivateRoute><Inbox /></PrivateRoute>} />
-            <Route path="/procurement-dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-            <Route path="/item-requisition" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PurchaseRequisitions /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/purchase-requisition" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PurchaseRequisitions /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/requisition-list" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PrApprovals /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/rfq" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Rfq /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/cs" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Cs /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/po" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PurchaseOrders /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/work-orders" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><WorkOrders /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/vendors" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><Vendors /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/procurement-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><ProcurementReport /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/invoices-payments" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><InvoicesPayments /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/procurement-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Procurement Dashboard"><Dashboard /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/item-requisition" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Item Requisitions"><PurchaseRequisitions /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/purchase-requisition" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Purchase Requisitions"><PurchaseRequisitions /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/requisition-list" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Requisition Approval"><PrApprovals /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/rfq" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="RFQ (Quotation)"><Rfq /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/cs" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Comparative Statement"><Cs /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/po" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Purchase Orders"><PurchaseOrders /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/work-orders" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Work Orders"><WorkOrders /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/vendors" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Vendors"><Vendors /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/procurement-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Procurement Reports"><ProcurementReport /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/invoices-payments" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Invoices & Payments"><InvoicesPayments /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
 
             {/* User Panel Routes */}
             <Route path="/user-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="user-panel"><UserDashboard /></PluginProtectedRoute></PrivateRoute>} />
@@ -114,63 +116,58 @@ export default function App() {
             <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
 
             {/* Asset Management Routes */}
-            <Route path="/assets-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDashboard /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Assets /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-schedule/:id" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetSchedule /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetCategories /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-transfers" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetTransfers /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/assets/transfers" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetTransfers /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-maintenance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetMaintenance /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-disposal" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDisposal /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetReports /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-depr-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDeprReports /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-verification" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetVerification /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-location" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetLocation /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-capitalization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetCapitalization /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-assignment" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetAssignment /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-import" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetImport /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/asset-depr-schedule" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><AssetDeprSchedule /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/assets-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Dashboard"><AssetDashboard /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Assets Register"><Assets /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-schedule/:id" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Assets Register"><AssetSchedule /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Categories"><AssetCategories /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-transfers" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Transfers"><AssetTransfers /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/assets/transfers" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Transfers"><AssetTransfers /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-maintenance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Maintenance"><AssetMaintenance /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-disposal" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Disposal"><AssetDisposal /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Reports"><AssetReports /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-depr-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Depreciation Reports"><AssetDeprReports /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-verification" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Physical Audit"><AssetVerification /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-location" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Location"><AssetLocation /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-capitalization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Capitalization"><AssetCapitalization /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-assignment" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Assignment"><AssetAssignment /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-import" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Asset Import"><AssetImport /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/asset-depr-schedule" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Depreciation Schedule"><AssetDeprSchedule /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
 
-            
             {/* Digital Assets Routes */}
-            <Route path="/digital-assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssets /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/digital-assets/subscriptions" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Subscriptions /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/digital-assets/vault" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><LicenseVault /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/digital-assets/amortization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><Amortization /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/digital-assets/reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssetReports /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/digital-assets/acceptance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAcceptance /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/digital-assets/import" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><DigitalAssetImport /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Digital Asset Register"><DigitalAssets /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/subscriptions" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Digital Subscriptions"><Subscriptions /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/vault" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="License Vault"><LicenseVault /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/amortization" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Digital Amortization"><Amortization /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Digital Asset Reports"><DigitalAssetReports /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/acceptance" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Digital Acceptance"><DigitalAcceptance /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/digital-assets/import" element={<PrivateRoute><PluginProtectedRoute pluginSlug="asset-management"><PermissionProtectedRoute menu="Digital Asset Import"><DigitalAssetImport /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Report Routes */}
-            <Route path="/master-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><ReportsDashboard /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/traceability-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><TraceabilityReport /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/master-reports" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Procurement Reports"><ReportsDashboard /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/traceability-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="procurement"><PermissionProtectedRoute menu="Traceability Report"><TraceabilityReport /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
 
             {/* Inventory Routes */}
-            <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryDashboard /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/inventory-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><ItemCategories /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/inventory" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><Inventory /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/stock-in" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockIn /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/stock-out" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockOut /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/stock-transfer" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockTransfer /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/transfer-receive" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockTransferReceive /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/grn" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><Grn /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/inventory-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><InventoryReport /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/requisition-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><RequisitionReport /></PluginProtectedRoute></PrivateRoute>} />
-            {/* Phase 1 New Routes */}
-            <Route path="/stock-reconciliation" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockReconciliation /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/rejected-items" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><RejectedItems /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/opening-stock-upload" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><OpeningStockUpload /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/inventory-bulk-upload" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><ItemBulkUpload /></PluginProtectedRoute></PrivateRoute>} />
-            <Route path="/stock-adjustment" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><StockAdjustment /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/inventory-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Inventory Dashboard"><InventoryDashboard /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/inventory-categories" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Inventory Items"><ItemCategories /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/inventory" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Inventory Items"><Inventory /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/stock-in" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Stock In"><StockIn /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/stock-out" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Stock Out"><StockOut /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/stock-transfer" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Stock Transfer"><StockTransfer /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/transfer-receive" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Transfer Receive"><StockTransferReceive /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/grn" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Goods Receipt (GRN)"><Grn /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/inventory-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Inventory Reports"><InventoryReport /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/requisition-report" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Requisition Report"><RequisitionReport /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/stock-reconciliation" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Stock Reconciliation"><StockReconciliation /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/rejected-items" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Rejected Items"><RejectedItems /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/opening-stock-upload" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Opening Stock Upload"><OpeningStockUpload /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/inventory-bulk-upload" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Item Bulk Upload"><ItemBulkUpload /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/stock-adjustment" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Stock Adjustment"><StockAdjustment /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
   
             <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
             <Route path="/admin/organogram" element={<PrivateRoute><OrganogramPage /></PrivateRoute>} />
-            <Route path="/admin/warehouses" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><WarehouseManager /></PluginProtectedRoute></PrivateRoute>} />
+            <Route path="/admin/warehouses" element={<PrivateRoute><PluginProtectedRoute pluginSlug="inventory"><PermissionProtectedRoute menu="Warehouses"><WarehouseManager /></PermissionProtectedRoute></PluginProtectedRoute></PrivateRoute>} />
             <Route path="/admin/workflow-designer" element={<PrivateRoute><WorkflowDesigner /></PrivateRoute>} />
-            {/* User Panel Routes */}
-            <Route path="/user-dashboard" element={<PrivateRoute><PluginProtectedRoute pluginSlug="user-panel"><UserDashboard /></PluginProtectedRoute></PrivateRoute>} />
 
-            <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </LayoutProvider>
