@@ -7808,106 +7808,66 @@ async function startServer() {
 
         const wb = XLSX.utils.book_new();
 
-        // Sheet 1: Data Entry Template
+        // Sheet 1: Data Entry Template (10 Form Fields)
         const headers = [
           "Item Code *",
           "Item Name *",
           "Category *",
           "UOM *",
           "Item Type *",
-          "Base Price",
-          "Location",
           "Is Fixed Asset",
           "Asset Category",
-          "Description",
           "Requires QC",
           "Tracking Required",
-          "Reorder Level",
-          "Reorder Point",
-          "Reorder Quantity",
-          "Lead Time (Days)",
-          "Safety Stock (Days)",
-          "ABC Class",
+          "Description",
         ];
         const sampleRow1 = [
           "ITEM-001",
           "Office Chair – Revolving",
-          "Furniture",
+          "Furniture & Fixture",
           "Pcs",
           "Admin",
-          "8500",
-          "Admin Store – Floor 3",
           "No",
           "",
+          "No",
+          "No",
           "High-back mesh revolving chair with armrest",
-          "No",
-          "No",
-          "5",
-          "3",
-          "10",
-          "7",
-          "3",
-          "B",
         ];
         const sampleRow2 = [
           "ITEM-002",
-          "Laptop Dell XPS 15",
-          "IT Equipment",
+          "Dell Latitude 5440 Laptop",
+          "Computer & Computer Accessories",
           "Pcs",
           "IT",
-          "120000",
-          "IT Store Room – Server Area",
           "Yes",
-          "Computer Hardware",
-          "Dell XPS 15 with Core i7, 16GB RAM, 512GB SSD",
+          "Computer & Computer Accessories",
           "Yes",
           "Yes",
-          "2",
-          "1",
-          "5",
-          "14",
-          "5",
-          "A",
+          "Core i7 13th Gen, 16GB RAM, 512GB SSD",
         ];
         const sampleRow3 = [
           "ITEM-003",
-          "A4 Copy Paper (500 Sheets)",
-          "Stationery",
-          "Pack",
+          "Multi-plug Extension Cable 5m",
+          "Office Equipment",
+          "Pcs",
           "Both",
-          "350",
-          "Admin Store – Ground Floor",
           "No",
           "",
-          "80 GSM A4 copy paper, 500 sheets per ream",
           "No",
           "No",
-          "20",
-          "10",
-          "50",
-          "3",
-          "2",
-          "C",
+          "5-port surge protected multi-plug extension socket",
         ];
         const noteRow = [
           "← Unique item code (required)",
-          "← Full item name",
-          '← Must match "Item Categories" sheet exactly',
-          "← Pcs / Kg / Ltr / Box / Pack / Mtr / Set / Unit / Roll / Pair",
-          "← Admin / IT / Both",
-          "← Numeric, e.g. 5000",
-          "← Optional free text",
+          "← Full item name (required)",
+          '← Must match "Item Categories" sheet (required)',
+          "← Pcs / Kg / Ltr / Box / Pack / Mtr / Set / Unit / Roll / Pair (required)",
+          "← Admin / IT / Both (required)",
           "← Yes / No",
-          '← Optional if Yes (see "Asset Categories" sheet)',
+          '← Required if Fixed Asset = Yes (see "Asset Categories" sheet)',
+          "← Yes / No",
+          "← Yes / No",
           "← Optional description",
-          "← Yes / No",
-          "← Yes / No",
-          "← Min stock alert level (number)",
-          "← Reorder trigger point (number)",
-          "← Qty to reorder (number)",
-          "← Days to receive after ordering",
-          "← Buffer stock days",
-          "← A / B / C (optional)",
         ];
 
         const ws1 = XLSX.utils.aoa_to_sheet([
@@ -7920,22 +7880,14 @@ async function startServer() {
         ws1["!cols"] = [
           { wch: 16 }, // Item Code
           { wch: 32 }, // Item Name
-          { wch: 22 }, // Category
+          { wch: 28 }, // Category
           { wch: 12 }, // UOM
           { wch: 13 }, // Item Type
-          { wch: 13 }, // Base Price
-          { wch: 26 }, // Location
           { wch: 16 }, // Is Fixed Asset
           { wch: 28 }, // Asset Category
-          { wch: 36 }, // Description
           { wch: 14 }, // Requires QC
           { wch: 18 }, // Tracking Required
-          { wch: 16 }, // Reorder Level
-          { wch: 16 }, // Reorder Point
-          { wch: 18 }, // Reorder Quantity
-          { wch: 18 }, // Lead Time
-          { wch: 20 }, // Safety Stock
-          { wch: 12 }, // ABC Class
+          { wch: 40 }, // Description
         ];
         XLSX.utils.book_append_sheet(wb, ws1, "Inventory Items Template");
 
@@ -8169,20 +8121,11 @@ async function startServer() {
           const categoryRaw = String(row[2] || "").trim();
           const uomRaw = String(row[3] || "").trim();
           const itemTypeRaw = String(row[4] || "").trim();
-          const basePriceRaw = row[5];
-          const locationRaw = String(row[6] || "").trim();
-          const isFixedAssetRaw = String(row[7] || "").trim();
-          const assetCategoryRaw = String(row[8] || "").trim();
-          // New columns from expanded template
+          const isFixedAssetRaw = String(row[5] || "").trim();
+          const assetCategoryRaw = String(row[6] || "").trim();
+          const requiresQcRaw = String(row[7] || "").trim().toLowerCase();
+          const trackingRequiredRaw = String(row[8] || "").trim().toLowerCase();
           const descriptionRaw = String(row[9] || "").trim();
-          const requiresQcRaw = String(row[10] || "").trim().toLowerCase();
-          const trackingRequiredRaw = String(row[11] || "").trim().toLowerCase();
-          const reorderLevelRaw = row[12];
-          const reorderPointRaw = row[13];
-          const reorderQuantityRaw = row[14];
-          const leadTimeDaysRaw = row[15];
-          const safetyStockDaysRaw = row[16];
-          const abcClassRaw = String(row[17] || "").trim().toUpperCase();
 
           // Required Field Validations
           if (!itemCodeRaw) {
@@ -8250,26 +8193,6 @@ async function startServer() {
             isItItem = itemTypeLower === "it" || itemTypeLower === "both";
           }
 
-          // Base Price Validation
-          let basePrice: string | null = null;
-          if (
-            basePriceRaw !== undefined &&
-            basePriceRaw !== null &&
-            String(basePriceRaw).trim() !== ""
-          ) {
-            const parsedPrice = Number(basePriceRaw);
-            if (isNaN(parsedPrice) || parsedPrice < 0) {
-              errors.push({
-                row: excelRowNumber,
-                itemCode: itemCodeRaw,
-                name: nameRaw,
-                message: `Base Price '${basePriceRaw}' must be a valid non-negative number`,
-              });
-              continue;
-            }
-            basePrice = String(parsedPrice);
-          }
-
           // In-File Duplicate Check
           const codeLower = itemCodeRaw.toLowerCase();
           if (seenInFileSet.has(codeLower)) {
@@ -8335,14 +8258,14 @@ async function startServer() {
                 continue;
               }
             } else {
-              // Column I was left empty, try auto-match based on Item Category (Column C)
+              // Column G left empty, try auto-match based on Item Category (Column C)
               assetCategoryId = findAssetCategoryId(categoryRaw);
               if (!assetCategoryId) {
                 errors.push({
                   row: excelRowNumber,
                   itemCode: itemCodeRaw,
                   name: nameRaw,
-                  message: `Is Fixed Asset is Yes, but no matching Asset Category found for '${categoryRaw}'. Please specify a valid Asset Category in Column I`,
+                  message: `Is Fixed Asset is Yes, but no matching Asset Category found for '${categoryRaw}'. Please specify a valid Asset Category in Column G`,
                 });
                 continue;
               }
@@ -8352,8 +8275,6 @@ async function startServer() {
           const uomProper = uomRaw.charAt(0).toUpperCase() + uomRaw.slice(1);
           const requiresQc = requiresQcRaw === "yes" || requiresQcRaw === "true" || requiresQcRaw === "1";
           const trackingRequired = trackingRequiredRaw === "yes" || trackingRequiredRaw === "true" || trackingRequiredRaw === "1";
-          const parseIntField = (val: any, fallback = 0) => { const n = parseInt(String(val || ""), 10); return isNaN(n) ? fallback : n; };
-          const abcValid = abcClassRaw === "A" || abcClassRaw === "B" || abcClassRaw === "C";
 
           itemsToInsert.push({
             companyId,
@@ -8363,16 +8284,8 @@ async function startServer() {
             uom: uomProper,
             description: descriptionRaw || null,
             quantityInStock: 0,
-            reorderLevel: parseIntField(reorderLevelRaw, 0),
-            reorderPoint: parseIntField(reorderPointRaw, 0),
-            reorderQuantity: parseIntField(reorderQuantityRaw, 0),
-            leadTimeDays: parseIntField(leadTimeDaysRaw, 7),
-            safetyStockDays: parseIntField(safetyStockDaysRaw, 3),
-            abcClassification: abcValid ? abcClassRaw as "A" | "B" | "C" : null,
-            location: locationRaw || null,
             isFixedAsset,
             assetCategoryId,
-            basePrice,
             isAdminItem,
             isItItem,
             requiresQc,
