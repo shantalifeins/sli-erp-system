@@ -69,7 +69,19 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
         </div>
         <div>
           <label className="block text-sm font-medium">UOM <span className="text-red-500">*</span></label>
-          <input {...register('uom')} className="mt-1 w-full border rounded p-2" />
+          <select {...register('uom')} className="mt-1 w-full border rounded p-2 bg-white">
+            <option value="Pcs">Pcs</option>
+            <option value="Kg">Kg</option>
+            <option value="Ltr">Ltr</option>
+            <option value="Box">Box</option>
+            <option value="Pack">Pack</option>
+            <option value="Mtr">Mtr</option>
+            <option value="Set">Set</option>
+            <option value="Unit">Unit</option>
+            <option value="Roll">Roll</option>
+            <option value="Pair">Pair</option>
+          </select>
+          {errors.uom && <p className="text-red-500 text-xs">{errors.uom.message as string}</p>}
         </div>
       </div>
 
@@ -80,13 +92,14 @@ export function ItemForm({ onSubmit, onCancel, initialData = {}, categories, ass
             className="mt-1 w-full border rounded p-2"
             onChange={(e) => {
               const val = e.target.value;
-              setValue('isAdminItem', val === 'Admin', { shouldValidate: true, shouldDirty: true });
-              setValue('isItItem', val === 'IT', { shouldValidate: true, shouldDirty: true });
+              setValue('isAdminItem', val === 'Admin' || val === 'Both', { shouldValidate: true, shouldDirty: true });
+              setValue('isItItem', val === 'IT' || val === 'Both', { shouldValidate: true, shouldDirty: true });
             }}
-            defaultValue={initialData.isAdminItem ? 'Admin' : initialData.isItItem ? 'IT' : 'Admin'}
+            defaultValue={initialData.isAdminItem && initialData.isItItem ? 'Both' : initialData.isAdminItem ? 'Admin' : initialData.isItItem ? 'IT' : 'Admin'}
           >
             <option value="Admin">Admin Item</option>
             <option value="IT">IT Item</option>
+            <option value="Both">Both (Admin &amp; IT)</option>
           </select>
           <p className="text-xs text-slate-500 mt-1">Determines warehouse location and approver permissions.</p>
         </div>

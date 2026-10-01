@@ -7819,17 +7819,35 @@ async function startServer() {
           "Location",
           "Is Fixed Asset",
           "Asset Category",
+          "Description",
+          "Requires QC",
+          "Tracking Required",
+          "Reorder Level",
+          "Reorder Point",
+          "Reorder Quantity",
+          "Lead Time (Days)",
+          "Safety Stock (Days)",
+          "ABC Class",
         ];
         const sampleRow1 = [
           "ITEM-001",
-          "Sample Office Chair",
+          "Office Chair – Revolving",
           "Furniture",
           "Pcs",
           "Admin",
-          "1500",
-          "Warehouse A",
+          "8500",
+          "Admin Store – Floor 3",
           "No",
           "",
+          "High-back mesh revolving chair with armrest",
+          "No",
+          "No",
+          "5",
+          "3",
+          "10",
+          "7",
+          "3",
+          "B",
         ];
         const sampleRow2 = [
           "ITEM-002",
@@ -7838,38 +7856,86 @@ async function startServer() {
           "Pcs",
           "IT",
           "120000",
-          "IT Store Room",
+          "IT Store Room – Server Area",
           "Yes",
           "Computer Hardware",
+          "Dell XPS 15 with Core i7, 16GB RAM, 512GB SSD",
+          "Yes",
+          "Yes",
+          "2",
+          "1",
+          "5",
+          "14",
+          "5",
+          "A",
+        ];
+        const sampleRow3 = [
+          "ITEM-003",
+          "A4 Copy Paper (500 Sheets)",
+          "Stationery",
+          "Pack",
+          "Both",
+          "350",
+          "Admin Store – Ground Floor",
+          "No",
+          "",
+          "80 GSM A4 copy paper, 500 sheets per ream",
+          "No",
+          "No",
+          "20",
+          "10",
+          "50",
+          "3",
+          "2",
+          "C",
         ];
         const noteRow = [
-          '← See "Item Categories" sheet',
-          "",
-          "← Must match exactly",
-          "← Pcs/Kg/Ltr/Box/Pack/Mtr/Set/Unit/Roll/Pair",
+          "← Unique item code (required)",
+          "← Full item name",
+          '← Must match "Item Categories" sheet exactly',
+          "← Pcs / Kg / Ltr / Box / Pack / Mtr / Set / Unit / Roll / Pair",
           "← Admin / IT / Both",
-          "← Optional, numeric",
-          "← Optional, free text",
+          "← Numeric, e.g. 5000",
+          "← Optional free text",
           "← Yes / No",
-          '← Optional if Yes (See "Asset Categories" sheet)',
+          '← Optional if Yes (see "Asset Categories" sheet)',
+          "← Optional description",
+          "← Yes / No",
+          "← Yes / No",
+          "← Min stock alert level (number)",
+          "← Reorder trigger point (number)",
+          "← Qty to reorder (number)",
+          "← Days to receive after ordering",
+          "← Buffer stock days",
+          "← A / B / C (optional)",
         ];
 
         const ws1 = XLSX.utils.aoa_to_sheet([
           headers,
           sampleRow1,
           sampleRow2,
+          sampleRow3,
           noteRow,
         ]);
         ws1["!cols"] = [
-          { wch: 16 },
-          { wch: 30 },
-          { wch: 22 },
-          { wch: 12 },
-          { wch: 13 },
-          { wch: 13 },
-          { wch: 22 },
-          { wch: 16 },
-          { wch: 28 },
+          { wch: 16 }, // Item Code
+          { wch: 32 }, // Item Name
+          { wch: 22 }, // Category
+          { wch: 12 }, // UOM
+          { wch: 13 }, // Item Type
+          { wch: 13 }, // Base Price
+          { wch: 26 }, // Location
+          { wch: 16 }, // Is Fixed Asset
+          { wch: 28 }, // Asset Category
+          { wch: 36 }, // Description
+          { wch: 14 }, // Requires QC
+          { wch: 18 }, // Tracking Required
+          { wch: 16 }, // Reorder Level
+          { wch: 16 }, // Reorder Point
+          { wch: 18 }, // Reorder Quantity
+          { wch: 18 }, // Lead Time
+          { wch: 20 }, // Safety Stock
+          { wch: 12 }, // ABC Class
         ];
         XLSX.utils.book_append_sheet(wb, ws1, "Inventory Items Template");
 
@@ -8064,9 +8130,8 @@ async function startServer() {
           "ltr",
           "box",
           "pack",
-          "sft",
-          "set",
           "mtr",
+          "set",
           "unit",
           "roll",
           "pair",
@@ -8108,6 +8173,16 @@ async function startServer() {
           const locationRaw = String(row[6] || "").trim();
           const isFixedAssetRaw = String(row[7] || "").trim();
           const assetCategoryRaw = String(row[8] || "").trim();
+          // New columns from expanded template
+          const descriptionRaw = String(row[9] || "").trim();
+          const requiresQcRaw = String(row[10] || "").trim().toLowerCase();
+          const trackingRequiredRaw = String(row[11] || "").trim().toLowerCase();
+          const reorderLevelRaw = row[12];
+          const reorderPointRaw = row[13];
+          const reorderQuantityRaw = row[14];
+          const leadTimeDaysRaw = row[15];
+          const safetyStockDaysRaw = row[16];
+          const abcClassRaw = String(row[17] || "").trim().toUpperCase();
 
           // Required Field Validations
           if (!itemCodeRaw) {
@@ -8152,7 +8227,7 @@ async function startServer() {
               row: excelRowNumber,
               itemCode: itemCodeRaw,
               name: nameRaw,
-              message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Sft, Set, Mtr, Unit, Roll, Pair`,
+              message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`,
             });
             continue;
           }
@@ -8275,6 +8350,10 @@ async function startServer() {
           }
 
           const uomProper = uomRaw.charAt(0).toUpperCase() + uomRaw.slice(1);
+          const requiresQc = requiresQcRaw === "yes" || requiresQcRaw === "true" || requiresQcRaw === "1";
+          const trackingRequired = trackingRequiredRaw === "yes" || trackingRequiredRaw === "true" || trackingRequiredRaw === "1";
+          const parseIntField = (val: any, fallback = 0) => { const n = parseInt(String(val || ""), 10); return isNaN(n) ? fallback : n; };
+          const abcValid = abcClassRaw === "A" || abcClassRaw === "B" || abcClassRaw === "C";
 
           itemsToInsert.push({
             companyId,
@@ -8282,14 +8361,22 @@ async function startServer() {
             name: nameRaw,
             category: categoryRaw,
             uom: uomProper,
+            description: descriptionRaw || null,
             quantityInStock: 0,
-            reorderLevel: 0,
+            reorderLevel: parseIntField(reorderLevelRaw, 0),
+            reorderPoint: parseIntField(reorderPointRaw, 0),
+            reorderQuantity: parseIntField(reorderQuantityRaw, 0),
+            leadTimeDays: parseIntField(leadTimeDaysRaw, 7),
+            safetyStockDays: parseIntField(safetyStockDaysRaw, 3),
+            abcClassification: abcValid ? abcClassRaw as "A" | "B" | "C" : null,
             location: locationRaw || null,
             isFixedAsset,
             assetCategoryId,
             basePrice,
             isAdminItem,
             isItItem,
+            requiresQc,
+            trackingRequired,
           });
         }
 

@@ -86,16 +86,37 @@ export default function Inventory() {
     try {
       const token = await getToken();
       if (!token) return;
-      const [itemsData, catData, assetCatRes] = await Promise.all([
+
+      // Fetch each independently so partial failures don't block the whole page
+      const [itemsResult, catResult, assetCatResult] = await Promise.allSettled([
         fetchWithAuth('/api/inventory', token),
         fetchWithAuth('/api/inventory/categories', token),
-        fetchWithAuth('/api/assets/categories', token).catch(() => ({ categories: [] }))
+        fetchWithAuth('/api/assets/categories', token),
       ]);
-      setItems(itemsData);
-      setCategories(catData);
-      setAssetCategories(assetCatRes?.categories || assetCatRes || []);
+
+      if (itemsResult.status === 'fulfilled') {
+        setItems(Array.isArray(itemsResult.value) ? itemsResult.value : []);
+      } else {
+        console.warn('Failed to load inventory items:', itemsResult.reason);
+        setItems([]);
+      }
+
+      if (catResult.status === 'fulfilled') {
+        setCategories(Array.isArray(catResult.value) ? catResult.value : []);
+      } else {
+        console.warn('Failed to load item categories:', catResult.reason);
+        setCategories([]);
+      }
+
+      if (assetCatResult.status === 'fulfilled') {
+        const raw = assetCatResult.value;
+        setAssetCategories(raw?.categories || (Array.isArray(raw) ? raw : []));
+      } else {
+        console.warn('Failed to load asset categories:', assetCatResult.reason);
+        setAssetCategories([]);
+      }
     } catch (error) {
-      console.error(error);
+      console.error('loadData error:', error);
     } finally {
       setLoading(false);
     }
