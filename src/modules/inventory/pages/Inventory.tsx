@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Box, Plus, X, ArrowLeft, Upload, Paperclip, Edit2 } from 'lucide-react';
-import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
+import { Box, Plus, ArrowLeft, Upload, Edit2 } from 'lucide-react';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
 import { BulkUploadModal } from '../components/BulkUploadModal';
@@ -19,7 +18,6 @@ export default function Inventory() {
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [viewingItemId, setViewingItemId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -202,8 +200,7 @@ export default function Inventory() {
               paginatedItems.map((item) => {
                 const isLowStock = item.reorderPoint > 0 && (item.quantityInStock || 0) <= item.reorderPoint;
                 return (
-                  <React.Fragment key={item.id}>
-                  <tr className={`hover:bg-slate-50 transition-colors ${isLowStock ? 'bg-amber-50/20' : ''}`}>
+                  <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${isLowStock ? 'bg-amber-50/20' : ''}`}>
                     <td className="px-4 py-4 font-mono font-bold">{item.itemCode}</td>
                     <td className="px-4 py-4 font-medium">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -244,51 +241,20 @@ export default function Inventory() {
                     </td>
                     <td className="px-4 py-4 text-slate-500 text-xs font-bold uppercase">{item.location || '-'}</td>
                     <td className="px-4 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {canEdit && (
-                          <button
-                            onClick={() => {
-                              setEditingItem(item);
-                              setShowForm(true);
-                            }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 transition-colors"
-                            title="Edit Item"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        )}
+                      {canEdit && (
                         <button
-                          onClick={() => setViewingItemId(viewingItemId === item.id ? null : item.id)}
-                          className={`p-1.5 rounded-lg transition-colors ${
-                            viewingItemId === item.id ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'
-                          }`}
-                          title="Attachments"
+                          onClick={() => {
+                            setEditingItem(item);
+                            setShowForm(true);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 transition-colors"
+                          title="Edit Item"
                         >
-                          <Paperclip className="w-4 h-4" />
+                          <Edit2 className="w-4 h-4" />
                         </button>
-                      </div>
+                      )}
                     </td>
                   </tr>
-                  {viewingItemId === item.id && (
-                    <tr>
-                      <td colSpan={9} className="p-0 border-b border-slate-100 bg-slate-50">
-                        <div className="p-4">
-                          <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2">
-                            <h4 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                              <Paperclip className="w-4 h-4 text-blue-500" />
-                              Item Attachments
-                            </h4>
-                            <button onClick={() => setViewingItemId(null)} className="p-1 hover:bg-slate-200 rounded text-slate-500">
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                          <AttachmentPanel refType="Item" refId={item.id} compact />
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  </React.Fragment>
-
                 );
               })
             )}
