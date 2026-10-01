@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/src/shared/components/AuthProvider';
 import { fetchWithAuth } from '@/src/shared/lib/api';
-import { Box, Plus, X, ArrowLeft, Upload, Paperclip } from 'lucide-react';
+import { Box, Plus, X, ArrowLeft, Upload, Paperclip, Edit2 } from 'lucide-react';
 import AttachmentPanel from '@/src/shared/components/AttachmentPanel';
 import PageLayout from '@/src/shared/components/PageLayout';
 import { useCurrency } from '@/src/shared/components/SettingsProvider';
@@ -17,6 +17,7 @@ export default function Inventory() {
   const [assetCategories, setAssetCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingItem, setEditingItem] = useState<any | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [viewingItemId, setViewingItemId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,68 +27,13 @@ export default function Inventory() {
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const inventoryPerms = permissions?.find((p: any) => p.module === 'Inventory Items') || {};
   const canCreate = isSuperAdmin || inventoryPerms.canCreate;
-
-  // Form State
-  const [itemCode, setItemCode] = useState('');
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('');
-  const [isNewCategory, setIsNewCategory] = useState(false);
-  const [uom, setUom] = useState('Pcs');
-  const [location, setLocation] = useState('');
-  const [isFixedAsset, setIsFixedAsset] = useState(false);
-  const [assetCategoryId, setAssetCategoryId] = useState('');
-  const [basePrice, setBasePrice] = useState('');
-  const [isAdminItem, setIsAdminItem] = useState(false);
-  const [isItItem, setIsItItem] = useState(false);
-
-  const findMatchingAssetCategory = (itemCatName: string, assetCats: any[]) => {
-    if (!itemCatName || !assetCats || assetCats.length === 0) return '';
-    const itemLower = itemCatName.toLowerCase();
-    
-    // Direct match or substring match
-    const directMatch = assetCats.find(a => 
-      a.name.toLowerCase() === itemLower ||
-      a.name.toLowerCase().includes(itemLower) ||
-      itemLower.includes(a.name.toLowerCase())
-    );
-    if (directMatch) return directMatch.id;
-
-    // Word token match
-    const tokens = itemLower.split(/[\s&,/]+/).filter(t => t.length > 2);
-    for (const token of tokens) {
-      const tokenMatch = assetCats.find(a => a.name.toLowerCase().includes(token));
-      if (tokenMatch) return tokenMatch.id;
-    }
-
-    return assetCats[0]?.id || '';
-  };
-
-  const handleCategoryChange = (newCat: string) => {
-    setCategory(newCat);
-    if (isFixedAsset) {
-      const matched = findMatchingAssetCategory(newCat, assetCategories);
-      if (matched) setAssetCategoryId(matched);
-    }
-  };
-
-  const handleFixedAssetToggle = (checked: boolean) => {
-    setIsFixedAsset(checked);
-    if (checked) {
-      if (!assetCategoryId && category) {
-        const matched = findMatchingAssetCategory(category, assetCategories);
-        if (matched) setAssetCategoryId(matched);
-      }
-    } else {
-      setAssetCategoryId('');
-    }
-  };
+  const canEdit = isSuperAdmin || inventoryPerms.canEdit;
 
   const loadData = async () => {
     try {
       const token = await getToken();
       if (!token) return;
 
-      // Fetch each independently so partial failures don't block the whole page
       const [itemsResult, catResult, assetCatResult] = await Promise.allSettled([
         fetchWithAuth('/api/inventory', token),
         fetchWithAuth('/api/inventory/categories', token),
@@ -125,45 +71,6 @@ export default function Inventory() {
   useEffect(() => {
     loadData();
   }, [getToken]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      // Auto-create category if it doesn't exist
-      if (category && !categories.find(c => c.name.toLowerCase() === category.toLowerCase())) {
-        try {
-          await fetchWithAuth('/api/inventory/categories', token, {
-            method: 'POST',
-            body: JSON.stringify({ name: category, description: 'Auto-created' })
-          });
-        } catch (catErr) {
-          console.error("Failed to auto-create category", catErr);
-        }
-      }
-
-      await fetchWithAuth('/api/inventory', token, {
-        method: 'POST',
-        body: JSON.stringify({ itemCode, name, category, uom, location, isFixedAsset, assetCategoryId: isFixedAsset ? assetCategoryId : null, basePrice, isAdminItem, isItItem }),
-      });
-      setShowForm(false);
-      setItemCode('');
-      setName('');
-      setCategory('');
-      setIsNewCategory(false);
-      setLocation('');
-      setIsFixedAsset(false);
-      setAssetCategoryId('');
-      setBasePrice('');
-      setIsAdminItem(false);
-      setIsItItem(false);
-      loadData();
-    } catch (error) {
-      console.error("Failed to add item", error);
-    }
-  };
 
   const locationHook = useLocation();
   const queryParams = new URLSearchParams(locationHook.search);
@@ -204,7 +111,10 @@ export default function Inventory() {
               Bulk Upload
             </button>
             <button
-              onClick={() => setShowForm(!showForm)}
+              onClick={() => {
+                setEditingItem(null);
+                setShowForm(!showForm);
+              }}
               className="inline-flex items-center px-4 py-2 bg-brand-orange text-white rounded text-sm font-bold hover:bg-[#e06214] shadow-xs transition-colors"
             >
               <Plus className="-ml-1 mr-2 h-4 w-4" aria-hidden="true" />
@@ -215,18 +125,18 @@ export default function Inventory() {
       </div>
         )}
 
-      {showForm && canCreate && (
+      {showForm && (canCreate || canEdit) && (
         <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden mb-6 max-h-[85vh] flex flex-col">
           <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-3 shrink-0">
-            <button onClick={() => setShowForm(false)} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-colors" title="Back to List">
+            <button onClick={() => { setShowForm(false); setEditingItem(null); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-colors" title="Back to List">
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-slate-800">New Inventory Item</h3>
+            <h3 className="text-lg font-bold text-slate-800">{editingItem ? `Edit Inventory Item: ${editingItem.itemCode}` : 'New Inventory Item'}</h3>
           </div>
           <div className="p-6 overflow-y-auto flex-1">
           
         <ItemForm
-          initialData={{}} // We can wire this up properly later, for now just empty object since we don't have editingItem state setup
+          initialData={editingItem || {}}
           categories={categories}
           assetCategories={assetCategories}
           onSubmit={async (data: any) => {
@@ -245,16 +155,19 @@ export default function Inventory() {
                   }
                 }
 
-                const res = await fetchWithAuth('/api/inventory', token, { method: 'POST', body: JSON.stringify(data) });
+                const url = editingItem ? `/api/inventory/${editingItem.id}` : '/api/inventory';
+                const method = editingItem ? 'PUT' : 'POST';
+                const res = await fetchWithAuth(url, token, { method, body: JSON.stringify(data) });
                 if (res) {
                    setShowForm(false);
+                   setEditingItem(null);
                    loadData();
                 }
              } catch (e) {
                 console.error(e);
              }
           }}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => { setShowForm(false); setEditingItem(null); }}
         />
         
           </div>
@@ -331,15 +244,29 @@ export default function Inventory() {
                     </td>
                     <td className="px-4 py-4 text-slate-500 text-xs font-bold uppercase">{item.location || '-'}</td>
                     <td className="px-4 py-4 text-right">
-                      <button
-                        onClick={() => setViewingItemId(viewingItemId === item.id ? null : item.id)}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          viewingItemId === item.id ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'
-                        }`}
-                        title="Attachments"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {canEdit && (
+                          <button
+                            onClick={() => {
+                              setEditingItem(item);
+                              setShowForm(true);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 transition-colors"
+                            title="Edit Item"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setViewingItemId(viewingItemId === item.id ? null : item.id)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            viewingItemId === item.id ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'
+                          }`}
+                          title="Attachments"
+                        >
+                          <Paperclip className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {viewingItemId === item.id && (
@@ -355,7 +282,7 @@ export default function Inventory() {
                               <X className="w-4 h-4" />
                             </button>
                           </div>
-                          <AttachmentPanel refType="InventoryItem" refId={item.id} compact />
+                          <AttachmentPanel refType="Item" refId={item.id} compact />
                         </div>
                       </td>
                     </tr>
