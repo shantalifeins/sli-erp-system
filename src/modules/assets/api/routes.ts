@@ -4,7 +4,7 @@ import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { asset_attributes, asset_categories, assets, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
+import { asset_attributes, asset_categories, assets, asset_assignments, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'drizzle-orm';
@@ -3141,6 +3141,159 @@ router.post('/bulk-upload', requireAuth, checkPlugin('asset-management'), async 
   } catch (e: any) {
     console.error('POST /api/assets/bulk-upload error:', e);
     res.status(500).json({ error: 'Upload failed: ' + e.message });
+  }
+});
+
+// ==========================================
+// 15. ASSET ASSIGNMENT ENDPOINTS
+// ==========================================
+
+// GET /api/assets/assignments/list — List asset assignments with joins
+router.get('/assignments/list', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const assignmentsList = await db
+      .select({
+        id: asset_assignments.id,
+        assetId: asset_assignments.assetId,
+        assetCode: assets.assetCode,
+        assetName: assets.name,
+        categoryName: asset_categories.name,
+        assignedToUid: asset_assignments.assignedToUid,
+        assignedToName: users.name,
+        departmentId: asset_assignments.departmentId,
+        departmentName: departments.name,
+        branchId: asset_assignments.branchId,
+        branchName: branches.name,
+        locationId: asset_assignments.locationId,
+        locationName: asset_locations.name,
+        assignedAt: asset_assignments.assignedAt,
+        returnedAt: asset_assignments.returnedAt,
+        status: asset_assignments.status,
+        notes: asset_assignments.notes,
+      })
+      .from(asset_assignments)
+      .leftJoin(assets, eq(asset_assignments.assetId, assets.id))
+      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+      .leftJoin(users, eq(asset_assignments.assignedToUid, users.uid))
+      .leftJoin(departments, eq(asset_assignments.departmentId, departments.id))
+      .leftJoin(branches, eq(asset_assignments.branchId, branches.id))
+      .leftJoin(asset_locations, eq(asset_assignments.locationId, asset_locations.id))
+      .where(eq(asset_assignments.companyId, companyId))
+      .orderBy(desc(asset_assignments.assignedAt));
+
+    return res.json({ assignments: assignmentsList });
+  } catch (error: any) {
+    console.error('GET /api/assets/assignments/list error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch asset assignments' });
+  }
+});
+
+// POST /api/assets/assignments/assign — Assign asset to user/dept/branch & sync custodian
+router.post('/assignments/assign', requireAuth, requirePermission('Asset Assignment', 'canCreate'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { assetId, assignedToUid, departmentId, branchId, locationId, notes } = req.body || {};
+
+    if (!assetId) {
+      return res.status(400).json({ error: 'Asset is required for assignment' });
+    }
+
+    const [targetAsset] = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.id, assetId), eq(assets.companyId, companyId)))
+      .limit(1);
+
+    if (!targetAsset) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    // 1. Close any currently active assignment for this asset
+    await db
+      .update(asset_assignments)
+      .set({ status: 'Returned', returnedAt: new Date() })
+      .where(and(eq(asset_assignments.assetId, assetId), eq(asset_assignments.companyId, companyId), eq(asset_assignments.status, 'Active')));
+
+    // 2. Create new assignment record
+    const [newAssignment] = await db
+      .insert(asset_assignments)
+      .values({
+        companyId,
+        assetId,
+        assignedToUid: assignedToUid || null,
+        departmentId: departmentId ? Number(departmentId) : targetAsset.departmentId,
+        branchId: branchId ? Number(branchId) : targetAsset.branchId,
+        locationId: locationId || targetAsset.locationId,
+        assignedByUid: req.user!.uid,
+        assignedAt: new Date(),
+        status: 'Active',
+        notes: notes || null,
+      })
+      .returning();
+
+    // 3. Sync custodianUid & status on target asset in real-time
+    await db
+      .update(assets)
+      .set({
+        custodianUid: assignedToUid || null,
+        departmentId: departmentId ? Number(departmentId) : targetAsset.departmentId,
+        branchId: branchId ? Number(branchId) : targetAsset.branchId,
+        locationId: locationId || targetAsset.locationId,
+        status: 'Active',
+        updatedAt: new Date(),
+      })
+      .where(and(eq(assets.id, assetId), eq(assets.companyId, companyId)));
+
+    return res.status(201).json({ success: true, assignment: newAssignment });
+  } catch (error: any) {
+    console.error('POST /api/assets/assignments/assign error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to assign asset' });
+  }
+});
+
+// POST /api/assets/assignments/:id/return — Return asset & clear custodian
+router.post('/assignments/:id/return', requireAuth, requirePermission('Asset Assignment', 'canEdit'), checkPlugin('asset-management'), async (req: AuthRequest, res) => {
+  try {
+    const companyId = await resolveTenantId(req);
+    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
+
+    const { id } = req.params;
+
+    const [assignment] = await db
+      .select()
+      .from(asset_assignments)
+      .where(and(eq(asset_assignments.id, id), eq(asset_assignments.companyId, companyId)))
+      .limit(1);
+
+    if (!assignment) {
+      return res.status(404).json({ error: 'Assignment record not found' });
+    }
+
+    // 1. Mark assignment as Returned
+    await db
+      .update(asset_assignments)
+      .set({ status: 'Returned', returnedAt: new Date() })
+      .where(and(eq(asset_assignments.id, id), eq(asset_assignments.companyId, companyId)));
+
+    // 2. Clear custodianUid on target asset & set status to Active
+    await db
+      .update(assets)
+      .set({
+        custodianUid: null,
+        status: 'Active',
+        updatedAt: new Date(),
+      })
+      .where(and(eq(assets.id, assignment.assetId), eq(assets.companyId, companyId)));
+
+    return res.json({ success: true, message: 'Asset successfully returned to unassigned inventory' });
+  } catch (error: any) {
+    console.error('POST /api/assets/assignments/:id/return error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to return asset' });
   }
 });
 
