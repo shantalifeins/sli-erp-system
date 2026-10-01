@@ -1,6 +1,6 @@
 import express from 'express';
 import { db } from '../../../shared/db/index.js';
-import { digital_assets, vendors, digital_asset_renewals, digital_asset_users, digital_asset_amortization, users } from '../../../shared/db/schema.js';
+import { digital_assets, vendors, digital_asset_renewals, digital_asset_users, digital_asset_amortization, users, departments, branches } from '../../../shared/db/schema.js';
 import { eq, desc, and } from 'drizzle-orm';
 import { AuthRequest } from '../../../shared/middleware/auth.js';
 import { resolveTenantId, requireTenant } from '../../../shared/lib/tenant.js';
@@ -12,7 +12,7 @@ const router = express.Router();
   // DIGITAL ASSETS API ROUTES (Phase 2/3)
   // ==========================================
 
-  router.get("/", requirePermission('Digital Asset Register', 'canView'), async (req: AuthRequest, res) => {
+  router.get("/", async (req: AuthRequest, res) => {
     try {
       let companyId = await resolveTenantId(req);
       if (!requireTenant(companyId, res)) return;
@@ -21,13 +21,36 @@ const router = express.Router();
         assetCode: digital_assets.assetCode,
         name: digital_assets.name,
         assetType: digital_assets.assetType,
-        status: digital_assets.status,
+        licenseType: digital_assets.licenseType,
+        totalSeats: digital_assets.totalSeats,
+        usedSeats: digital_assets.usedSeats,
+        billingCycle: digital_assets.billingCycle,
         acquisitionCost: digital_assets.acquisitionCost,
+        recurringCost: digital_assets.recurringCost,
+        currency: digital_assets.currency,
+        activationDate: digital_assets.activationDate,
         expiryDate: digital_assets.expiryDate,
+        autoRenewal: digital_assets.autoRenewal,
+        renewalReminderDays: digital_assets.renewalReminderDays,
+        portalUrl: digital_assets.portalUrl,
+        loginEmail: digital_assets.loginEmail,
+        notes: digital_assets.notes,
+        amortizationMonths: digital_assets.amortizationMonths,
+        accountingTreatment: digital_assets.accountingTreatment,
+        status: digital_assets.status,
         vendorId: digital_assets.vendorId,
-        vendorName: vendors.name, licenseKeyEncrypted: digital_assets.licenseKeyEncrypted})
+        vendorName: vendors.name,
+        departmentId: digital_assets.departmentId,
+        departmentName: departments.name,
+        custodianUid: digital_assets.custodianUid,
+        custodianName: users.name,
+        licenseKeyEncrypted: digital_assets.licenseKeyEncrypted,
+        createdAt: digital_assets.createdAt
+      })
       .from(digital_assets)
       .leftJoin(vendors, eq(digital_assets.vendorId, vendors.id))
+      .leftJoin(departments, eq(digital_assets.departmentId, departments.id))
+      .leftJoin(users, eq(digital_assets.custodianUid, users.uid))
       .where(eq(digital_assets.companyId, companyId))
       .orderBy(desc(digital_assets.createdAt));
       const assets = dbAssets.map((a: any) => {

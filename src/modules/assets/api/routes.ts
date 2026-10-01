@@ -4,45 +4,12 @@ import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { asset_attributes, asset_categories, assets, asset_assignments, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger } from '../../../shared/db/schema.js';
+import { asset_attributes, asset_categories, assets, asset_assignments, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger, digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'drizzle-orm';
 
 const router = Router();
-
-// ==========================================
-// 0. ASSET DASHBOARD
-// ==========================================
-router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (req: AuthRequest, res) => {
-  try {
-    const companyId = await resolveTenantId(req);
-    if (!companyId) return res.status(400).json({ error: 'Missing company context' });
-    
-    // Mock dashboard data to prevent Promise.all failure on frontend
-    const dashboardData = {
-      metrics: {
-        totalAssets: 0,
-        activeAssets: 0,
-        totalValue: "0",
-        currentValue: "0",
-        depreciatedValue: "0"
-      },
-      charts: {
-        byCategory: [],
-        byStatus: [],
-        valueTrend: []
-      },
-      branchSummary: [],
-      recentAssets: []
-    };
-    
-    return res.json(dashboardData);
-  } catch (error: any) {
-    console.error('GET /api/assets/dashboard error:', error);
-    return res.status(500).json({ error: 'Failed to fetch dashboard data' });
-  }
-});
 
 // ==========================================
 // 1. ASSET CATEGORIES CRUD
@@ -538,99 +505,39 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
     const companyId = await resolveTenantId(req);
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
-    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, year, locationId } = req.query;
+    const {
+      assetNature, // 'all' | 'fixed' | 'digital'
+      categoryId,
+      branchId,
+      warehouseId,
+      departmentId,
+      custodianUid,
+      status,
+      search,
+      year,
+      locationId,
+      digitalAssetType,
+      digitalStatus,
+      digitalVendorId,
+      digitalExpiryWindow,
+      digitalAutoRenewal
+    } = req.query;
 
-    const conditions = [eq(assets.companyId, companyId)];
-
-    if (categoryId && typeof categoryId === 'string') {
-      conditions.push(eq(assets.categoryId, categoryId));
-    }
-    if (branchId && !isNaN(Number(branchId))) {
-      conditions.push(eq(assets.branchId, Number(branchId)));
-    }
-    if (locationId && typeof locationId === 'string') {
-      conditions.push(eq(assets.locationId, locationId));
-    }
-    if (warehouseId && !isNaN(Number(warehouseId))) {
-      conditions.push(eq(assets.warehouseId, Number(warehouseId)));
-    }
-    if (departmentId && !isNaN(Number(departmentId))) {
-      conditions.push(eq(assets.departmentId, Number(departmentId)));
-    }
-    if (custodianUid && typeof custodianUid === 'string') {
-      if (custodianUid === 'unassigned') {
-        conditions.push(isNull(assets.custodianUid));
-      } else {
-        conditions.push(eq(assets.custodianUid, custodianUid));
-      }
-    }
-    if (status && typeof status === 'string') {
-      conditions.push(eq(assets.status, status));
-    }
-    if (search && typeof search === 'string' && search.trim() !== '') {
-      const s = `%${search.trim()}%`;
-      conditions.push(
-        or(
-          ilike(assets.name, s),
-          ilike(assets.assetCode, s),
-          ilike(assets.serialNumber, s)
-        )!
-      );
-    }
-    if (year && !isNaN(Number(year))) {
-      const yr = Number(year);
-      const startOfYear = new Date(yr, 0, 1);
-      const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
-      conditions.push(gte(assets.acquisitionDate, startOfYear));
-      conditions.push(lte(assets.acquisitionDate, endOfYear));
-    }
-
-    const allMatchingAssets = await db
-      .select({
-        id: assets.id,
-        assetCode: assets.assetCode,
-        name: assets.name,
-        categoryId: assets.categoryId,
-        categoryName: asset_categories.name,
-        branchId: assets.branchId,
-        branchName: branches.name,
-        departmentId: assets.departmentId,
-        departmentName: departments.name,
-        custodianUid: assets.custodianUid,
-        custodianName: users.name,
-        acquisitionDate: assets.acquisitionDate,
-        acquisitionCost: assets.acquisitionCost,
-        salvageValue: assets.salvageValue,
-        depreciationMethod: assets.depreciationMethod,
-        usefulLifeMonths: assets.usefulLifeMonths,
-        accumulatedDepreciation: assets.accumulatedDepreciation,
-        currentBookValue: assets.currentBookValue,
-        status: assets.status,
-        serialNumber: assets.serialNumber,
-        warrantyExpiryDate: assets.warrantyExpiryDate,
-        nextMaintenanceDue: assets.nextMaintenanceDue,
-        createdAt: assets.createdAt
-      })
-      .from(assets)
-      .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
-      .leftJoin(branches, eq(assets.branchId, branches.id))
-      .leftJoin(departments, eq(assets.departmentId, departments.id))
-      .leftJoin(users, eq(assets.custodianUid, users.uid))
-      .where(and(...conditions))
-      .orderBy(desc(assets.createdAt));
-
+    const requestedNature = (typeof assetNature === 'string' ? assetNature.toLowerCase() : '') || 'fixed';
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
+    // ─────────────────────────────────────────────────────────
+    // 1. FIXED ASSETS COMPUTATION (when nature is 'fixed' or 'all')
+    // ─────────────────────────────────────────────────────────
+    let allMatchingAssets: any[] = [];
     let totalAcquisitionCost = 0;
     let totalAccumulatedDepreciation = 0;
     let totalNetBookValue = 0;
-
     let activeCount = 0;
     let draftCount = 0;
     let maintenanceCount = 0;
     let disposedCount = 0;
-
     let expiredWarrantyCount = 0;
     let expiringSoonWarrantyCount = 0;
     let overdueMaintenanceCount = 0;
@@ -639,80 +546,160 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
     const categoryMap: Record<string, { categoryId: string; categoryName: string; count: number; cost: number; accum: number; nbv: number }> = {};
     const branchMap: Record<string, { branchId: number | null; branchName: string; count: number; cost: number; accum: number; nbv: number; warrantyAlertsCount: number; maintenanceAlertsCount: number }> = {};
     const methodMap: Record<string, { method: string; count: number; cost: number; nbv: number }> = {};
-
     const warrantyAlertsList: any[] = [];
     const maintenanceAlertsList: any[] = [];
 
-    for (const a of allMatchingAssets) {
-      const cost = Number(a.acquisitionCost || 0);
-      const accum = Number(a.accumulatedDepreciation || 0);
-      const nbv = Number(a.currentBookValue || 0);
+    if (requestedNature === 'fixed' || requestedNature === 'all') {
+      const conditions = [eq(assets.companyId, companyId)];
 
-      totalAcquisitionCost += cost;
-      totalAccumulatedDepreciation += accum;
-      totalNetBookValue += nbv;
-
-      if (a.status === 'Active') activeCount++;
-      else if (a.status === 'Draft') draftCount++;
-      else if (a.status === 'UnderMaintenance') maintenanceCount++;
-      else if (a.status === 'Disposed' || a.status === 'Sold') disposedCount++;
-
-      // Category breakdown
-      const catKey = a.categoryName || 'Uncategorized';
-      if (!categoryMap[catKey]) {
-        categoryMap[catKey] = { categoryId: a.categoryId, categoryName: catKey, count: 0, cost: 0, accum: 0, nbv: 0 };
+      if (categoryId && typeof categoryId === 'string') {
+        conditions.push(eq(assets.categoryId, categoryId));
       }
-      categoryMap[catKey].count += 1;
-      categoryMap[catKey].cost += cost;
-      categoryMap[catKey].accum += accum;
-      categoryMap[catKey].nbv += nbv;
-
-      // Branch breakdown
-      const brKey = a.branchName || 'Head Office / HQ';
-      if (!branchMap[brKey]) {
-        branchMap[brKey] = { branchId: a.branchId, branchName: brKey, count: 0, cost: 0, accum: 0, nbv: 0, warrantyAlertsCount: 0, maintenanceAlertsCount: 0 };
+      if (branchId && !isNaN(Number(branchId))) {
+        conditions.push(eq(assets.branchId, Number(branchId)));
       }
-      const br = branchMap[brKey];
-      br.count += 1;
-      br.cost += cost;
-      br.accum += accum;
-      br.nbv += nbv;
-
-      // Depreciation Method breakdown
-      const methodKey = a.depreciationMethod || 'Straight Line';
-      if (!methodMap[methodKey]) {
-        methodMap[methodKey] = { method: methodKey, count: 0, cost: 0, nbv: 0 };
+      if (locationId && typeof locationId === 'string') {
+        conditions.push(eq(assets.locationId, locationId));
       }
-      methodMap[methodKey].count += 1;
-      methodMap[methodKey].cost += cost;
-      methodMap[methodKey].nbv += nbv;
-
-      // Expiration checks (for Active assets)
-      if (a.status === 'Active' && a.warrantyExpiryDate) {
-        const wDate = new Date(a.warrantyExpiryDate);
-        const diffDays = Math.ceil((wDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          expiredWarrantyCount++;
-          br.warrantyAlertsCount++;
-          warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Expired', alertLevel: 'critical' });
-        } else if (diffDays <= 30) {
-          expiringSoonWarrantyCount++;
-          br.warrantyAlertsCount++;
-          warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Expiring Soon', alertLevel: 'warning' });
+      if (warehouseId && !isNaN(Number(warehouseId))) {
+        conditions.push(eq(assets.warehouseId, Number(warehouseId)));
+      }
+      if (departmentId && !isNaN(Number(departmentId))) {
+        conditions.push(eq(assets.departmentId, Number(departmentId)));
+      }
+      if (custodianUid && typeof custodianUid === 'string') {
+        if (custodianUid === 'unassigned') {
+          conditions.push(isNull(assets.custodianUid));
+        } else {
+          conditions.push(eq(assets.custodianUid, custodianUid));
         }
       }
+      if (status && typeof status === 'string') {
+        conditions.push(eq(assets.status, status));
+      }
+      if (search && typeof search === 'string' && search.trim() !== '') {
+        const s = `%${search.trim()}%`;
+        conditions.push(
+          or(
+            ilike(assets.name, s),
+            ilike(assets.assetCode, s),
+            ilike(assets.serialNumber, s)
+          )!
+        );
+      }
+      if (year && !isNaN(Number(year))) {
+        const yr = Number(year);
+        const startOfYear = new Date(yr, 0, 1);
+        const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
+        conditions.push(gte(assets.acquisitionDate, startOfYear));
+        conditions.push(lte(assets.acquisitionDate, endOfYear));
+      }
 
-      if (a.status === 'Active' && a.nextMaintenanceDue) {
-        const mDate = new Date(a.nextMaintenanceDue);
-        const diffDays = Math.ceil((mDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          overdueMaintenanceCount++;
-          br.maintenanceAlertsCount++;
-          maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Overdue', alertLevel: 'critical' });
-        } else if (diffDays <= 7) {
-          dueSoonMaintenanceCount++;
-          br.maintenanceAlertsCount++;
-          maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Maintenance Due', alertLevel: 'warning' });
+      allMatchingAssets = await db
+        .select({
+          id: assets.id,
+          assetCode: assets.assetCode,
+          name: assets.name,
+          categoryId: assets.categoryId,
+          categoryName: asset_categories.name,
+          branchId: assets.branchId,
+          branchName: branches.name,
+          departmentId: assets.departmentId,
+          departmentName: departments.name,
+          custodianUid: assets.custodianUid,
+          custodianName: users.name,
+          acquisitionDate: assets.acquisitionDate,
+          acquisitionCost: assets.acquisitionCost,
+          salvageValue: assets.salvageValue,
+          depreciationMethod: assets.depreciationMethod,
+          usefulLifeMonths: assets.usefulLifeMonths,
+          accumulatedDepreciation: assets.accumulatedDepreciation,
+          currentBookValue: assets.currentBookValue,
+          status: assets.status,
+          serialNumber: assets.serialNumber,
+          warrantyExpiryDate: assets.warrantyExpiryDate,
+          nextMaintenanceDue: assets.nextMaintenanceDue,
+          createdAt: assets.createdAt
+        })
+        .from(assets)
+        .leftJoin(asset_categories, eq(assets.categoryId, asset_categories.id))
+        .leftJoin(branches, eq(assets.branchId, branches.id))
+        .leftJoin(departments, eq(assets.departmentId, departments.id))
+        .leftJoin(users, eq(assets.custodianUid, users.uid))
+        .where(and(...conditions))
+        .orderBy(desc(assets.createdAt));
+
+      for (const a of allMatchingAssets) {
+        const cost = Number(a.acquisitionCost || 0);
+        const accum = Number(a.accumulatedDepreciation || 0);
+        const nbv = Number(a.currentBookValue || 0);
+
+        totalAcquisitionCost += cost;
+        totalAccumulatedDepreciation += accum;
+        totalNetBookValue += nbv;
+
+        if (a.status === 'Active') activeCount++;
+        else if (a.status === 'Draft') draftCount++;
+        else if (a.status === 'UnderMaintenance') maintenanceCount++;
+        else if (a.status === 'Disposed' || a.status === 'Sold') disposedCount++;
+
+        // Category breakdown
+        const catKey = a.categoryName || 'Uncategorized';
+        if (!categoryMap[catKey]) {
+          categoryMap[catKey] = { categoryId: a.categoryId, categoryName: catKey, count: 0, cost: 0, accum: 0, nbv: 0 };
+        }
+        categoryMap[catKey].count += 1;
+        categoryMap[catKey].cost += cost;
+        categoryMap[catKey].accum += accum;
+        categoryMap[catKey].nbv += nbv;
+
+        // Branch breakdown
+        const brKey = a.branchName || 'Head Office / HQ';
+        if (!branchMap[brKey]) {
+          branchMap[brKey] = { branchId: a.branchId, branchName: brKey, count: 0, cost: 0, accum: 0, nbv: 0, warrantyAlertsCount: 0, maintenanceAlertsCount: 0 };
+        }
+        const br = branchMap[brKey];
+        br.count += 1;
+        br.cost += cost;
+        br.accum += accum;
+        br.nbv += nbv;
+
+        // Depreciation Method breakdown
+        const methodKey = a.depreciationMethod || 'Straight Line';
+        if (!methodMap[methodKey]) {
+          methodMap[methodKey] = { method: methodKey, count: 0, cost: 0, nbv: 0 };
+        }
+        methodMap[methodKey].count += 1;
+        methodMap[methodKey].cost += cost;
+        methodMap[methodKey].nbv += nbv;
+
+        // Expiration checks (for Active assets)
+        if (a.status === 'Active' && a.warrantyExpiryDate) {
+          const wDate = new Date(a.warrantyExpiryDate);
+          const diffDays = Math.ceil((wDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            expiredWarrantyCount++;
+            br.warrantyAlertsCount++;
+            warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Expired', alertLevel: 'critical' });
+          } else if (diffDays <= 30) {
+            expiringSoonWarrantyCount++;
+            br.warrantyAlertsCount++;
+            warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Expiring Soon', alertLevel: 'warning' });
+          }
+        }
+
+        if (a.status === 'Active' && a.nextMaintenanceDue) {
+          const mDate = new Date(a.nextMaintenanceDue);
+          const diffDays = Math.ceil((mDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            overdueMaintenanceCount++;
+            br.maintenanceAlertsCount++;
+            maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Overdue', alertLevel: 'critical' });
+          } else if (diffDays <= 7) {
+            dueSoonMaintenanceCount++;
+            br.maintenanceAlertsCount++;
+            maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: 'Maintenance Due', alertLevel: 'warning' });
+          }
         }
       }
     }
@@ -731,14 +718,277 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
       nbv: c.nbv.toFixed(2)
     }));
 
-    const statusDistribution = [
+    const fixedStatusDistribution = [
       { name: 'Active', value: activeCount, color: '#10b981' },
       { name: 'Under Maintenance', value: maintenanceCount, color: '#f59e0b' },
       { name: 'Draft', value: draftCount, color: '#8b5cf6' },
       { name: 'Disposed', value: disposedCount, color: '#ef4444' }
     ].filter(s => s.value > 0 || allMatchingAssets.length === 0);
 
-    return res.json({
+    // ─────────────────────────────────────────────────────────
+    // 2. DIGITAL ASSETS COMPUTATION (when nature is 'digital' or 'all')
+    // ─────────────────────────────────────────────────────────
+    let allMatchingDigitalAssets: any[] = [];
+    let totalDigitalAcquisitionCost = 0;
+    let totalDigitalRecurringCost = 0;
+    let activeDigitalCount = 0;
+    let draftDigitalCount = 0;
+    let expiredDigitalCount = 0;
+    let suspendedDigitalCount = 0;
+    let expiringSoonDigitalCount = 0;
+    let expiring60DaysDigitalCount = 0;
+    let expiring90DaysDigitalCount = 0;
+    let totalDigitalSeats = 0;
+    let usedDigitalSeats = 0;
+    let autoRenewalDigitalCount = 0;
+
+    const digitalTypeMap: Record<string, { name: string; count: number; cost: number; seats: number }> = {};
+    const digitalVendorMap: Record<string, { vendorId: number | null; vendorName: string; count: number; cost: number }> = {};
+    const digitalLicenseTypeMap: Record<string, { name: string; count: number; cost: number }> = {};
+    const digitalUpcomingRenewals: any[] = [];
+
+    if (requestedNature === 'digital' || requestedNature === 'all') {
+      const digitalConditions = [eq(digital_assets.companyId, companyId)];
+
+      const effType = digitalAssetType || (requestedNature === 'digital' ? categoryId : null);
+      if (effType && typeof effType === 'string') {
+        digitalConditions.push(eq(digital_assets.assetType, effType));
+      }
+
+      const effStatus = digitalStatus || (requestedNature === 'digital' ? status : null);
+      if (effStatus && typeof effStatus === 'string') {
+        digitalConditions.push(eq(digital_assets.status, effStatus));
+      }
+
+      if (digitalVendorId && !isNaN(Number(digitalVendorId))) {
+        digitalConditions.push(eq(digital_assets.vendorId, Number(digitalVendorId)));
+      }
+
+      if (departmentId && !isNaN(Number(departmentId))) {
+        digitalConditions.push(eq(digital_assets.departmentId, Number(departmentId)));
+      }
+
+      if (custodianUid && typeof custodianUid === 'string') {
+        if (custodianUid === 'unassigned') {
+          digitalConditions.push(isNull(digital_assets.custodianUid));
+        } else {
+          digitalConditions.push(eq(digital_assets.custodianUid, custodianUid));
+        }
+      }
+
+      if (digitalAutoRenewal !== undefined && digitalAutoRenewal !== '') {
+        const isAuto = digitalAutoRenewal === 'true' || digitalAutoRenewal === '1';
+        digitalConditions.push(eq(digital_assets.autoRenewal, isAuto));
+      }
+
+      if (search && typeof search === 'string' && search.trim() !== '') {
+        const s = `%${search.trim()}%`;
+        digitalConditions.push(
+          or(
+            ilike(digital_assets.name, s),
+            ilike(digital_assets.assetCode, s),
+            ilike(digital_assets.licenseType, s),
+            ilike(digital_assets.portalUrl, s)
+          )!
+        );
+      }
+
+      if (year && !isNaN(Number(year))) {
+        const yr = Number(year);
+        const startOfYear = new Date(yr, 0, 1);
+        const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
+        digitalConditions.push(gte(digital_assets.activationDate, startOfYear));
+        digitalConditions.push(lte(digital_assets.activationDate, endOfYear));
+      }
+
+      allMatchingDigitalAssets = await db
+        .select({
+          id: digital_assets.id,
+          assetCode: digital_assets.assetCode,
+          name: digital_assets.name,
+          assetType: digital_assets.assetType,
+          licenseType: digital_assets.licenseType,
+          totalSeats: digital_assets.totalSeats,
+          usedSeats: digital_assets.usedSeats,
+          billingCycle: digital_assets.billingCycle,
+          acquisitionCost: digital_assets.acquisitionCost,
+          recurringCost: digital_assets.recurringCost,
+          currency: digital_assets.currency,
+          activationDate: digital_assets.activationDate,
+          expiryDate: digital_assets.expiryDate,
+          autoRenewal: digital_assets.autoRenewal,
+          renewalReminderDays: digital_assets.renewalReminderDays,
+          portalUrl: digital_assets.portalUrl,
+          status: digital_assets.status,
+          vendorId: digital_assets.vendorId,
+          vendorName: vendors.name,
+          departmentId: digital_assets.departmentId,
+          departmentName: departments.name,
+          custodianUid: digital_assets.custodianUid,
+          custodianName: users.name,
+          createdAt: digital_assets.createdAt
+        })
+        .from(digital_assets)
+        .leftJoin(vendors, eq(digital_assets.vendorId, vendors.id))
+        .leftJoin(departments, eq(digital_assets.departmentId, departments.id))
+        .leftJoin(users, eq(digital_assets.custodianUid, users.uid))
+        .where(and(...digitalConditions))
+        .orderBy(desc(digital_assets.createdAt));
+
+      for (const d of allMatchingDigitalAssets) {
+        const cost = Number(d.acquisitionCost || 0);
+        const recurring = Number(d.recurringCost || 0);
+        const seats = Number(d.totalSeats || 0);
+        const used = Number(d.usedSeats || 0);
+
+        totalDigitalAcquisitionCost += cost;
+        totalDigitalRecurringCost += recurring;
+        totalDigitalSeats += seats;
+        usedDigitalSeats += used;
+
+        if (d.autoRenewal) autoRenewalDigitalCount++;
+
+        if (d.status === 'Active') activeDigitalCount++;
+        else if (d.status === 'Draft') draftDigitalCount++;
+        else if (d.status === 'Expired') expiredDigitalCount++;
+        else if (d.status === 'Suspended') suspendedDigitalCount++;
+
+        // Asset Type Breakdown
+        const typeKey = d.assetType || 'Other';
+        if (!digitalTypeMap[typeKey]) {
+          digitalTypeMap[typeKey] = { name: typeKey, count: 0, cost: 0, seats: 0 };
+        }
+        digitalTypeMap[typeKey].count += 1;
+        digitalTypeMap[typeKey].cost += cost;
+        digitalTypeMap[typeKey].seats += seats;
+
+        // Vendor Breakdown
+        const vKey = d.vendorName || 'Direct / Internal';
+        if (!digitalVendorMap[vKey]) {
+          digitalVendorMap[vKey] = { vendorId: d.vendorId, vendorName: vKey, count: 0, cost: 0 };
+        }
+        digitalVendorMap[vKey].count += 1;
+        digitalVendorMap[vKey].cost += cost;
+
+        // License Type Breakdown
+        const ltKey = d.licenseType || 'Subscription';
+        if (!digitalLicenseTypeMap[ltKey]) {
+          digitalLicenseTypeMap[ltKey] = { name: ltKey, count: 0, cost: 0 };
+        }
+        digitalLicenseTypeMap[ltKey].count += 1;
+        digitalLicenseTypeMap[ltKey].cost += cost;
+
+        // Expiry & Renewal checks
+        if (d.expiryDate) {
+          const expDate = new Date(d.expiryDate);
+          const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+          let alertStatus = 'Active';
+          let alertLevel = 'normal';
+
+          if (diffDays < 0) {
+            alertStatus = 'Expired';
+            alertLevel = 'critical';
+            if (d.status === 'Active') expiredDigitalCount++;
+          } else if (diffDays <= 30) {
+            expiringSoonDigitalCount++;
+            expiring60DaysDigitalCount++;
+            expiring90DaysDigitalCount++;
+            alertStatus = 'Expiring in 30 Days';
+            alertLevel = 'critical';
+          } else if (diffDays <= 60) {
+            expiring60DaysDigitalCount++;
+            expiring90DaysDigitalCount++;
+            alertStatus = 'Expiring in 60 Days';
+            alertLevel = 'warning';
+          } else if (diffDays <= 90) {
+            expiring90DaysDigitalCount++;
+            alertStatus = 'Expiring in 90 Days';
+            alertLevel = 'info';
+          }
+
+          digitalUpcomingRenewals.push({
+            id: d.id,
+            assetCode: d.assetCode,
+            name: d.name,
+            assetType: d.assetType,
+            vendorName: d.vendorName,
+            expiryDate: d.expiryDate,
+            daysRemaining: diffDays,
+            renewalCost: d.recurringCost || d.acquisitionCost,
+            autoRenewal: d.autoRenewal,
+            alertStatus,
+            alertLevel,
+            status: d.status
+          });
+        }
+      }
+    }
+
+    const digitalTypeBreakdown = Object.values(digitalTypeMap).map(t => ({
+      ...t,
+      cost: Number(t.cost.toFixed(2))
+    }));
+
+    const digitalVendorBreakdown = Object.values(digitalVendorMap).map(v => ({
+      ...v,
+      cost: Number(v.cost.toFixed(2))
+    }));
+
+    const digitalLicenseTypeBreakdown = Object.values(digitalLicenseTypeMap).map(l => ({
+      ...l,
+      cost: Number(l.cost.toFixed(2))
+    }));
+
+    const digitalStatusDistribution = [
+      { name: 'Active', value: activeDigitalCount, color: '#10b981' },
+      { name: 'Expiring Soon', value: expiringSoonDigitalCount, color: '#f59e0b' },
+      { name: 'Expired', value: expiredDigitalCount, color: '#ef4444' },
+      { name: 'Draft', value: draftDigitalCount, color: '#8b5cf6' },
+      { name: 'Suspended', value: suspendedDigitalCount, color: '#64748b' }
+    ].filter(s => s.value > 0 || allMatchingDigitalAssets.length === 0);
+
+    const seatUtilizationRate = totalDigitalSeats > 0
+      ? Number(((usedDigitalSeats / totalDigitalSeats) * 100).toFixed(1))
+      : 0;
+
+    // ─────────────────────────────────────────────────────────
+    // 3. ASSEMBLE FINAL RESPONSE ACCORDING TO assetNature
+    // ─────────────────────────────────────────────────────────
+
+    // Standard Digital Block
+    const digitalBlock = {
+      metrics: {
+        totalAssetsCount: allMatchingDigitalAssets.length,
+        totalAcquisitionCost: totalDigitalAcquisitionCost.toFixed(2),
+        totalRecurringCost: totalDigitalRecurringCost.toFixed(2),
+        activeCount: activeDigitalCount,
+        expiredCount: expiredDigitalCount,
+        draftCount: draftDigitalCount,
+        suspendedCount: suspendedDigitalCount,
+        expiringSoonCount: expiringSoonDigitalCount,
+        expiring60DaysCount: expiring60DaysDigitalCount,
+        expiring90DaysCount: expiring90DaysDigitalCount,
+        totalSeats: totalDigitalSeats,
+        usedSeats: usedDigitalSeats,
+        availableSeats: Math.max(0, totalDigitalSeats - usedDigitalSeats),
+        seatUtilizationRate,
+        autoRenewalCount: autoRenewalDigitalCount
+      },
+      charts: {
+        typeDistribution: digitalTypeBreakdown,
+        vendorDistribution: digitalVendorBreakdown,
+        licenseTypeDistribution: digitalLicenseTypeBreakdown,
+        statusDistribution: digitalStatusDistribution
+      },
+      typeBreakdown: digitalTypeBreakdown,
+      vendorBreakdown: digitalVendorBreakdown,
+      upcomingRenewals: digitalUpcomingRenewals.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      recentAssets: allMatchingDigitalAssets.slice(0, 10)
+    };
+
+    // Standard Fixed Block
+    const fixedBlock = {
       metrics: {
         totalAssetsCount: allMatchingAssets.length,
         totalAcquisitionCost: totalAcquisitionCost.toFixed(2),
@@ -770,7 +1020,7 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
           nbv: Number(c.nbv),
           count: c.count
         })),
-        statusDistribution,
+        statusDistribution: fixedStatusDistribution,
         methodDistribution: Object.values(methodMap).map(m => ({
           name: m.method,
           value: m.count,
@@ -783,6 +1033,102 @@ router.get('/dashboard', requireAuth, checkPlugin('asset-management'), async (re
       recentAssets: allMatchingAssets.slice(0, 10),
       criticalWarrantyAlerts: warrantyAlertsList.sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 5),
       criticalMaintenanceAlerts: maintenanceAlertsList.sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 5)
+    };
+
+    if (requestedNature === 'digital') {
+      return res.json({
+        assetNature: 'digital',
+        metrics: digitalBlock.metrics,
+        charts: digitalBlock.charts,
+        typeBreakdown: digitalTypeBreakdown,
+        vendorBreakdown: digitalVendorBreakdown,
+        upcomingRenewals: digitalBlock.upcomingRenewals,
+        recentAssets: digitalBlock.recentAssets,
+        recentDigitalAssets: digitalBlock.recentAssets,
+        digital: digitalBlock,
+        fixed: fixedBlock
+      });
+    }
+
+    if (requestedNature === 'all') {
+      const combinedTotalCost = totalAcquisitionCost + totalDigitalAcquisitionCost;
+      const combinedNetValue = totalNetBookValue + totalDigitalAcquisitionCost;
+      const combinedTotalAlerts = (expiredWarrantyCount + expiringSoonWarrantyCount) + (overdueMaintenanceCount + dueSoonMaintenanceCount) + expiringSoonDigitalCount;
+
+      const natureDistribution = [
+        { name: 'Fixed Assets', count: allMatchingAssets.length, cost: Number(totalAcquisitionCost.toFixed(2)), nbv: Number(totalNetBookValue.toFixed(2)), color: '#8b5cf6' },
+        { name: 'Digital Assets', count: allMatchingDigitalAssets.length, cost: Number(totalDigitalAcquisitionCost.toFixed(2)), nbv: Number(totalDigitalAcquisitionCost.toFixed(2)), color: '#06b6d4' }
+      ];
+
+      return res.json({
+        assetNature: 'all',
+        metrics: {
+          totalAssetsCount: allMatchingAssets.length + allMatchingDigitalAssets.length,
+          totalAcquisitionCost: combinedTotalCost.toFixed(2),
+          totalNetBookValue: combinedNetValue.toFixed(2),
+          totalAccumulatedDepreciation: totalAccumulatedDepreciation.toFixed(2),
+          activeCount: activeCount + activeDigitalCount,
+          draftCount: draftCount + draftDigitalCount,
+          maintenanceCount,
+          disposedCount,
+          warrantyAlertsCount: expiredWarrantyCount + expiringSoonWarrantyCount,
+          expiredWarrantyCount,
+          expiringSoonWarrantyCount,
+          maintenanceAlertsCount: overdueMaintenanceCount + dueSoonMaintenanceCount,
+          overdueMaintenanceCount,
+          dueSoonMaintenanceCount,
+          digitalExpiringSoonCount: expiringSoonDigitalCount,
+          totalAlertsCount: combinedTotalAlerts,
+          fixedCount: allMatchingAssets.length,
+          digitalCount: allMatchingDigitalAssets.length,
+          fixedCost: totalAcquisitionCost.toFixed(2),
+          digitalCost: totalDigitalAcquisitionCost.toFixed(2),
+          digitalRecurringCost: totalDigitalRecurringCost.toFixed(2),
+          fixedNetValue: totalNetBookValue.toFixed(2),
+          digitalNetValue: totalDigitalAcquisitionCost.toFixed(2),
+          totalSeats: totalDigitalSeats,
+          usedSeats: usedDigitalSeats,
+          seatUtilizationRate
+        },
+        charts: {
+          assetNatureDistribution: natureDistribution,
+          branchValuation: fixedBlock.charts.branchValuation,
+          categoryValuation: fixedBlock.charts.categoryValuation,
+          digitalTypeDistribution: digitalTypeBreakdown,
+          statusDistribution: [
+            { name: 'Active', value: activeCount + activeDigitalCount, color: '#10b981' },
+            { name: 'Draft', value: draftCount + draftDigitalCount, color: '#8b5cf6' },
+            { name: 'Alert / Maintenance', value: maintenanceCount + expiringSoonDigitalCount, color: '#f59e0b' },
+            { name: 'Expired / Disposed', value: disposedCount + expiredDigitalCount, color: '#ef4444' }
+          ].filter(s => s.value > 0),
+          methodDistribution: fixedBlock.charts.methodDistribution
+        },
+        branchSummary,
+        categoryBreakdown,
+        digitalTypeBreakdown,
+        digitalVendorBreakdown,
+        recentAssets: allMatchingAssets.slice(0, 10),
+        recentDigitalAssets: allMatchingDigitalAssets.slice(0, 10),
+        upcomingRenewals: digitalBlock.upcomingRenewals,
+        criticalWarrantyAlerts: fixedBlock.criticalWarrantyAlerts,
+        criticalMaintenanceAlerts: fixedBlock.criticalMaintenanceAlerts,
+        fixed: fixedBlock,
+        digital: digitalBlock
+      });
+    }
+
+    // Default: 'fixed' (Preserves 100% existing contract and tests)
+    return res.json({
+      assetNature: 'fixed',
+      metrics: fixedBlock.metrics,
+      charts: fixedBlock.charts,
+      branchSummary,
+      categoryBreakdown,
+      recentAssets: fixedBlock.recentAssets,
+      criticalWarrantyAlerts: fixedBlock.criticalWarrantyAlerts,
+      criticalMaintenanceAlerts: fixedBlock.criticalMaintenanceAlerts,
+      fixed: fixedBlock,
+      digital: digitalBlock
     });
   } catch (error: any) {
     console.error('GET /api/assets/dashboard error:', error);
