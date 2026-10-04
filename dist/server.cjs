@@ -3898,29 +3898,29 @@ router5.get("/", requireAuth, requirePermission("Assets Register", "canView"), c
     if (!companyId) return res.status(400).json({ error: "Missing company context" });
     const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, locationId, page = "1", limit = "50" } = req.query;
     const conditions = [(0, import_drizzle_orm16.eq)(assets.companyId, companyId)];
-    if (categoryId && typeof categoryId === "string") {
+    if (categoryId && typeof categoryId === "string" && categoryId !== "all") {
       conditions.push((0, import_drizzle_orm16.eq)(assets.categoryId, categoryId));
     }
-    if (branchId && !isNaN(Number(branchId))) {
+    if (branchId && branchId !== "all" && !isNaN(Number(branchId))) {
       conditions.push((0, import_drizzle_orm16.eq)(assets.branchId, Number(branchId)));
     }
-    if (locationId && typeof locationId === "string") {
+    if (locationId && typeof locationId === "string" && locationId !== "all") {
       conditions.push((0, import_drizzle_orm16.eq)(assets.locationId, locationId));
     }
-    if (warehouseId && !isNaN(Number(warehouseId))) {
+    if (warehouseId && warehouseId !== "all" && !isNaN(Number(warehouseId))) {
       conditions.push((0, import_drizzle_orm16.eq)(assets.warehouseId, Number(warehouseId)));
     }
-    if (departmentId && !isNaN(Number(departmentId))) {
+    if (departmentId && departmentId !== "all" && !isNaN(Number(departmentId))) {
       conditions.push((0, import_drizzle_orm16.eq)(assets.departmentId, Number(departmentId)));
     }
-    if (custodianUid && typeof custodianUid === "string") {
+    if (custodianUid && typeof custodianUid === "string" && custodianUid !== "all") {
       if (custodianUid === "unassigned") {
         conditions.push((0, import_drizzle_orm16.isNull)(assets.custodianUid));
       } else {
         conditions.push((0, import_drizzle_orm16.eq)(assets.custodianUid, custodianUid));
       }
     }
-    if (status && typeof status === "string") {
+    if (status && typeof status === "string" && status !== "all") {
       conditions.push((0, import_drizzle_orm16.eq)(assets.status, status));
     }
     if (search && typeof search === "string" && search.trim() !== "") {

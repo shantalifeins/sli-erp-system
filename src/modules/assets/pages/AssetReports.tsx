@@ -93,7 +93,7 @@ interface ValuationData {
 
 export default function AssetReports() {
   const navigate = useNavigate();
-  const { getToken } = useAuth();
+  const { getToken, activeTenantId, company } = useAuth();
   const currencySymbol = useCurrency();
 
   const initialTab = new URLSearchParams(window.location.search).get('tab') as 'register' | 'depreciation' | 'valuation' | 'alerts' | null;
@@ -140,7 +140,7 @@ export default function AssetReports() {
       }
     }
     fetchCategories();
-  }, [getToken]);
+  }, [getToken, activeTenantId, company?.id]);
 
   useEffect(() => {
     const fetchAttributes = async () => {
@@ -209,7 +209,7 @@ export default function AssetReports() {
 
   useEffect(() => {
     loadReportData();
-  }, [activeTab, selectedCategory, selectedLocation, selectedBrand, selectedModel, selectedSpec, statusFilter, startMonth, endMonth]);
+  }, [activeTab, activeTenantId, company?.id, selectedCategory, selectedLocation, selectedBrand, selectedModel, selectedSpec, statusFilter, startMonth, endMonth]);
 
   // Export to CSV helper
   const exportToCSV = () => {

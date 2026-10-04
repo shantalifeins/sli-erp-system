@@ -45,7 +45,7 @@ import { useNavigate } from 'react-router-dom';
 const CHART_COLORS = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#6366f1'];
 
 export default function AssetDashboard() {
-  const { getToken, dbUser, permissions } = useAuth();
+  const { getToken, dbUser, permissions, activeTenantId, company } = useAuth();
   const currencySymbol = useCurrency();
   const navigate = useNavigate();
 
@@ -141,6 +141,8 @@ export default function AssetDashboard() {
     loadDashboardData();
   }, [
     getToken,
+    activeTenantId,
+    company?.id,
     assetNature,
     searchQuery,
     selectedBranch,

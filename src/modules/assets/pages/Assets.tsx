@@ -183,7 +183,7 @@ function AssignmentHistoryPanel({ assetId, users, departments, branches }: any) 
 
 export default function Assets() {
   const navigate = useNavigate();
-  const { getToken, dbUser, permissions, company } = useAuth();
+  const { getToken, dbUser, permissions, company, activeTenantId } = useAuth();
   const currencySymbol = useCurrency();
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
@@ -262,8 +262,11 @@ export default function Assets() {
       if (!token) return;
 
       const [assetsRes, catRes, branchRes, deptRes, userRes, locRes, unitRes] = await Promise.all([
-        fetchWithAuth(`/api/assets?search=${encodeURIComponent(searchQuery)}&categoryId=${selectedCategory}&branchId=${selectedBranch}&locationId=${selectedLocation}&custodianUid=${selectedCustodian}&status=${selectedStatus}`, token),
-        fetchWithAuth('/api/assets/categories', token),
+        fetchWithAuth(`/api/assets?search=${encodeURIComponent(searchQuery)}&categoryId=${selectedCategory}&branchId=${selectedBranch}&locationId=${selectedLocation}&custodianUid=${selectedCustodian}&status=${selectedStatus}`, token).catch((e) => {
+          console.error('Failed to fetch assets list:', e);
+          return { assets: [], pagination: {} };
+        }),
+        fetchWithAuth('/api/assets/categories', token).catch(() => ({ categories: [] })),
         fetchWithAuth('/api/branches', token).catch(() => ({ branches: [] })),
         fetchWithAuth('/api/departments', token).catch(() => ({ departments: [] })),
         fetchWithAuth('/api/users', token).catch(() => ({ users: [] })),
@@ -287,7 +290,7 @@ export default function Assets() {
 
   useEffect(() => {
     loadData();
-  }, [getToken, searchQuery, selectedCategory, selectedBranch, selectedLocation, selectedCustodian, selectedStatus]);
+  }, [getToken, activeTenantId, company?.id, searchQuery, selectedCategory, selectedBranch, selectedLocation, selectedCustodian, selectedStatus]);
 
   useEffect(() => {
     const fetchAttributes = async () => {

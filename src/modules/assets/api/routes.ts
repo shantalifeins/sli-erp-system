@@ -1146,29 +1146,29 @@ router.get("/", requireAuth, requirePermission('Assets Register', 'canView'), ch
 
     const conditions = [eq(assets.companyId, companyId)];
 
-    if (categoryId && typeof categoryId === 'string') {
+    if (categoryId && typeof categoryId === 'string' && categoryId !== 'all') {
       conditions.push(eq(assets.categoryId, categoryId));
     }
-    if (branchId && !isNaN(Number(branchId))) {
+    if (branchId && branchId !== 'all' && !isNaN(Number(branchId))) {
       conditions.push(eq(assets.branchId, Number(branchId)));
     }
-    if (locationId && typeof locationId === 'string') {
+    if (locationId && typeof locationId === 'string' && locationId !== 'all') {
       conditions.push(eq(assets.locationId, locationId));
     }
-    if (warehouseId && !isNaN(Number(warehouseId))) {
+    if (warehouseId && warehouseId !== 'all' && !isNaN(Number(warehouseId))) {
       conditions.push(eq(assets.warehouseId, Number(warehouseId)));
     }
-    if (departmentId && !isNaN(Number(departmentId))) {
+    if (departmentId && departmentId !== 'all' && !isNaN(Number(departmentId))) {
       conditions.push(eq(assets.departmentId, Number(departmentId)));
     }
-    if (custodianUid && typeof custodianUid === 'string') {
+    if (custodianUid && typeof custodianUid === 'string' && custodianUid !== 'all') {
       if (custodianUid === 'unassigned') {
         conditions.push(isNull(assets.custodianUid));
       } else {
         conditions.push(eq(assets.custodianUid, custodianUid));
       }
     }
-    if (status && typeof status === 'string') {
+    if (status && typeof status === 'string' && status !== 'all') {
       conditions.push(eq(assets.status, status));
     }
     if (search && typeof search === 'string' && search.trim() !== '') {

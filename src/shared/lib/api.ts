@@ -9,7 +9,7 @@ export const fetchWithAuth = async (url: string, token: string | null, options: 
     'Content-Type': 'application/json',
   };
 
-  if (activeTenantId) {
+  if (activeTenantId && activeTenantId !== 'null' && activeTenantId !== 'undefined') {
     headers['x-tenant-id'] = activeTenantId;
   }
 
