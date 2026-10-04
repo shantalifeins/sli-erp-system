@@ -67,13 +67,12 @@ export default function Home() {
   ];
 
   // Mapping of top-level Home cards to their possible permissions (menus)
-  // Mapping of top-level Home cards to their possible permissions (menus)
   const moduleMenusMap: Record<string, string[]> = {
-    'My Panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
-    'System Configuration': ['Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup', 'Admin Dashboard'],
-    'Procurement': ['Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements', 'RFQ (Quotation)', 'Work Orders', 'Invoices & Payments', 'Procurement Report', 'Procurement Dashboard'],
-    'Inventory': ['Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval', 'Goods Receipt (GRN)', 'Rejected Items', 'Stock Reconciliation', 'Inventory Report', 'Requisition Report', 'Inventory Dashboard'],
-    'Asset Management': ['Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management', 'Asset Dashboard']
+    'My Panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile', 'To-Do List'],
+    'System Configuration': ['Companies', 'Branches', 'Departments', 'Units', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup', 'Admin Dashboard', 'System Setting', 'User Setting', 'Company Profile', 'Workflow Engine'],
+    'Procurement': ['Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements', 'Comparative Statement', 'RFQ (Quotation)', 'Work Orders', 'Invoices & Payments', 'Procurement Report', 'Procurement Reports', 'Procurement Dashboard', 'Traceability Report'],
+    'Inventory': ['Stock In', 'Stock Out', 'Stock Movements', 'Stock Transfer', 'Transfer Receive', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval', 'Goods Receipt (GRN)', 'Rejected Items', 'Stock Reconciliation', 'Inventory Report', 'Inventory Reports', 'Requisition Report', 'Inventory Dashboard', 'Inventory Items', 'Item Bulk Upload', 'Opening Stock Upload', 'Stock Adjustment'],
+    'Asset Management': ['Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Depreciation Reports', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Asset Disposal', 'Physical Audit', 'Reports', 'Asset Reports', 'Asset Management', 'Asset Dashboard', 'Asset Capitalization', 'Asset Assignment', 'Asset Import', 'Asset Location', 'Asset Transfers', 'Digital Asset Register', 'Digital Acceptance', 'Digital Asset Import', 'Digital Subscriptions', 'License Vault', 'Digital Amortization', 'Digital Asset Reports']
   };
 
 

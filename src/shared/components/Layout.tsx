@@ -11,10 +11,30 @@ import Logo from './Logo.js';
 import NotificationBell from './NotificationBell.js';
 
 function SidebarGroup({ item, pathname, search, closeSidebar }: { key?: React.Key, item: any, pathname: string, search: string, closeSidebar: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-  if (item.show === false) return null;
+  const visibleSubMenus = React.useMemo(() => {
+    if (!item?.subMenus) return [];
+    return item.subMenus.filter((sub: any) => sub && Boolean(sub.show));
+  }, [item?.subMenus]);
+
+  const isAnySubActive = React.useMemo(() => {
+    if (!visibleSubMenus.length) return false;
+    const fullPath = pathname + search;
+    return visibleSubMenus.some((sub: any) => fullPath === sub.href || pathname === sub.href || (sub.href !== '/' && pathname.startsWith(sub.href + '/')));
+  }, [visibleSubMenus, pathname, search]);
+
+  const [expanded, setExpanded] = useState(isAnySubActive);
+
+  React.useEffect(() => {
+    if (isAnySubActive) {
+      setExpanded(true);
+    }
+  }, [isAnySubActive]);
+
+  if (!item || item.show === false || !Boolean(item.show)) return null;
 
   if (item.subMenus) {
+    if (visibleSubMenus.length === 0) return null;
+
     return (
       <div className="mb-2">
         <button 
@@ -26,8 +46,7 @@ function SidebarGroup({ item, pathname, search, closeSidebar }: { key?: React.Ke
         </button>
         {expanded && (
           <div className="mt-1 space-y-1">
-            {item.subMenus.map((sub: any) => {
-              if (sub.show === false) return null;
+            {visibleSubMenus.map((sub: any) => {
               const fullPath = pathname + search;
               const isActive = fullPath === sub.href;
               return (
@@ -105,6 +124,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const isSuperAdmin = dbUser?.role === 'Super Admin';
   const getPermission = (modName: string) => permissions?.find((p: any) => p.module === modName);
+  const hasMenuAccess = (menuName: string, alsoCheckCreate = false): boolean => {
+    if (isSuperAdmin) return true;
+    const perm = getPermission(menuName);
+    if (!perm) return false;
+    if (alsoCheckCreate) {
+      return Boolean(perm.canView || perm.canCreate);
+    }
+    return Boolean(perm.canView);
+  };
+
+  const filterAccessibleMenus = (menus: any[]) => {
+    return (menus || [])
+      .map(item => {
+        if (!item) return null;
+        if (item.subMenus) {
+          const visibleSubs = item.subMenus.filter((sub: any) => sub && Boolean(sub.show));
+          if (visibleSubs.length === 0) return null;
+          return {
+            ...item,
+            show: true,
+            subMenus: visibleSubs
+          };
+        }
+        return Boolean(item.show) ? item : null;
+      })
+      .filter(Boolean);
+  };
+
   const hasOtherModules = isGlobalSuperAdmin || permissions?.some((p: any) => !['Global Tasks', 'Item Requisitions', 'My Profile'].includes(p.module) && p.canView);
 
   // Determine active high-level module
@@ -132,11 +179,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Top Module Navigation Tabs configuration
   const moduleMenusMap: Record<string, string[]> = {
-    'user-panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile'],
-    'admin': ['Companies', 'Branches', 'Departments', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup', 'Admin Dashboard'],
-    'procurement': ['Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements', 'RFQ (Quotation)', 'Work Orders', 'Invoices & Payments', 'Procurement Report', 'Procurement Dashboard'],
-    'inventory': ['Stock In', 'Stock Out', 'Stock Movements', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval', 'Goods Receipt (GRN)', 'Rejected Items', 'Stock Reconciliation', 'Inventory Report', 'Requisition Report', 'Inventory Dashboard'],
-    'asset-management': ['Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Physical Audit', 'Reports', 'Asset Management', 'Asset Dashboard']
+    'user-panel': ['User Dashboard', 'Global Tasks', 'Item Requisitions', 'My Profile', 'To-Do List'],
+    'admin': ['Companies', 'Branches', 'Departments', 'Units', 'Designations', 'Warehouses', 'Users', 'Roles & Permissions', 'BPMN Definitions', 'Module Setup', 'Admin Dashboard', 'System Setting', 'User Setting', 'Company Profile', 'Workflow Engine'],
+    'procurement': ['Purchase Requisitions', 'Purchase Orders', 'Vendors', 'Comparative Statements', 'Comparative Statement', 'RFQ (Quotation)', 'Work Orders', 'Invoices & Payments', 'Procurement Report', 'Procurement Reports', 'Procurement Dashboard', 'Traceability Report'],
+    'inventory': ['Stock In', 'Stock Out', 'Stock Movements', 'Stock Transfer', 'Transfer Receive', 'Item Categories', 'Units', 'Item Setup', 'Requisition Approval', 'Goods Receipt (GRN)', 'Rejected Items', 'Stock Reconciliation', 'Inventory Report', 'Inventory Reports', 'Requisition Report', 'Inventory Dashboard', 'Inventory Items', 'Item Bulk Upload', 'Opening Stock Upload', 'Stock Adjustment'],
+    'asset-management': ['Assets Register', 'Asset Categories', 'Depreciation Schedule', 'Depreciation Reports', 'Maintenance', 'Asset Maintenance', 'Disposals', 'Asset Disposal', 'Physical Audit', 'Reports', 'Asset Reports', 'Asset Management', 'Asset Dashboard', 'Asset Capitalization', 'Asset Assignment', 'Asset Import', 'Asset Location', 'Asset Transfers', 'Digital Asset Register', 'Digital Acceptance', 'Digital Asset Import', 'Digital Subscriptions', 'License Vault', 'Digital Amortization', 'Digital Asset Reports']
   };
 
   const allModuleTabs = [
@@ -217,157 +264,175 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Define menus for each module
   const procurementMenus = [
-    { name: 'Dashboard', href: '/procurement-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Procurement Dashboard')?.canView || getPermission('Purchase Requisitions')?.canView || getPermission('Purchase Orders')?.canView || getPermission('Vendors')?.canView || getPermission('Comparative Statement')?.canView || getPermission('RFQ (Quotation)')?.canView },
-    { name: 'Purchase Requisitions', href: '/purchase-requisition', icon: FileText, show: isSuperAdmin || getPermission('Purchase Requisitions')?.canView },
-    { name: 'RFQ (Quotation)', href: '/rfq', icon: Send, show: isSuperAdmin || getPermission('RFQ (Quotation)')?.canView },
-    { name: 'Comparative Statement', href: '/cs', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Comparative Statement')?.canView },
-    { name: 'Purchase Orders', href: '/po', icon: ShoppingCart, show: isSuperAdmin || getPermission('Purchase Orders')?.canView },
-    { name: 'Work Orders', href: '/work-orders', icon: ClipboardList, show: isSuperAdmin || getPermission('Purchase Orders')?.canView },
-    { name: 'Invoices & Payments', href: '/invoices-payments', icon: DollarSign, show: isSuperAdmin || getPermission('Invoices & Payments')?.canView },
+    { 
+      name: 'Dashboard', 
+      href: '/procurement-dashboard', 
+      icon: LayoutDashboard, 
+      show: hasMenuAccess('Procurement Dashboard') || hasMenuAccess('Purchase Requisitions') || hasMenuAccess('Purchase Orders') || hasMenuAccess('Vendors') || hasMenuAccess('Comparative Statement') || hasMenuAccess('RFQ (Quotation)') 
+    },
+    { name: 'Purchase Requisitions', href: '/purchase-requisition', icon: FileText, show: hasMenuAccess('Purchase Requisitions') },
+    { name: 'RFQ (Quotation)', href: '/rfq', icon: Send, show: hasMenuAccess('RFQ (Quotation)') },
+    { name: 'Comparative Statement', href: '/cs', icon: FileSpreadsheet, show: hasMenuAccess('Comparative Statement') },
+    { name: 'Purchase Orders', href: '/po', icon: ShoppingCart, show: hasMenuAccess('Purchase Orders') },
+    { name: 'Work Orders', href: '/work-orders', icon: ClipboardList, show: hasMenuAccess('Work Orders') || hasMenuAccess('Purchase Orders') },
+    { name: 'Invoices & Payments', href: '/invoices-payments', icon: DollarSign, show: hasMenuAccess('Invoices & Payments') },
     {
       name: 'Reports',
-      show: isSuperAdmin || getPermission('Reports')?.canView || getPermission('Traceability Report')?.canView,
+      show: hasMenuAccess('Procurement Reports') || hasMenuAccess('Traceability Report'),
       icon: FileText,
       subMenus: [
-        { name: 'Procurement Report', href: '/procurement-report', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Reports')?.canView },
-        { name: 'Traceability Report', href: '/traceability-report', icon: Network, show: isSuperAdmin || getPermission('Traceability Report')?.canView },
+        { name: 'Procurement Report', href: '/procurement-report', icon: FileSpreadsheet, show: hasMenuAccess('Procurement Reports') },
+        { name: 'Traceability Report', href: '/traceability-report', icon: Network, show: hasMenuAccess('Traceability Report') },
       ]
     },
-  ].filter(nav => nav.show !== false);
+  ];
 
   const inventoryMenus = [
-    { name: 'Dashboard', href: '/inventory-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Inventory Dashboard')?.canView || getPermission('Stock In')?.canView || getPermission('Stock Out')?.canView || getPermission('Goods Receipt (GRN)')?.canView || getPermission('Requisition Approval')?.canView || getPermission('Inventory Items')?.canView },
-    { name: 'Item Req. by User', href: '/requisition-list', icon: Shield, show: isSuperAdmin || getPermission('Requisition Approval')?.canView },
-    { name: 'Stock In', href: '/stock-in', icon: ArrowDownToLine, show: isSuperAdmin || getPermission('Stock In')?.canView },
-    { name: 'Stock Out', href: '/stock-out', icon: ArrowUpFromLine, show: isSuperAdmin || getPermission('Stock Out')?.canView },
-    { name: 'Stock Transfer', href: '/stock-transfer', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Stock Transfer')?.canView },
-    { name: 'Transfer Receive', href: '/transfer-receive', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Transfer Receive')?.canView },
-    { name: 'Goods Receipt (GRN)', href: '/grn', icon: Truck, show: isSuperAdmin || getPermission('Goods Receipt (GRN)')?.canView },
-    { name: 'Rejected Items', href: '/rejected-items', icon: AlertTriangle, show: isSuperAdmin || getPermission('Rejected Items')?.canView },
-    { name: 'Stock Reconciliation', href: '/stock-reconciliation', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Stock Reconciliation')?.canView },
-
+    { 
+      name: 'Dashboard', 
+      href: '/inventory-dashboard', 
+      icon: LayoutDashboard, 
+      show: hasMenuAccess('Inventory Dashboard') || hasMenuAccess('Stock In') || hasMenuAccess('Stock Out') || hasMenuAccess('Goods Receipt (GRN)') || hasMenuAccess('Requisition Approval') || hasMenuAccess('Inventory Items') 
+    },
+    { name: 'Item Req. by User', href: '/requisition-list', icon: Shield, show: hasMenuAccess('Requisition Approval') },
+    { name: 'Stock In', href: '/stock-in', icon: ArrowDownToLine, show: hasMenuAccess('Stock In') },
+    { name: 'Stock Out', href: '/stock-out', icon: ArrowUpFromLine, show: hasMenuAccess('Stock Out') },
+    { name: 'Stock Transfer', href: '/stock-transfer', icon: ArrowRightLeft, show: hasMenuAccess('Stock Transfer') },
+    { name: 'Transfer Receive', href: '/transfer-receive', icon: ClipboardCheck, show: hasMenuAccess('Transfer Receive') },
+    { name: 'Goods Receipt (GRN)', href: '/grn', icon: Truck, show: hasMenuAccess('Goods Receipt (GRN)') },
+    { name: 'Rejected Items', href: '/rejected-items', icon: AlertTriangle, show: hasMenuAccess('Rejected Items') },
+    { name: 'Stock Reconciliation', href: '/stock-reconciliation', icon: ClipboardCheck, show: hasMenuAccess('Stock Reconciliation') },
     {
       name: 'Reports',
-      show: isSuperAdmin || getPermission('Reports')?.canView || getPermission('Requisition Report')?.canView,
+      show: hasMenuAccess('Inventory Reports') || hasMenuAccess('Requisition Report'),
       icon: FileText,
       subMenus: [
-        { name: 'Inventory Report', href: '/inventory-report', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Reports')?.canView },
-        { name: 'Requisition Report', href: '/requisition-report', icon: FileText, show: isSuperAdmin || getPermission('Requisition Report')?.canView },
+        { name: 'Inventory Report', href: '/inventory-report', icon: FileSpreadsheet, show: hasMenuAccess('Inventory Reports') },
+        { name: 'Requisition Report', href: '/requisition-report', icon: FileText, show: hasMenuAccess('Requisition Report') },
       ]
     },
     {
       name: 'Inventory Setting',
-      show: isSuperAdmin || getPermission('Inventory Items')?.canView || getPermission('Warehouses')?.canView || getPermission('Vendors')?.canView || getPermission('Opening Stock Upload')?.canView || getPermission('Stock Adjustment')?.canView || getPermission('Item Bulk Upload')?.canView,
+      show: hasMenuAccess('Inventory Items') || hasMenuAccess('Item Bulk Upload', true) || hasMenuAccess('Opening Stock Upload', true) || hasMenuAccess('Stock Adjustment') || hasMenuAccess('Vendors'),
       icon: Settings,
       subMenus: [
-        { name: 'Item Categories', href: '/inventory-categories', icon: Tags, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
-        { name: 'Inventory Items', href: '/inventory', icon: Box, show: isSuperAdmin || getPermission('Inventory Items')?.canView },
-        { name: 'Item Bulk Upload', href: '/inventory-bulk-upload', icon: Upload, show: isSuperAdmin || getPermission('Item Bulk Upload')?.canView || getPermission('Item Bulk Upload')?.canCreate },
-        { name: 'Opening Stock Upload', href: '/opening-stock-upload', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Opening Stock Upload')?.canView || getPermission('Opening Stock Upload')?.canCreate },
-        { name: 'Stock Adjustment', href: '/stock-adjustment', icon: Settings, show: isSuperAdmin || getPermission('Stock Adjustment')?.canView },
-        { name: 'Vendors', href: '/vendors', icon: Users, show: isSuperAdmin || getPermission('Vendors')?.canView },
+        { name: 'Item Categories', href: '/inventory-categories', icon: Tags, show: hasMenuAccess('Inventory Items') },
+        { name: 'Inventory Items', href: '/inventory', icon: Box, show: hasMenuAccess('Inventory Items') },
+        { name: 'Item Bulk Upload', href: '/inventory-bulk-upload', icon: Upload, show: hasMenuAccess('Item Bulk Upload', true) || hasMenuAccess('Inventory Items') },
+        { name: 'Opening Stock Upload', href: '/opening-stock-upload', icon: FileSpreadsheet, show: hasMenuAccess('Opening Stock Upload', true) },
+        { name: 'Stock Adjustment', href: '/stock-adjustment', icon: Settings, show: hasMenuAccess('Stock Adjustment') },
+        { name: 'Vendors', href: '/vendors', icon: Users, show: hasMenuAccess('Vendors') },
       ]
     }
-  ].filter(nav => nav.show !== false);
+  ];
 
   const adminMenus = [
-    { name: 'Dashboard', href: '/admin?tab=dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Admin Dashboard')?.canView || getPermission('Users')?.canView || getPermission('Roles & Permissions')?.canView || getPermission('Companies')?.canView || getPermission('System Setting')?.canView || getPermission('User Setting')?.canView },
+    { 
+      name: 'Dashboard', 
+      href: '/admin?tab=dashboard', 
+      icon: LayoutDashboard, 
+      show: hasMenuAccess('Admin Dashboard') || hasMenuAccess('System Setting') || hasMenuAccess('User Setting') 
+    },
     {
       name: 'System Setting',
-      show: isSuperAdmin || getPermission('System Setting')?.canView || getPermission('Branches')?.canView,
+      show: hasMenuAccess('System Setting') || hasMenuAccess('Company Profile') || hasMenuAccess('Branches') || hasMenuAccess('Workflow Engine'),
+      icon: Shield,
       subMenus: [
-        { name: 'Companies', href: '/admin?tab=companies', icon: Shield, show: isSuperAdmin || getPermission('System Setting')?.canView },
-        { name: 'Branches', href: '/admin?tab=branches', icon: Shield, show: isSuperAdmin || getPermission('Branches')?.canView },
-        { name: 'Workflow Setting', href: '/admin?tab=workflows', icon: Shield, show: isSuperAdmin || getPermission('System Setting')?.canView },
-        { name: 'Notification Settings', href: '/admin?tab=notifications', icon: Bell, show: isSuperAdmin || getPermission('System Setting')?.canView },
+        { name: 'Companies', href: '/admin?tab=companies', icon: Shield, show: hasMenuAccess('Company Profile') || hasMenuAccess('System Setting') },
+        { name: 'Branches', href: '/admin?tab=branches', icon: Shield, show: hasMenuAccess('Branches') },
+        { name: 'Workflow Setting', href: '/admin?tab=workflows', icon: Shield, show: hasMenuAccess('Workflow Engine') || hasMenuAccess('System Setting') },
+        { name: 'Notification Settings', href: '/admin?tab=notifications', icon: Bell, show: hasMenuAccess('System Setting') },
       ]
     },
     {
       name: 'User Setting',
-      show: isSuperAdmin || getPermission('User Setting')?.canView,
+      show: hasMenuAccess('User Setting') || hasMenuAccess('Departments') || hasMenuAccess('Units') || hasMenuAccess('Designations') || hasMenuAccess('Warehouses'),
+      icon: Shield,
       subMenus: [
-        { name: 'Department', href: '/admin?tab=departments', icon: Shield },
-        { name: 'Unit', href: '/admin?tab=units', icon: Shield },
-        { name: 'Designation', href: '/admin?tab=designations', icon: Shield },
-        { name: 'Roles', href: '/admin?tab=permissions', icon: Shield },
-        { name: 'User', href: '/admin?tab=users', icon: UserIcon },
-        { name: 'Organization Chart', href: '/admin/organogram', icon: Network },
-        { name: 'Warehouses', href: '/admin/warehouses', icon: Warehouse, show: isSuperAdmin || getPermission('Warehouses')?.canView },
-        { name: 'Warehouse Managers', href: '/admin?tab=warehouse-managers', icon: Shield },
+        { name: 'Department', href: '/admin?tab=departments', icon: Shield, show: hasMenuAccess('Departments') || hasMenuAccess('User Setting') },
+        { name: 'Unit', href: '/admin?tab=units', icon: Shield, show: hasMenuAccess('Units') || hasMenuAccess('User Setting') },
+        { name: 'Designation', href: '/admin?tab=designations', icon: Shield, show: hasMenuAccess('Designations') || hasMenuAccess('User Setting') },
+        { name: 'Roles', href: '/admin?tab=permissions', icon: Shield, show: hasMenuAccess('User Setting') },
+        { name: 'User', href: '/admin?tab=users', icon: UserIcon, show: hasMenuAccess('User Setting') },
+        { name: 'Organization Chart', href: '/admin/organogram', icon: Network, show: hasMenuAccess('User Setting') },
+        { name: 'Warehouses', href: '/admin/warehouses', icon: Warehouse, show: hasMenuAccess('Warehouses') },
+        { name: 'Warehouse Managers', href: '/admin?tab=warehouse-managers', icon: Shield, show: hasMenuAccess('Warehouses') || hasMenuAccess('User Setting') },
       ]
     },
-  ].filter(nav => nav.show !== false);
+  ];
 
   const userPanelMenus = [
-    { name: 'Dashboard', href: '/user-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('User Dashboard')?.canView },
-    { name: 'Global Tasks', href: '/inbox', icon: Bell, show: isSuperAdmin || getPermission('Global Tasks')?.canView },
+    { name: 'Dashboard', href: '/user-dashboard', icon: LayoutDashboard, show: hasMenuAccess('User Dashboard') },
+    { name: 'Global Tasks', href: '/inbox', icon: Bell, show: hasMenuAccess('Global Tasks') },
     { name: 'To-Do List', href: '/my-tasks', icon: ListTodo, show: isSuperAdmin || getPermission('To-Do List')?.canView !== false }, // Allow by default
-    { name: 'Item Requisitions', href: '/item-requisition', icon: FileText, show: isSuperAdmin || getPermission('Item Requisitions')?.canView },
+    { name: 'Item Requisitions', href: '/item-requisition', icon: FileText, show: hasMenuAccess('Item Requisitions') },
     { name: 'My Profile', href: '/profile', icon: UserIcon, show: isSuperAdmin || getPermission('My Profile')?.canView !== false }, // Allow by default unless explicitly denied
-  ].filter(nav => nav.show !== false);
+  ];
 
   const assetMenus = [
-    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: isSuperAdmin || getPermission('Asset Dashboard')?.canView },
+    { name: 'Dashboard', href: '/assets-dashboard', icon: LayoutDashboard, show: hasMenuAccess('Asset Dashboard') },
     {
       name: 'Fixed Asset',
       icon: Box,
-      show: isSuperAdmin || getPermission('Assets Register')?.canView || getPermission('Asset Categories')?.canView || getPermission('Asset Location')?.canView || getPermission('Asset Transfers')?.canView || getPermission('Asset Maintenance')?.canView || getPermission('Asset Disposal')?.canView || getPermission('Physical Audit')?.canView || getPermission('Asset Capitalization')?.canView || getPermission('Asset Assignment')?.canView || getPermission('Asset Import')?.canView || getPermission('Asset Import')?.canCreate,
+      show: hasMenuAccess('Assets Register') || hasMenuAccess('Asset Capitalization') || hasMenuAccess('Asset Assignment') || hasMenuAccess('Asset Import', true) || hasMenuAccess('Asset Categories') || hasMenuAccess('Asset Location') || hasMenuAccess('Asset Transfers') || hasMenuAccess('Asset Maintenance') || hasMenuAccess('Asset Disposal') || hasMenuAccess('Physical Audit'),
       subMenus: [
-        { name: 'Assets Register', href: '/assets', icon: Box, show: isSuperAdmin || getPermission('Assets Register')?.canView },
-        { name: 'Asset Capitalization', href: '/asset-capitalization', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Asset Capitalization')?.canView },
-        { name: 'Asset Assignment', href: '/asset-assignment', icon: Users, show: isSuperAdmin || getPermission('Asset Assignment')?.canView },
-        { name: 'Asset Import', href: '/asset-import', icon: Upload, show: isSuperAdmin || getPermission('Asset Import')?.canView || getPermission('Asset Import')?.canCreate },
-        { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: isSuperAdmin || getPermission('Asset Categories')?.canView },
-        { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: isSuperAdmin || getPermission('Asset Location')?.canView },
-        { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: isSuperAdmin || getPermission('Asset Transfers')?.canView },
-        { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: isSuperAdmin || getPermission('Asset Maintenance')?.canView },
-        { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: isSuperAdmin || getPermission('Asset Disposal')?.canView },
-        { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: isSuperAdmin || getPermission('Physical Audit')?.canView },
+        { name: 'Assets Register', href: '/assets', icon: Box, show: hasMenuAccess('Assets Register') },
+        { name: 'Asset Capitalization', href: '/asset-capitalization', icon: ClipboardCheck, show: hasMenuAccess('Asset Capitalization') },
+        { name: 'Asset Assignment', href: '/asset-assignment', icon: Users, show: hasMenuAccess('Asset Assignment') },
+        { name: 'Asset Import', href: '/asset-import', icon: Upload, show: hasMenuAccess('Asset Import', true) },
+        { name: 'Asset Categories', href: '/asset-categories', icon: Layers, show: hasMenuAccess('Asset Categories') },
+        { name: 'Asset Location', href: '/asset-location', icon: MapPin, show: hasMenuAccess('Asset Location') },
+        { name: 'Asset Transfers', href: '/asset-transfers', icon: ArrowRightLeft, show: hasMenuAccess('Asset Transfers') },
+        { name: 'Asset Maintenance', href: '/asset-maintenance', icon: Wrench, show: hasMenuAccess('Asset Maintenance') },
+        { name: 'Asset Disposal', href: '/asset-disposal', icon: Trash2, show: hasMenuAccess('Asset Disposal') },
+        { name: 'Physical Audit', href: '/asset-verification', icon: QrCode, show: hasMenuAccess('Physical Audit') },
       ]
     },
     {
       name: 'Digital Asset',
-      show: isSuperAdmin || getPermission('Digital Asset Register')?.canView || getPermission('License Vault')?.canView || getPermission('Digital Subscriptions')?.canView || getPermission('Digital Amortization')?.canView || getPermission('Digital Acceptance')?.canView || getPermission('Digital Asset Import')?.canView || getPermission('Digital Asset Import')?.canCreate,
+      show: hasMenuAccess('Digital Asset Register') || hasMenuAccess('Digital Acceptance') || hasMenuAccess('Digital Asset Import', true) || hasMenuAccess('Digital Subscriptions') || hasMenuAccess('License Vault') || hasMenuAccess('Digital Amortization'),
       icon: Network,
       subMenus: [
-        { name: 'Register', href: '/digital-assets', icon: Box, show: isSuperAdmin || getPermission('Digital Asset Register')?.canView },
-        { name: 'Digital Acceptance', href: '/digital-assets/acceptance', icon: ClipboardCheck, show: isSuperAdmin || getPermission('Digital Acceptance')?.canView },
-        { name: 'Digital Import', href: '/digital-assets/import', icon: Upload, show: isSuperAdmin || getPermission('Digital Asset Import')?.canView || getPermission('Digital Asset Import')?.canCreate },
-        { name: 'Subscriptions', href: '/digital-assets/subscriptions', icon: Layers, show: isSuperAdmin || getPermission('Digital Subscriptions')?.canView },
-        { name: 'License Vault', href: '/digital-assets/vault', icon: Shield, show: isSuperAdmin || getPermission('License Vault')?.canView },
-        { name: 'Amortization', href: '/digital-assets/amortization', icon: TrendingDown, show: isSuperAdmin || getPermission('Digital Amortization')?.canView },
+        { name: 'Register', href: '/digital-assets', icon: Box, show: hasMenuAccess('Digital Asset Register') },
+        { name: 'Digital Acceptance', href: '/digital-assets/acceptance', icon: ClipboardCheck, show: hasMenuAccess('Digital Acceptance') },
+        { name: 'Digital Import', href: '/digital-assets/import', icon: Upload, show: hasMenuAccess('Digital Asset Import', true) },
+        { name: 'Subscriptions', href: '/digital-assets/subscriptions', icon: Layers, show: hasMenuAccess('Digital Subscriptions') },
+        { name: 'License Vault', href: '/digital-assets/vault', icon: Shield, show: hasMenuAccess('License Vault') },
+        { name: 'Amortization', href: '/digital-assets/amortization', icon: TrendingDown, show: hasMenuAccess('Digital Amortization') },
       ]
     },
     {
       name: 'Asset Report',
       icon: FileSpreadsheet,
-      show: isSuperAdmin || getPermission('Asset Reports')?.canView || getPermission('Digital Asset Reports')?.canView,
+      show: hasMenuAccess('Asset Reports') || hasMenuAccess('Digital Asset Reports'),
       subMenus: [
-        { name: 'Fixed Asset', href: '/asset-reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Asset Reports')?.canView },
-        { name: 'Digital Asset', href: '/digital-assets/reports', icon: FileSpreadsheet, show: isSuperAdmin || getPermission('Digital Asset Reports')?.canView }
+        { name: 'Fixed Asset', href: '/asset-reports', icon: FileSpreadsheet, show: hasMenuAccess('Asset Reports') },
+        { name: 'Digital Asset', href: '/digital-assets/reports', icon: FileSpreadsheet, show: hasMenuAccess('Digital Asset Reports') }
       ]
     },
     {
       name: 'Depreciation Report',
       href: '/asset-depr-reports',
       icon: TrendingDown,
-      show: isSuperAdmin || getPermission('Depreciation Reports')?.canView
+      show: hasMenuAccess('Depreciation Reports')
     },
     {
       name: 'Depreciation Schedule',
       href: '/asset-depr-schedule',
       icon: Calendar,
-      show: isSuperAdmin || getPermission('Depreciation Schedule')?.canView
+      show: hasMenuAccess('Depreciation Schedule')
     }
-  ].filter(nav => nav.show !== false);
+  ];
 
   // Determine which menu to show
-  let currentMenus: any[] = [];
-  if (activeModule === 'procurement') currentMenus = procurementMenus;
-  else if (activeModule === 'inventory') currentMenus = inventoryMenus;
-  else if (activeModule === 'admin') currentMenus = adminMenus;
-  else if (activeModule === 'user-panel') currentMenus = userPanelMenus;
-  else if (activeModule === 'asset-management') currentMenus = assetMenus;
+  let rawMenus: any[] = [];
+  if (activeModule === 'procurement') rawMenus = procurementMenus;
+  else if (activeModule === 'inventory') rawMenus = inventoryMenus;
+  else if (activeModule === 'admin') rawMenus = adminMenus;
+  else if (activeModule === 'user-panel') rawMenus = userPanelMenus;
+  else if (activeModule === 'asset-management') rawMenus = assetMenus;
+
+  const currentMenus = filterAccessibleMenus(rawMenus);
 
   // Module Access Guard
   const userRoleStr = (dbUser?.role || (dbUser as any)?.userRole || '').toLowerCase();

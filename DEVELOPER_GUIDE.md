@@ -215,6 +215,7 @@ Located in `src/shared/db/schema.ts`:
   - **GRN Dropdowns**: Excludes POs with existing GRNs or marked Delivered (`!hasGrn`).
   - **Invoice Dropdowns**: Excludes GRNs with existing Invoices (`!hasInvoice`).
 - **Dynamic Currency**: Always use `useCurrency()` hook for `{currencySymbol}` prefixing.
+- **RBAC Sidebar Visibility Standard**: Sidebar navigation items and submenus MUST strictly reflect role permissions (`hasMenuAccess(menuName)`). Any menu for which the user's role lacks view permission (`canView`) is completely hidden from the sidebar to prevent "Access Denied" dead ends. Accordion groups whose submenus are all unpermitted are automatically suppressed from the UI.
 
 ---
 

@@ -257,6 +257,17 @@ must not be omitted when adding custom behavior.
 
 ---
 
+## 3.8 RBAC Sidebar & Navigation Menu Visibility Standard
+
+Strict RBAC visibility MUST be enforced for all navigation elements across all modules (Procurement, Inventory, Asset Management, System Configuration, User Panel, etc.):
+
+* **No Forbidden Menus in Sidebar**: Any menu or submenu for which the user's role does not possess view permission (`canView`) MUST NOT be displayed in the sidebar navigation.
+* **No Access Denied Bait**: Under no circumstances should an unpermitted menu item be rendered in the sidebar only to navigate the user to an "Access Denied" page.
+* **Automatic Empty Group Suppression**: If all submenus within an accordion group (e.g., "Fixed Asset", "Digital Asset", "User Setting") are unpermitted for the active user, the entire parent group header MUST be hidden automatically.
+* **Strict Boolean Evaluation**: Visibility conditions for menus MUST be resolved strictly as booleans (e.g. `Boolean(...)` or `hasMenuAccess()`). Never use loose `nav.show !== false` or `sub.show === false` checks that allow `undefined` to leak through as visible.
+
+---
+
 # 4. 🔄 General Workflow & Approval Standards
 
 The system uses the Global Inbox as the central location for actionable approval/review workflows.

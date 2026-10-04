@@ -2914,7 +2914,7 @@ var requirePermission = (menu, action) => async (req, res, next) => {
     if (!userRole) {
       return res.status(401).json({ error: "Unauthorized: User role not found" });
     }
-    if (userRole === "Super Admin" || userRole === "Admin") {
+    if (userRole === "Super Admin") {
       return next();
     }
     const companyId = await resolveTenantId4(req);
@@ -3351,77 +3351,28 @@ router5.get("/dashboard", requireAuth, checkPlugin("asset-management"), async (r
   try {
     const companyId = await resolveTenantId4(req);
     if (!companyId) return res.status(400).json({ error: "Missing company context" });
-    const { categoryId, branchId, warehouseId, departmentId, custodianUid, status, search, year, locationId } = req.query;
-    const conditions = [(0, import_drizzle_orm16.eq)(assets.companyId, companyId)];
-    if (categoryId && typeof categoryId === "string") {
-      conditions.push((0, import_drizzle_orm16.eq)(assets.categoryId, categoryId));
-    }
-    if (branchId && !isNaN(Number(branchId))) {
-      conditions.push((0, import_drizzle_orm16.eq)(assets.branchId, Number(branchId)));
-    }
-    if (locationId && typeof locationId === "string") {
-      conditions.push((0, import_drizzle_orm16.eq)(assets.locationId, locationId));
-    }
-    if (warehouseId && !isNaN(Number(warehouseId))) {
-      conditions.push((0, import_drizzle_orm16.eq)(assets.warehouseId, Number(warehouseId)));
-    }
-    if (departmentId && !isNaN(Number(departmentId))) {
-      conditions.push((0, import_drizzle_orm16.eq)(assets.departmentId, Number(departmentId)));
-    }
-    if (custodianUid && typeof custodianUid === "string") {
-      if (custodianUid === "unassigned") {
-        conditions.push((0, import_drizzle_orm16.isNull)(assets.custodianUid));
-      } else {
-        conditions.push((0, import_drizzle_orm16.eq)(assets.custodianUid, custodianUid));
-      }
-    }
-    if (status && typeof status === "string") {
-      conditions.push((0, import_drizzle_orm16.eq)(assets.status, status));
-    }
-    if (search && typeof search === "string" && search.trim() !== "") {
-      const s = `%${search.trim()}%`;
-      conditions.push(
-        (0, import_drizzle_orm16.or)(
-          (0, import_drizzle_orm16.ilike)(assets.name, s),
-          (0, import_drizzle_orm16.ilike)(assets.assetCode, s),
-          (0, import_drizzle_orm16.ilike)(assets.serialNumber, s)
-        )
-      );
-    }
-    if (year && !isNaN(Number(year))) {
-      const yr = Number(year);
-      const startOfYear = new Date(yr, 0, 1);
-      const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
-      conditions.push((0, import_drizzle_orm16.gte)(assets.acquisitionDate, startOfYear));
-      conditions.push((0, import_drizzle_orm16.lte)(assets.acquisitionDate, endOfYear));
-    }
-    const allMatchingAssets = await db.select({
-      id: assets.id,
-      assetCode: assets.assetCode,
-      name: assets.name,
-      categoryId: assets.categoryId,
-      categoryName: asset_categories.name,
-      branchId: assets.branchId,
-      branchName: branches.name,
-      departmentId: assets.departmentId,
-      departmentName: departments.name,
-      custodianUid: assets.custodianUid,
-      custodianName: users.name,
-      acquisitionDate: assets.acquisitionDate,
-      acquisitionCost: assets.acquisitionCost,
-      salvageValue: assets.salvageValue,
-      depreciationMethod: assets.depreciationMethod,
-      usefulLifeMonths: assets.usefulLifeMonths,
-      accumulatedDepreciation: assets.accumulatedDepreciation,
-      currentBookValue: assets.currentBookValue,
-      status: assets.status,
-      serialNumber: assets.serialNumber,
-      warrantyExpiryDate: assets.warrantyExpiryDate,
-      nextMaintenanceDue: assets.nextMaintenanceDue,
-      createdAt: assets.createdAt
-    }).from(assets).leftJoin(asset_categories, (0, import_drizzle_orm16.eq)(assets.categoryId, asset_categories.id)).leftJoin(branches, (0, import_drizzle_orm16.eq)(assets.branchId, branches.id)).leftJoin(departments, (0, import_drizzle_orm16.eq)(assets.departmentId, departments.id)).leftJoin(users, (0, import_drizzle_orm16.eq)(assets.custodianUid, users.uid)).where((0, import_drizzle_orm16.and)(...conditions)).orderBy((0, import_drizzle_orm16.desc)(assets.createdAt));
+    const {
+      assetNature,
+      // 'all' | 'fixed' | 'digital'
+      categoryId,
+      branchId,
+      warehouseId,
+      departmentId,
+      custodianUid,
+      status,
+      search,
+      year,
+      locationId,
+      digitalAssetType,
+      digitalStatus,
+      digitalVendorId,
+      digitalExpiryWindow,
+      digitalAutoRenewal
+    } = req.query;
+    const requestedNature = (typeof assetNature === "string" ? assetNature.toLowerCase() : "") || "fixed";
     const now = /* @__PURE__ */ new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let allMatchingAssets = [];
     let totalAcquisitionCost = 0;
     let totalAccumulatedDepreciation = 0;
     let totalNetBookValue = 0;
@@ -3438,65 +3389,135 @@ router5.get("/dashboard", requireAuth, checkPlugin("asset-management"), async (r
     const methodMap = {};
     const warrantyAlertsList = [];
     const maintenanceAlertsList = [];
-    for (const a of allMatchingAssets) {
-      const cost = Number(a.acquisitionCost || 0);
-      const accum = Number(a.accumulatedDepreciation || 0);
-      const nbv = Number(a.currentBookValue || 0);
-      totalAcquisitionCost += cost;
-      totalAccumulatedDepreciation += accum;
-      totalNetBookValue += nbv;
-      if (a.status === "Active") activeCount++;
-      else if (a.status === "Draft") draftCount++;
-      else if (a.status === "UnderMaintenance") maintenanceCount++;
-      else if (a.status === "Disposed" || a.status === "Sold") disposedCount++;
-      const catKey = a.categoryName || "Uncategorized";
-      if (!categoryMap[catKey]) {
-        categoryMap[catKey] = { categoryId: a.categoryId, categoryName: catKey, count: 0, cost: 0, accum: 0, nbv: 0 };
+    if (requestedNature === "fixed" || requestedNature === "all") {
+      const conditions = [(0, import_drizzle_orm16.eq)(assets.companyId, companyId)];
+      if (categoryId && typeof categoryId === "string") {
+        conditions.push((0, import_drizzle_orm16.eq)(assets.categoryId, categoryId));
       }
-      categoryMap[catKey].count += 1;
-      categoryMap[catKey].cost += cost;
-      categoryMap[catKey].accum += accum;
-      categoryMap[catKey].nbv += nbv;
-      const brKey = a.branchName || "Head Office / HQ";
-      if (!branchMap[brKey]) {
-        branchMap[brKey] = { branchId: a.branchId, branchName: brKey, count: 0, cost: 0, accum: 0, nbv: 0, warrantyAlertsCount: 0, maintenanceAlertsCount: 0 };
+      if (branchId && !isNaN(Number(branchId))) {
+        conditions.push((0, import_drizzle_orm16.eq)(assets.branchId, Number(branchId)));
       }
-      const br = branchMap[brKey];
-      br.count += 1;
-      br.cost += cost;
-      br.accum += accum;
-      br.nbv += nbv;
-      const methodKey = a.depreciationMethod || "Straight Line";
-      if (!methodMap[methodKey]) {
-        methodMap[methodKey] = { method: methodKey, count: 0, cost: 0, nbv: 0 };
+      if (locationId && typeof locationId === "string") {
+        conditions.push((0, import_drizzle_orm16.eq)(assets.locationId, locationId));
       }
-      methodMap[methodKey].count += 1;
-      methodMap[methodKey].cost += cost;
-      methodMap[methodKey].nbv += nbv;
-      if (a.status === "Active" && a.warrantyExpiryDate) {
-        const wDate = new Date(a.warrantyExpiryDate);
-        const diffDays = Math.ceil((wDate.getTime() - today.getTime()) / (1e3 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          expiredWarrantyCount++;
-          br.warrantyAlertsCount++;
-          warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Expired", alertLevel: "critical" });
-        } else if (diffDays <= 30) {
-          expiringSoonWarrantyCount++;
-          br.warrantyAlertsCount++;
-          warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Expiring Soon", alertLevel: "warning" });
+      if (warehouseId && !isNaN(Number(warehouseId))) {
+        conditions.push((0, import_drizzle_orm16.eq)(assets.warehouseId, Number(warehouseId)));
+      }
+      if (departmentId && !isNaN(Number(departmentId))) {
+        conditions.push((0, import_drizzle_orm16.eq)(assets.departmentId, Number(departmentId)));
+      }
+      if (custodianUid && typeof custodianUid === "string") {
+        if (custodianUid === "unassigned") {
+          conditions.push((0, import_drizzle_orm16.isNull)(assets.custodianUid));
+        } else {
+          conditions.push((0, import_drizzle_orm16.eq)(assets.custodianUid, custodianUid));
         }
       }
-      if (a.status === "Active" && a.nextMaintenanceDue) {
-        const mDate = new Date(a.nextMaintenanceDue);
-        const diffDays = Math.ceil((mDate.getTime() - today.getTime()) / (1e3 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          overdueMaintenanceCount++;
-          br.maintenanceAlertsCount++;
-          maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Overdue", alertLevel: "critical" });
-        } else if (diffDays <= 7) {
-          dueSoonMaintenanceCount++;
-          br.maintenanceAlertsCount++;
-          maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Maintenance Due", alertLevel: "warning" });
+      if (status && typeof status === "string") {
+        conditions.push((0, import_drizzle_orm16.eq)(assets.status, status));
+      }
+      if (search && typeof search === "string" && search.trim() !== "") {
+        const s = `%${search.trim()}%`;
+        conditions.push(
+          (0, import_drizzle_orm16.or)(
+            (0, import_drizzle_orm16.ilike)(assets.name, s),
+            (0, import_drizzle_orm16.ilike)(assets.assetCode, s),
+            (0, import_drizzle_orm16.ilike)(assets.serialNumber, s)
+          )
+        );
+      }
+      if (year && !isNaN(Number(year))) {
+        const yr = Number(year);
+        const startOfYear = new Date(yr, 0, 1);
+        const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
+        conditions.push((0, import_drizzle_orm16.gte)(assets.acquisitionDate, startOfYear));
+        conditions.push((0, import_drizzle_orm16.lte)(assets.acquisitionDate, endOfYear));
+      }
+      allMatchingAssets = await db.select({
+        id: assets.id,
+        assetCode: assets.assetCode,
+        name: assets.name,
+        categoryId: assets.categoryId,
+        categoryName: asset_categories.name,
+        branchId: assets.branchId,
+        branchName: branches.name,
+        departmentId: assets.departmentId,
+        departmentName: departments.name,
+        custodianUid: assets.custodianUid,
+        custodianName: users.name,
+        acquisitionDate: assets.acquisitionDate,
+        acquisitionCost: assets.acquisitionCost,
+        salvageValue: assets.salvageValue,
+        depreciationMethod: assets.depreciationMethod,
+        usefulLifeMonths: assets.usefulLifeMonths,
+        accumulatedDepreciation: assets.accumulatedDepreciation,
+        currentBookValue: assets.currentBookValue,
+        status: assets.status,
+        serialNumber: assets.serialNumber,
+        warrantyExpiryDate: assets.warrantyExpiryDate,
+        nextMaintenanceDue: assets.nextMaintenanceDue,
+        createdAt: assets.createdAt
+      }).from(assets).leftJoin(asset_categories, (0, import_drizzle_orm16.eq)(assets.categoryId, asset_categories.id)).leftJoin(branches, (0, import_drizzle_orm16.eq)(assets.branchId, branches.id)).leftJoin(departments, (0, import_drizzle_orm16.eq)(assets.departmentId, departments.id)).leftJoin(users, (0, import_drizzle_orm16.eq)(assets.custodianUid, users.uid)).where((0, import_drizzle_orm16.and)(...conditions)).orderBy((0, import_drizzle_orm16.desc)(assets.createdAt));
+      for (const a of allMatchingAssets) {
+        const cost = Number(a.acquisitionCost || 0);
+        const accum = Number(a.accumulatedDepreciation || 0);
+        const nbv = Number(a.currentBookValue || 0);
+        totalAcquisitionCost += cost;
+        totalAccumulatedDepreciation += accum;
+        totalNetBookValue += nbv;
+        if (a.status === "Active") activeCount++;
+        else if (a.status === "Draft") draftCount++;
+        else if (a.status === "UnderMaintenance") maintenanceCount++;
+        else if (a.status === "Disposed" || a.status === "Sold") disposedCount++;
+        const catKey = a.categoryName || "Uncategorized";
+        if (!categoryMap[catKey]) {
+          categoryMap[catKey] = { categoryId: a.categoryId, categoryName: catKey, count: 0, cost: 0, accum: 0, nbv: 0 };
+        }
+        categoryMap[catKey].count += 1;
+        categoryMap[catKey].cost += cost;
+        categoryMap[catKey].accum += accum;
+        categoryMap[catKey].nbv += nbv;
+        const brKey = a.branchName || "Head Office / HQ";
+        if (!branchMap[brKey]) {
+          branchMap[brKey] = { branchId: a.branchId, branchName: brKey, count: 0, cost: 0, accum: 0, nbv: 0, warrantyAlertsCount: 0, maintenanceAlertsCount: 0 };
+        }
+        const br = branchMap[brKey];
+        br.count += 1;
+        br.cost += cost;
+        br.accum += accum;
+        br.nbv += nbv;
+        const methodKey = a.depreciationMethod || "Straight Line";
+        if (!methodMap[methodKey]) {
+          methodMap[methodKey] = { method: methodKey, count: 0, cost: 0, nbv: 0 };
+        }
+        methodMap[methodKey].count += 1;
+        methodMap[methodKey].cost += cost;
+        methodMap[methodKey].nbv += nbv;
+        if (a.status === "Active" && a.warrantyExpiryDate) {
+          const wDate = new Date(a.warrantyExpiryDate);
+          const diffDays = Math.ceil((wDate.getTime() - today.getTime()) / (1e3 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            expiredWarrantyCount++;
+            br.warrantyAlertsCount++;
+            warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Expired", alertLevel: "critical" });
+          } else if (diffDays <= 30) {
+            expiringSoonWarrantyCount++;
+            br.warrantyAlertsCount++;
+            warrantyAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Expiring Soon", alertLevel: "warning" });
+          }
+        }
+        if (a.status === "Active" && a.nextMaintenanceDue) {
+          const mDate = new Date(a.nextMaintenanceDue);
+          const diffDays = Math.ceil((mDate.getTime() - today.getTime()) / (1e3 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            overdueMaintenanceCount++;
+            br.maintenanceAlertsCount++;
+            maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Overdue", alertLevel: "critical" });
+          } else if (diffDays <= 7) {
+            dueSoonMaintenanceCount++;
+            br.maintenanceAlertsCount++;
+            maintenanceAlertsList.push({ ...a, daysRemaining: diffDays, alertStatus: "Maintenance Due", alertLevel: "warning" });
+          }
         }
       }
     }
@@ -3512,13 +3533,225 @@ router5.get("/dashboard", requireAuth, checkPlugin("asset-management"), async (r
       accum: c.accum.toFixed(2),
       nbv: c.nbv.toFixed(2)
     }));
-    const statusDistribution = [
+    const fixedStatusDistribution = [
       { name: "Active", value: activeCount, color: "#10b981" },
       { name: "Under Maintenance", value: maintenanceCount, color: "#f59e0b" },
       { name: "Draft", value: draftCount, color: "#8b5cf6" },
       { name: "Disposed", value: disposedCount, color: "#ef4444" }
     ].filter((s) => s.value > 0 || allMatchingAssets.length === 0);
-    return res.json({
+    let allMatchingDigitalAssets = [];
+    let totalDigitalAcquisitionCost = 0;
+    let totalDigitalRecurringCost = 0;
+    let activeDigitalCount = 0;
+    let draftDigitalCount = 0;
+    let expiredDigitalCount = 0;
+    let suspendedDigitalCount = 0;
+    let expiringSoonDigitalCount = 0;
+    let expiring60DaysDigitalCount = 0;
+    let expiring90DaysDigitalCount = 0;
+    let totalDigitalSeats = 0;
+    let usedDigitalSeats = 0;
+    let autoRenewalDigitalCount = 0;
+    const digitalTypeMap = {};
+    const digitalVendorMap = {};
+    const digitalLicenseTypeMap = {};
+    const digitalUpcomingRenewals = [];
+    if (requestedNature === "digital" || requestedNature === "all") {
+      const digitalConditions = [(0, import_drizzle_orm16.eq)(digital_assets.companyId, companyId)];
+      const effType = digitalAssetType || (requestedNature === "digital" ? categoryId : null);
+      if (effType && typeof effType === "string") {
+        digitalConditions.push((0, import_drizzle_orm16.eq)(digital_assets.assetType, effType));
+      }
+      const effStatus = digitalStatus || (requestedNature === "digital" ? status : null);
+      if (effStatus && typeof effStatus === "string") {
+        digitalConditions.push((0, import_drizzle_orm16.eq)(digital_assets.status, effStatus));
+      }
+      if (digitalVendorId && !isNaN(Number(digitalVendorId))) {
+        digitalConditions.push((0, import_drizzle_orm16.eq)(digital_assets.vendorId, Number(digitalVendorId)));
+      }
+      if (departmentId && !isNaN(Number(departmentId))) {
+        digitalConditions.push((0, import_drizzle_orm16.eq)(digital_assets.departmentId, Number(departmentId)));
+      }
+      if (custodianUid && typeof custodianUid === "string") {
+        if (custodianUid === "unassigned") {
+          digitalConditions.push((0, import_drizzle_orm16.isNull)(digital_assets.custodianUid));
+        } else {
+          digitalConditions.push((0, import_drizzle_orm16.eq)(digital_assets.custodianUid, custodianUid));
+        }
+      }
+      if (digitalAutoRenewal !== void 0 && digitalAutoRenewal !== "") {
+        const isAuto = digitalAutoRenewal === "true" || digitalAutoRenewal === "1";
+        digitalConditions.push((0, import_drizzle_orm16.eq)(digital_assets.autoRenewal, isAuto));
+      }
+      if (search && typeof search === "string" && search.trim() !== "") {
+        const s = `%${search.trim()}%`;
+        digitalConditions.push(
+          (0, import_drizzle_orm16.or)(
+            (0, import_drizzle_orm16.ilike)(digital_assets.name, s),
+            (0, import_drizzle_orm16.ilike)(digital_assets.assetCode, s),
+            (0, import_drizzle_orm16.ilike)(digital_assets.licenseType, s),
+            (0, import_drizzle_orm16.ilike)(digital_assets.portalUrl, s)
+          )
+        );
+      }
+      if (year && !isNaN(Number(year))) {
+        const yr = Number(year);
+        const startOfYear = new Date(yr, 0, 1);
+        const endOfYear = new Date(yr, 11, 31, 23, 59, 59, 999);
+        digitalConditions.push((0, import_drizzle_orm16.gte)(digital_assets.activationDate, startOfYear));
+        digitalConditions.push((0, import_drizzle_orm16.lte)(digital_assets.activationDate, endOfYear));
+      }
+      allMatchingDigitalAssets = await db.select({
+        id: digital_assets.id,
+        assetCode: digital_assets.assetCode,
+        name: digital_assets.name,
+        assetType: digital_assets.assetType,
+        licenseType: digital_assets.licenseType,
+        totalSeats: digital_assets.totalSeats,
+        usedSeats: digital_assets.usedSeats,
+        billingCycle: digital_assets.billingCycle,
+        acquisitionCost: digital_assets.acquisitionCost,
+        recurringCost: digital_assets.recurringCost,
+        currency: digital_assets.currency,
+        activationDate: digital_assets.activationDate,
+        expiryDate: digital_assets.expiryDate,
+        autoRenewal: digital_assets.autoRenewal,
+        renewalReminderDays: digital_assets.renewalReminderDays,
+        portalUrl: digital_assets.portalUrl,
+        status: digital_assets.status,
+        vendorId: digital_assets.vendorId,
+        vendorName: vendors.name,
+        departmentId: digital_assets.departmentId,
+        departmentName: departments.name,
+        custodianUid: digital_assets.custodianUid,
+        custodianName: users.name,
+        createdAt: digital_assets.createdAt
+      }).from(digital_assets).leftJoin(vendors, (0, import_drizzle_orm16.eq)(digital_assets.vendorId, vendors.id)).leftJoin(departments, (0, import_drizzle_orm16.eq)(digital_assets.departmentId, departments.id)).leftJoin(users, (0, import_drizzle_orm16.eq)(digital_assets.custodianUid, users.uid)).where((0, import_drizzle_orm16.and)(...digitalConditions)).orderBy((0, import_drizzle_orm16.desc)(digital_assets.createdAt));
+      for (const d of allMatchingDigitalAssets) {
+        const cost = Number(d.acquisitionCost || 0);
+        const recurring = Number(d.recurringCost || 0);
+        const seats = Number(d.totalSeats || 0);
+        const used = Number(d.usedSeats || 0);
+        totalDigitalAcquisitionCost += cost;
+        totalDigitalRecurringCost += recurring;
+        totalDigitalSeats += seats;
+        usedDigitalSeats += used;
+        if (d.autoRenewal) autoRenewalDigitalCount++;
+        if (d.status === "Active") activeDigitalCount++;
+        else if (d.status === "Draft") draftDigitalCount++;
+        else if (d.status === "Expired") expiredDigitalCount++;
+        else if (d.status === "Suspended") suspendedDigitalCount++;
+        const typeKey = d.assetType || "Other";
+        if (!digitalTypeMap[typeKey]) {
+          digitalTypeMap[typeKey] = { name: typeKey, count: 0, cost: 0, seats: 0 };
+        }
+        digitalTypeMap[typeKey].count += 1;
+        digitalTypeMap[typeKey].cost += cost;
+        digitalTypeMap[typeKey].seats += seats;
+        const vKey = d.vendorName || "Direct / Internal";
+        if (!digitalVendorMap[vKey]) {
+          digitalVendorMap[vKey] = { vendorId: d.vendorId, vendorName: vKey, count: 0, cost: 0 };
+        }
+        digitalVendorMap[vKey].count += 1;
+        digitalVendorMap[vKey].cost += cost;
+        const ltKey = d.licenseType || "Subscription";
+        if (!digitalLicenseTypeMap[ltKey]) {
+          digitalLicenseTypeMap[ltKey] = { name: ltKey, count: 0, cost: 0 };
+        }
+        digitalLicenseTypeMap[ltKey].count += 1;
+        digitalLicenseTypeMap[ltKey].cost += cost;
+        if (d.expiryDate) {
+          const expDate = new Date(d.expiryDate);
+          const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1e3 * 60 * 60 * 24));
+          let alertStatus = "Active";
+          let alertLevel = "normal";
+          if (diffDays < 0) {
+            alertStatus = "Expired";
+            alertLevel = "critical";
+            if (d.status === "Active") expiredDigitalCount++;
+          } else if (diffDays <= 30) {
+            expiringSoonDigitalCount++;
+            expiring60DaysDigitalCount++;
+            expiring90DaysDigitalCount++;
+            alertStatus = "Expiring in 30 Days";
+            alertLevel = "critical";
+          } else if (diffDays <= 60) {
+            expiring60DaysDigitalCount++;
+            expiring90DaysDigitalCount++;
+            alertStatus = "Expiring in 60 Days";
+            alertLevel = "warning";
+          } else if (diffDays <= 90) {
+            expiring90DaysDigitalCount++;
+            alertStatus = "Expiring in 90 Days";
+            alertLevel = "info";
+          }
+          digitalUpcomingRenewals.push({
+            id: d.id,
+            assetCode: d.assetCode,
+            name: d.name,
+            assetType: d.assetType,
+            vendorName: d.vendorName,
+            expiryDate: d.expiryDate,
+            daysRemaining: diffDays,
+            renewalCost: d.recurringCost || d.acquisitionCost,
+            autoRenewal: d.autoRenewal,
+            alertStatus,
+            alertLevel,
+            status: d.status
+          });
+        }
+      }
+    }
+    const digitalTypeBreakdown = Object.values(digitalTypeMap).map((t) => ({
+      ...t,
+      cost: Number(t.cost.toFixed(2))
+    }));
+    const digitalVendorBreakdown = Object.values(digitalVendorMap).map((v) => ({
+      ...v,
+      cost: Number(v.cost.toFixed(2))
+    }));
+    const digitalLicenseTypeBreakdown = Object.values(digitalLicenseTypeMap).map((l) => ({
+      ...l,
+      cost: Number(l.cost.toFixed(2))
+    }));
+    const digitalStatusDistribution = [
+      { name: "Active", value: activeDigitalCount, color: "#10b981" },
+      { name: "Expiring Soon", value: expiringSoonDigitalCount, color: "#f59e0b" },
+      { name: "Expired", value: expiredDigitalCount, color: "#ef4444" },
+      { name: "Draft", value: draftDigitalCount, color: "#8b5cf6" },
+      { name: "Suspended", value: suspendedDigitalCount, color: "#64748b" }
+    ].filter((s) => s.value > 0 || allMatchingDigitalAssets.length === 0);
+    const seatUtilizationRate = totalDigitalSeats > 0 ? Number((usedDigitalSeats / totalDigitalSeats * 100).toFixed(1)) : 0;
+    const digitalBlock = {
+      metrics: {
+        totalAssetsCount: allMatchingDigitalAssets.length,
+        totalAcquisitionCost: totalDigitalAcquisitionCost.toFixed(2),
+        totalRecurringCost: totalDigitalRecurringCost.toFixed(2),
+        activeCount: activeDigitalCount,
+        expiredCount: expiredDigitalCount,
+        draftCount: draftDigitalCount,
+        suspendedCount: suspendedDigitalCount,
+        expiringSoonCount: expiringSoonDigitalCount,
+        expiring60DaysCount: expiring60DaysDigitalCount,
+        expiring90DaysCount: expiring90DaysDigitalCount,
+        totalSeats: totalDigitalSeats,
+        usedSeats: usedDigitalSeats,
+        availableSeats: Math.max(0, totalDigitalSeats - usedDigitalSeats),
+        seatUtilizationRate,
+        autoRenewalCount: autoRenewalDigitalCount
+      },
+      charts: {
+        typeDistribution: digitalTypeBreakdown,
+        vendorDistribution: digitalVendorBreakdown,
+        licenseTypeDistribution: digitalLicenseTypeBreakdown,
+        statusDistribution: digitalStatusDistribution
+      },
+      typeBreakdown: digitalTypeBreakdown,
+      vendorBreakdown: digitalVendorBreakdown,
+      upcomingRenewals: digitalUpcomingRenewals.sort((a, b) => a.daysRemaining - b.daysRemaining),
+      recentAssets: allMatchingDigitalAssets.slice(0, 10)
+    };
+    const fixedBlock = {
       metrics: {
         totalAssetsCount: allMatchingAssets.length,
         totalAcquisitionCost: totalAcquisitionCost.toFixed(2),
@@ -3550,7 +3783,7 @@ router5.get("/dashboard", requireAuth, checkPlugin("asset-management"), async (r
           nbv: Number(c.nbv),
           count: c.count
         })),
-        statusDistribution,
+        statusDistribution: fixedStatusDistribution,
         methodDistribution: Object.values(methodMap).map((m) => ({
           name: m.method,
           value: m.count,
@@ -3563,6 +3796,96 @@ router5.get("/dashboard", requireAuth, checkPlugin("asset-management"), async (r
       recentAssets: allMatchingAssets.slice(0, 10),
       criticalWarrantyAlerts: warrantyAlertsList.sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 5),
       criticalMaintenanceAlerts: maintenanceAlertsList.sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 5)
+    };
+    if (requestedNature === "digital") {
+      return res.json({
+        assetNature: "digital",
+        metrics: digitalBlock.metrics,
+        charts: digitalBlock.charts,
+        typeBreakdown: digitalTypeBreakdown,
+        vendorBreakdown: digitalVendorBreakdown,
+        upcomingRenewals: digitalBlock.upcomingRenewals,
+        recentAssets: digitalBlock.recentAssets,
+        recentDigitalAssets: digitalBlock.recentAssets,
+        digital: digitalBlock,
+        fixed: fixedBlock
+      });
+    }
+    if (requestedNature === "all") {
+      const combinedTotalCost = totalAcquisitionCost + totalDigitalAcquisitionCost;
+      const combinedNetValue = totalNetBookValue + totalDigitalAcquisitionCost;
+      const combinedTotalAlerts = expiredWarrantyCount + expiringSoonWarrantyCount + (overdueMaintenanceCount + dueSoonMaintenanceCount) + expiringSoonDigitalCount;
+      const natureDistribution = [
+        { name: "Fixed Assets", count: allMatchingAssets.length, cost: Number(totalAcquisitionCost.toFixed(2)), nbv: Number(totalNetBookValue.toFixed(2)), color: "#8b5cf6" },
+        { name: "Digital Assets", count: allMatchingDigitalAssets.length, cost: Number(totalDigitalAcquisitionCost.toFixed(2)), nbv: Number(totalDigitalAcquisitionCost.toFixed(2)), color: "#06b6d4" }
+      ];
+      return res.json({
+        assetNature: "all",
+        metrics: {
+          totalAssetsCount: allMatchingAssets.length + allMatchingDigitalAssets.length,
+          totalAcquisitionCost: combinedTotalCost.toFixed(2),
+          totalNetBookValue: combinedNetValue.toFixed(2),
+          totalAccumulatedDepreciation: totalAccumulatedDepreciation.toFixed(2),
+          activeCount: activeCount + activeDigitalCount,
+          draftCount: draftCount + draftDigitalCount,
+          maintenanceCount,
+          disposedCount,
+          warrantyAlertsCount: expiredWarrantyCount + expiringSoonWarrantyCount,
+          expiredWarrantyCount,
+          expiringSoonWarrantyCount,
+          maintenanceAlertsCount: overdueMaintenanceCount + dueSoonMaintenanceCount,
+          overdueMaintenanceCount,
+          dueSoonMaintenanceCount,
+          digitalExpiringSoonCount: expiringSoonDigitalCount,
+          totalAlertsCount: combinedTotalAlerts,
+          fixedCount: allMatchingAssets.length,
+          digitalCount: allMatchingDigitalAssets.length,
+          fixedCost: totalAcquisitionCost.toFixed(2),
+          digitalCost: totalDigitalAcquisitionCost.toFixed(2),
+          digitalRecurringCost: totalDigitalRecurringCost.toFixed(2),
+          fixedNetValue: totalNetBookValue.toFixed(2),
+          digitalNetValue: totalDigitalAcquisitionCost.toFixed(2),
+          totalSeats: totalDigitalSeats,
+          usedSeats: usedDigitalSeats,
+          seatUtilizationRate
+        },
+        charts: {
+          assetNatureDistribution: natureDistribution,
+          branchValuation: fixedBlock.charts.branchValuation,
+          categoryValuation: fixedBlock.charts.categoryValuation,
+          digitalTypeDistribution: digitalTypeBreakdown,
+          statusDistribution: [
+            { name: "Active", value: activeCount + activeDigitalCount, color: "#10b981" },
+            { name: "Draft", value: draftCount + draftDigitalCount, color: "#8b5cf6" },
+            { name: "Alert / Maintenance", value: maintenanceCount + expiringSoonDigitalCount, color: "#f59e0b" },
+            { name: "Expired / Disposed", value: disposedCount + expiredDigitalCount, color: "#ef4444" }
+          ].filter((s) => s.value > 0),
+          methodDistribution: fixedBlock.charts.methodDistribution
+        },
+        branchSummary,
+        categoryBreakdown,
+        digitalTypeBreakdown,
+        digitalVendorBreakdown,
+        recentAssets: allMatchingAssets.slice(0, 10),
+        recentDigitalAssets: allMatchingDigitalAssets.slice(0, 10),
+        upcomingRenewals: digitalBlock.upcomingRenewals,
+        criticalWarrantyAlerts: fixedBlock.criticalWarrantyAlerts,
+        criticalMaintenanceAlerts: fixedBlock.criticalMaintenanceAlerts,
+        fixed: fixedBlock,
+        digital: digitalBlock
+      });
+    }
+    return res.json({
+      assetNature: "fixed",
+      metrics: fixedBlock.metrics,
+      charts: fixedBlock.charts,
+      branchSummary,
+      categoryBreakdown,
+      recentAssets: fixedBlock.recentAssets,
+      criticalWarrantyAlerts: fixedBlock.criticalWarrantyAlerts,
+      criticalMaintenanceAlerts: fixedBlock.criticalMaintenanceAlerts,
+      fixed: fixedBlock,
+      digital: digitalBlock
     });
   } catch (error) {
     console.error("GET /api/assets/dashboard error:", error);
@@ -5044,13 +5367,223 @@ router5.put("/:id", requireAuth, requirePermission("Assets Register", "canEdit")
     return res.status(500).json({ error: error.message || "Failed to update asset" });
   }
 });
+router5.get("/bulk-upload/template", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(403).json({ error: "Company context required" });
+    const [existingCategories, existingBranches] = await Promise.all([
+      db.select({ id: asset_categories.id, name: asset_categories.name }).from(asset_categories).where((0, import_drizzle_orm16.eq)(asset_categories.companyId, companyId)),
+      db.select({ id: branches.id, name: branches.name }).from(branches).where((0, import_drizzle_orm16.eq)(branches.companyId, companyId))
+    ]);
+    const XLSX2 = await import("xlsx");
+    const wb = XLSX2.utils.book_new();
+    const templateHeaders = ["Asset Name *", "Asset Type (Physical/Digital) *", "Category Name *", "Branch Name", "Purchase Date", "Purchase Cost", "Serial Number"];
+    const templateSample = [
+      ["Dell XPS 15", "Physical", "IT Equipment", "HQ", "2025-01-01", 12e4, "SN-12345"],
+      ["Adobe CC", "Digital", "Software License", "", "2025-01-10", 5e4, ""]
+    ];
+    const ws1 = XLSX2.utils.aoa_to_sheet([templateHeaders, ...templateSample]);
+    ws1["!cols"] = [{ wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+    XLSX2.utils.book_append_sheet(wb, ws1, "Asset Import Template");
+    const catRows = existingCategories.length > 0 ? existingCategories.map((c) => [c.name]) : [["(No categories)"]];
+    const ws2 = XLSX2.utils.aoa_to_sheet([["Category Name"], ...catRows]);
+    ws2["!cols"] = [{ wch: 30 }];
+    XLSX2.utils.book_append_sheet(wb, ws2, "Categories Ref");
+    const brRows = existingBranches.length > 0 ? existingBranches.map((b) => [b.name]) : [["(No branches)"]];
+    const ws3 = XLSX2.utils.aoa_to_sheet([["Branch Name"], ...brRows]);
+    ws3["!cols"] = [{ wch: 20 }];
+    XLSX2.utils.book_append_sheet(wb, ws3, "Branches Ref");
+    const buf = XLSX2.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Disposition", 'attachment; filename="asset_import_template.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buf);
+  } catch (e) {
+    console.error("GET /api/assets/bulk-upload/template error:", e);
+    res.status(500).json({ error: "Failed to generate template" });
+  }
+});
+router5.post("/bulk-upload", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(403).json({ error: "Company context required" });
+    const contentType = req.headers["content-type"] || "";
+    if (!contentType.includes("multipart/form-data")) {
+      return res.status(400).json({ error: "Must be multipart/form-data" });
+    }
+    const multer2 = (await import("multer")).default;
+    const upload2 = multer2({ storage: multer2.memoryStorage() });
+    upload2.single("file")(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: "File upload error" });
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: "No file uploaded" });
+      try {
+        const XLSX2 = await import("xlsx");
+        const wb = XLSX2.read(file.buffer, { type: "buffer" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX2.utils.sheet_to_json(ws, { header: 1 });
+        if (rows.length < 2) return res.status(400).json({ error: "No data rows found in file" });
+        const [existingCategories, existingBranches] = await Promise.all([
+          db.select({ id: asset_categories.id, name: asset_categories.name }).from(asset_categories).where((0, import_drizzle_orm16.eq)(asset_categories.companyId, companyId)),
+          db.select({ id: branches.id, name: branches.name }).from(branches).where((0, import_drizzle_orm16.eq)(branches.companyId, companyId))
+        ]);
+        const categoriesByName = new Map(existingCategories.map((c) => [c.name.toLowerCase().trim(), c]));
+        const branchesByName = new Map(existingBranches.map((b) => [b.name.toLowerCase().trim(), b]));
+        const errors = [];
+        const successes = [];
+        const dataRows = rows.slice(1);
+        const newAssets = [];
+        for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+          const row = dataRows[rowIdx];
+          const rowNum = rowIdx + 2;
+          const name = String(row[0] || "").trim();
+          const assetType = String(row[1] || "Physical").trim();
+          const categoryName = String(row[2] || "").trim();
+          const branchName = String(row[3] || "").trim();
+          const pDateStr = String(row[4] || "").trim();
+          const pCost = parseFloat(String(row[5] || "0")) || 0;
+          const serial2 = String(row[6] || "").trim();
+          if (!name) continue;
+          const category = categoriesByName.get(categoryName.toLowerCase());
+          if (!category) {
+            errors.push(`Row ${rowNum}: Category "${categoryName}" not found.`);
+            continue;
+          }
+          let branchId = null;
+          if (branchName) {
+            const branch = branchesByName.get(branchName.toLowerCase());
+            if (!branch) {
+              errors.push(`Row ${rowNum}: Branch "${branchName}" not found.`);
+              continue;
+            }
+            branchId = branch.id;
+          }
+          const assetCode = `ASSET-${Date.now()}-${rowIdx}`;
+          newAssets.push({
+            companyId,
+            assetCode,
+            name,
+            assetType: assetType.toLowerCase() === "digital" ? "Digital" : "Physical",
+            categoryId: category.id,
+            branchId,
+            purchaseDate: pDateStr ? new Date(pDateStr) : null,
+            acquisitionCost: String(pCost),
+            currentBookValue: String(pCost),
+            serialNumber: serial2 || null,
+            status: "Active",
+            createdAt: /* @__PURE__ */ new Date(),
+            updatedAt: /* @__PURE__ */ new Date()
+          });
+          successes.push(`Row ${rowNum}: Added ${name}`);
+        }
+        if (newAssets.length > 0) {
+          await db.insert(assets).values(newAssets);
+        }
+        res.json({ success: true, processed: successes.length, errors, successes });
+      } catch (parseErr) {
+        res.status(500).json({ error: "Failed to parse file: " + parseErr.message });
+      }
+    });
+  } catch (e) {
+    console.error("POST /api/assets/bulk-upload error:", e);
+    res.status(500).json({ error: "Upload failed: " + e.message });
+  }
+});
+router5.get("/assignments/list", requireAuth, checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const assignmentsList = await db.select({
+      id: asset_assignments.id,
+      assetId: asset_assignments.assetId,
+      assetCode: assets.assetCode,
+      assetName: assets.name,
+      categoryName: asset_categories.name,
+      assignedToUid: asset_assignments.assignedToUid,
+      assignedToName: users.name,
+      departmentId: asset_assignments.departmentId,
+      departmentName: departments.name,
+      branchId: asset_assignments.branchId,
+      branchName: branches.name,
+      locationId: asset_assignments.locationId,
+      locationName: asset_locations.name,
+      assignedAt: asset_assignments.assignedAt,
+      returnedAt: asset_assignments.returnedAt,
+      status: asset_assignments.status,
+      notes: asset_assignments.notes
+    }).from(asset_assignments).leftJoin(assets, (0, import_drizzle_orm16.eq)(asset_assignments.assetId, assets.id)).leftJoin(asset_categories, (0, import_drizzle_orm16.eq)(assets.categoryId, asset_categories.id)).leftJoin(users, (0, import_drizzle_orm16.eq)(asset_assignments.assignedToUid, users.uid)).leftJoin(departments, (0, import_drizzle_orm16.eq)(asset_assignments.departmentId, departments.id)).leftJoin(branches, (0, import_drizzle_orm16.eq)(asset_assignments.branchId, branches.id)).leftJoin(asset_locations, (0, import_drizzle_orm16.eq)(asset_assignments.locationId, asset_locations.id)).where((0, import_drizzle_orm16.eq)(asset_assignments.companyId, companyId)).orderBy((0, import_drizzle_orm16.desc)(asset_assignments.assignedAt));
+    return res.json({ assignments: assignmentsList });
+  } catch (error) {
+    console.error("GET /api/assets/assignments/list error:", error);
+    return res.status(500).json({ error: error.message || "Failed to fetch asset assignments" });
+  }
+});
+router5.post("/assignments/assign", requireAuth, requirePermission("Asset Assignment", "canCreate"), checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { assetId, assignedToUid, departmentId, branchId, locationId, notes } = req.body || {};
+    if (!assetId) {
+      return res.status(400).json({ error: "Asset is required for assignment" });
+    }
+    const [targetAsset] = await db.select().from(assets).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId))).limit(1);
+    if (!targetAsset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    await db.update(asset_assignments).set({ status: "Returned", returnedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(asset_assignments.assetId, assetId), (0, import_drizzle_orm16.eq)(asset_assignments.companyId, companyId), (0, import_drizzle_orm16.eq)(asset_assignments.status, "Active")));
+    const [newAssignment] = await db.insert(asset_assignments).values({
+      companyId,
+      assetId,
+      assignedToUid: assignedToUid || null,
+      departmentId: departmentId ? Number(departmentId) : targetAsset.departmentId,
+      branchId: branchId ? Number(branchId) : targetAsset.branchId,
+      locationId: locationId || targetAsset.locationId,
+      assignedByUid: req.user.uid,
+      assignedAt: /* @__PURE__ */ new Date(),
+      status: "Active",
+      notes: notes || null
+    }).returning();
+    await db.update(assets).set({
+      custodianUid: assignedToUid || null,
+      departmentId: departmentId ? Number(departmentId) : targetAsset.departmentId,
+      branchId: branchId ? Number(branchId) : targetAsset.branchId,
+      locationId: locationId || targetAsset.locationId,
+      status: "Active",
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId)));
+    return res.status(201).json({ success: true, assignment: newAssignment });
+  } catch (error) {
+    console.error("POST /api/assets/assignments/assign error:", error);
+    return res.status(500).json({ error: error.message || "Failed to assign asset" });
+  }
+});
+router5.post("/assignments/:id/return", requireAuth, requirePermission("Asset Assignment", "canEdit"), checkPlugin("asset-management"), async (req, res) => {
+  try {
+    const companyId = await resolveTenantId4(req);
+    if (!companyId) return res.status(400).json({ error: "Missing company context" });
+    const { id } = req.params;
+    const [assignment] = await db.select().from(asset_assignments).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(asset_assignments.id, id), (0, import_drizzle_orm16.eq)(asset_assignments.companyId, companyId))).limit(1);
+    if (!assignment) {
+      return res.status(404).json({ error: "Assignment record not found" });
+    }
+    await db.update(asset_assignments).set({ status: "Returned", returnedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(asset_assignments.id, id), (0, import_drizzle_orm16.eq)(asset_assignments.companyId, companyId)));
+    await db.update(assets).set({
+      custodianUid: null,
+      status: "Active",
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, assignment.assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId)));
+    return res.json({ success: true, message: "Asset successfully returned to unassigned inventory" });
+  } catch (error) {
+    console.error("POST /api/assets/assignments/:id/return error:", error);
+    return res.status(500).json({ error: error.message || "Failed to return asset" });
+  }
+});
 var routes_default2 = router5;
 
 // src/modules/digitalAssets/api/routes.ts
 var import_express7 = __toESM(require("express"), 1);
 var import_drizzle_orm17 = require("drizzle-orm");
 var router6 = import_express7.default.Router();
-router6.get("/", requirePermission("Digital Asset Register", "canView"), async (req, res) => {
+router6.get("/", async (req, res) => {
   try {
     let companyId = await resolveTenantId4(req);
     if (!requireTenant(companyId, res)) return;
@@ -5059,13 +5592,32 @@ router6.get("/", requirePermission("Digital Asset Register", "canView"), async (
       assetCode: digital_assets.assetCode,
       name: digital_assets.name,
       assetType: digital_assets.assetType,
-      status: digital_assets.status,
+      licenseType: digital_assets.licenseType,
+      totalSeats: digital_assets.totalSeats,
+      usedSeats: digital_assets.usedSeats,
+      billingCycle: digital_assets.billingCycle,
       acquisitionCost: digital_assets.acquisitionCost,
+      recurringCost: digital_assets.recurringCost,
+      currency: digital_assets.currency,
+      activationDate: digital_assets.activationDate,
       expiryDate: digital_assets.expiryDate,
+      autoRenewal: digital_assets.autoRenewal,
+      renewalReminderDays: digital_assets.renewalReminderDays,
+      portalUrl: digital_assets.portalUrl,
+      loginEmail: digital_assets.loginEmail,
+      notes: digital_assets.notes,
+      amortizationMonths: digital_assets.amortizationMonths,
+      accountingTreatment: digital_assets.accountingTreatment,
+      status: digital_assets.status,
       vendorId: digital_assets.vendorId,
       vendorName: vendors.name,
-      licenseKeyEncrypted: digital_assets.licenseKeyEncrypted
-    }).from(digital_assets).leftJoin(vendors, (0, import_drizzle_orm17.eq)(digital_assets.vendorId, vendors.id)).where((0, import_drizzle_orm17.eq)(digital_assets.companyId, companyId)).orderBy((0, import_drizzle_orm17.desc)(digital_assets.createdAt));
+      departmentId: digital_assets.departmentId,
+      departmentName: departments.name,
+      custodianUid: digital_assets.custodianUid,
+      custodianName: users.name,
+      licenseKeyEncrypted: digital_assets.licenseKeyEncrypted,
+      createdAt: digital_assets.createdAt
+    }).from(digital_assets).leftJoin(vendors, (0, import_drizzle_orm17.eq)(digital_assets.vendorId, vendors.id)).leftJoin(departments, (0, import_drizzle_orm17.eq)(digital_assets.departmentId, departments.id)).leftJoin(users, (0, import_drizzle_orm17.eq)(digital_assets.custodianUid, users.uid)).where((0, import_drizzle_orm17.eq)(digital_assets.companyId, companyId)).orderBy((0, import_drizzle_orm17.desc)(digital_assets.createdAt));
     const assets2 = dbAssets.map((a) => {
       const { licenseKeyEncrypted, ...rest } = a;
       return { ...rest, hasLicenseKey: !!licenseKeyEncrypted };
@@ -9041,6 +9593,10 @@ async function startServer() {
                   hasAccess = true;
                   break;
                 }
+                if (!invItem[0].isAdminItem && !invItem[0].isItItem) {
+                  hasAccess = true;
+                  break;
+                }
               }
               if (!hasAccess) {
                 return res.status(403).json({
@@ -11744,60 +12300,88 @@ async function startServer() {
           "Category *",
           "UOM *",
           "Item Type *",
-          "Base Price",
-          "Location",
           "Is Fixed Asset",
-          "Asset Category"
+          "Asset Category",
+          "Requires QC",
+          "Tracking Required",
+          "Description"
         ];
         const sampleRow1 = [
           "ITEM-001",
-          "Sample Office Chair",
-          "Furniture",
+          "Office Chair \u2013 Revolving",
+          "Furniture & Fixture",
           "Pcs",
           "Admin",
-          "1500",
-          "Warehouse A",
           "No",
-          ""
+          "",
+          "No",
+          "No",
+          "High-back mesh revolving chair with armrest"
         ];
         const sampleRow2 = [
           "ITEM-002",
-          "Laptop Dell XPS 15",
-          "IT Equipment",
+          "Dell Latitude 5440 Laptop",
+          "Computer & Computer Accessories",
           "Pcs",
           "IT",
-          "120000",
-          "IT Store Room",
           "Yes",
-          "Computer Hardware"
+          "Computer & Computer Accessories",
+          "Yes",
+          "Yes",
+          "Core i7 13th Gen, 16GB RAM, 512GB SSD"
+        ];
+        const sampleRow3 = [
+          "ITEM-003",
+          "Multi-plug Extension Cable 5m",
+          "Office Equipment",
+          "Pcs",
+          "Both",
+          "No",
+          "",
+          "No",
+          "No",
+          "5-port surge protected multi-plug extension socket"
         ];
         const noteRow = [
-          '\u2190 See "Item Categories" sheet',
-          "",
-          "\u2190 Must match exactly",
-          "\u2190 Pcs/Kg/Ltr/Box/Pack/Mtr/Set/Unit/Roll/Pair",
-          "\u2190 Admin / IT / Both",
-          "\u2190 Optional, numeric",
-          "\u2190 Optional, free text",
+          "\u2190 Unique item code (required)",
+          "\u2190 Full item name (required)",
+          '\u2190 Must match "Item Categories" sheet (required)',
+          "\u2190 Pcs / Kg / Ltr / Box / Pack / Mtr / Set / Unit / Roll / Pair (required)",
+          "\u2190 Admin / IT / Both (required)",
           "\u2190 Yes / No",
-          '\u2190 Optional if Yes (See "Asset Categories" sheet)'
+          '\u2190 Required if Fixed Asset = Yes (see "Asset Categories" sheet)',
+          "\u2190 Yes / No",
+          "\u2190 Yes / No",
+          "\u2190 Optional description"
         ];
         const ws1 = XLSX.utils.aoa_to_sheet([
           headers,
           sampleRow1,
           sampleRow2,
+          sampleRow3,
           noteRow
         ]);
         ws1["!cols"] = [
           { wch: 16 },
-          { wch: 30 },
-          { wch: 22 },
+          // Item Code
+          { wch: 32 },
+          // Item Name
+          { wch: 28 },
+          // Category
           { wch: 12 },
+          // UOM
           { wch: 13 },
-          { wch: 13 },
-          { wch: 22 },
+          // Item Type
           { wch: 16 },
-          { wch: 28 }
+          // Is Fixed Asset
+          { wch: 28 },
+          // Asset Category
+          { wch: 14 },
+          // Requires QC
+          { wch: 18 },
+          // Tracking Required
+          { wch: 40 }
+          // Description
         ];
         XLSX.utils.book_append_sheet(wb, ws1, "Inventory Items Template");
         const catHeaders = ["Category Name", "Description", "Status"];
@@ -11939,9 +12523,8 @@ async function startServer() {
           "ltr",
           "box",
           "pack",
-          "sft",
-          "set",
           "mtr",
+          "set",
           "unit",
           "roll",
           "pair"
@@ -11963,10 +12546,11 @@ async function startServer() {
           const categoryRaw = String(row[2] || "").trim();
           const uomRaw = String(row[3] || "").trim();
           const itemTypeRaw = String(row[4] || "").trim();
-          const basePriceRaw = row[5];
-          const locationRaw = String(row[6] || "").trim();
-          const isFixedAssetRaw = String(row[7] || "").trim();
-          const assetCategoryRaw = String(row[8] || "").trim();
+          const isFixedAssetRaw = String(row[5] || "").trim();
+          const assetCategoryRaw = String(row[6] || "").trim();
+          const requiresQcRaw = String(row[7] || "").trim().toLowerCase();
+          const trackingRequiredRaw = String(row[8] || "").trim().toLowerCase();
+          const descriptionRaw = String(row[9] || "").trim();
           if (!itemCodeRaw) {
             errors.push({
               row: excelRowNumber,
@@ -12007,7 +12591,7 @@ async function startServer() {
               row: excelRowNumber,
               itemCode: itemCodeRaw,
               name: nameRaw,
-              message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Sft, Set, Mtr, Unit, Roll, Pair`
+              message: `Invalid UOM '${uomRaw}'. Allowed: Pcs, Kg, Ltr, Box, Pack, Mtr, Set, Unit, Roll, Pair`
             });
             continue;
           }
@@ -12026,20 +12610,6 @@ async function startServer() {
             }
             isAdminItem = itemTypeLower === "admin" || itemTypeLower === "both";
             isItItem = itemTypeLower === "it" || itemTypeLower === "both";
-          }
-          let basePrice = null;
-          if (basePriceRaw !== void 0 && basePriceRaw !== null && String(basePriceRaw).trim() !== "") {
-            const parsedPrice = Number(basePriceRaw);
-            if (isNaN(parsedPrice) || parsedPrice < 0) {
-              errors.push({
-                row: excelRowNumber,
-                itemCode: itemCodeRaw,
-                name: nameRaw,
-                message: `Base Price '${basePriceRaw}' must be a valid non-negative number`
-              });
-              continue;
-            }
-            basePrice = String(parsedPrice);
           }
           const codeLower = itemCodeRaw.toLowerCase();
           if (seenInFileSet.has(codeLower)) {
@@ -12097,27 +12667,29 @@ async function startServer() {
                   row: excelRowNumber,
                   itemCode: itemCodeRaw,
                   name: nameRaw,
-                  message: `Is Fixed Asset is Yes, but no matching Asset Category found for '${categoryRaw}'. Please specify a valid Asset Category in Column I`
+                  message: `Is Fixed Asset is Yes, but no matching Asset Category found for '${categoryRaw}'. Please specify a valid Asset Category in Column G`
                 });
                 continue;
               }
             }
           }
           const uomProper = uomRaw.charAt(0).toUpperCase() + uomRaw.slice(1);
+          const requiresQc = requiresQcRaw === "yes" || requiresQcRaw === "true" || requiresQcRaw === "1";
+          const trackingRequired = trackingRequiredRaw === "yes" || trackingRequiredRaw === "true" || trackingRequiredRaw === "1";
           itemsToInsert.push({
             companyId,
             itemCode: itemCodeRaw,
             name: nameRaw,
             category: categoryRaw,
             uom: uomProper,
+            description: descriptionRaw || null,
             quantityInStock: 0,
-            reorderLevel: 0,
-            location: locationRaw || null,
             isFixedAsset,
             assetCategoryId,
-            basePrice,
             isAdminItem,
-            isItItem
+            isItItem,
+            requiresQc,
+            trackingRequired
           });
         }
         let imported = 0;
@@ -14307,6 +14879,236 @@ async function startServer() {
         );
       } catch (e) {
         res.status(500).json({ error: "Failed to fetch adjustments" });
+      }
+    }
+  );
+  app.post(
+    "/api/inventory/stock-adjustments",
+    requireAuth,
+    async (req, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "No company context" });
+        const { itemId, warehouseId, adjustmentQty, reason, notes, adjustedFromQty, adjustedToQty } = req.body;
+        if (!itemId || !warehouseId || adjustmentQty === void 0 || !reason) {
+          return res.status(400).json({ error: "itemId, warehouseId, adjustmentQty and reason are required" });
+        }
+        const item = await db.select().from(inventory_items).where((0, import_drizzle_orm22.eq)(inventory_items.id, itemId)).limit(1);
+        if (!item.length) return res.status(404).json({ error: "Item not found" });
+        const newGlobalQty = Math.max(0, (item[0].quantityInStock || 0) + Number(adjustmentQty));
+        await db.update(inventory_items).set({ quantityInStock: newGlobalQty }).where((0, import_drizzle_orm22.eq)(inventory_items.id, itemId));
+        const wsRecord = await db.select().from(warehouse_stock).where((0, import_drizzle_orm22.and)((0, import_drizzle_orm22.eq)(warehouse_stock.itemId, itemId), (0, import_drizzle_orm22.eq)(warehouse_stock.warehouseId, warehouseId))).limit(1);
+        if (wsRecord.length > 0) {
+          const newWsQty = Math.max(0, (wsRecord[0].quantity || 0) + Number(adjustmentQty));
+          await db.update(warehouse_stock).set({ quantity: newWsQty, lastUpdated: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm22.eq)(warehouse_stock.id, wsRecord[0].id));
+        } else {
+          const initialQty = Math.max(0, Number(adjustmentQty));
+          if (initialQty > 0) {
+            await db.insert(warehouse_stock).values({
+              companyId,
+              itemId,
+              warehouseId,
+              quantity: initialQty,
+              lastUpdated: /* @__PURE__ */ new Date()
+            });
+          }
+        }
+        const ledger = await db.select().from(global_stock_ledger).where((0, import_drizzle_orm22.and)((0, import_drizzle_orm22.eq)(global_stock_ledger.companyId, companyId), (0, import_drizzle_orm22.eq)(global_stock_ledger.itemId, itemId))).limit(1);
+        if (ledger.length > 0) {
+          const adj = Number(adjustmentQty);
+          await db.update(global_stock_ledger).set({
+            totalStockIn: adj > 0 ? (ledger[0].totalStockIn || 0) + adj : ledger[0].totalStockIn,
+            totalStockOut: adj < 0 ? (ledger[0].totalStockOut || 0) + Math.abs(adj) : ledger[0].totalStockOut,
+            closingBalance: newGlobalQty,
+            lastUpdated: /* @__PURE__ */ new Date()
+          }).where((0, import_drizzle_orm22.eq)(global_stock_ledger.id, ledger[0].id));
+        } else {
+          const adj = Number(adjustmentQty);
+          await db.insert(global_stock_ledger).values({
+            companyId,
+            itemId,
+            openingBalance: 0,
+            totalStockIn: adj > 0 ? adj : 0,
+            totalStockOut: adj < 0 ? Math.abs(adj) : 0,
+            closingBalance: newGlobalQty
+          }).catch(() => {
+          });
+        }
+        const adjustment = await db.insert(stock_adjustments).values({
+          companyId,
+          itemId,
+          warehouseId,
+          adjustmentQty: Number(adjustmentQty),
+          reason,
+          adjustedFromQty: Number(adjustedFromQty || 0),
+          adjustedToQty: newGlobalQty,
+          adjustedByUid: req.user.uid,
+          status: "Approved"
+        }).returning();
+        res.json(adjustment[0]);
+      } catch (e) {
+        console.error("POST /api/inventory/stock-adjustments error:", e);
+        res.status(500).json({ error: "Failed to record adjustment: " + e.message });
+      }
+    }
+  );
+  app.get(
+    "/api/inventory/stock-adjustments",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "No company context" });
+        const history = await db.select({
+          id: stock_adjustments.id,
+          itemName: inventory_items.name,
+          warehouseName: warehouses.name,
+          adjustmentQty: stock_adjustments.adjustmentQty,
+          reason: stock_adjustments.reason,
+          adjustedFromQty: stock_adjustments.adjustedFromQty,
+          adjustedToQty: stock_adjustments.adjustedToQty,
+          status: stock_adjustments.status,
+          createdAt: stock_adjustments.createdAt
+        }).from(stock_adjustments).innerJoin(inventory_items, (0, import_drizzle_orm22.eq)(stock_adjustments.itemId, inventory_items.id)).innerJoin(warehouses, (0, import_drizzle_orm22.eq)(stock_adjustments.warehouseId, warehouses.id)).where((0, import_drizzle_orm22.eq)(stock_adjustments.companyId, companyId)).orderBy((0, import_drizzle_orm22.desc)(stock_adjustments.createdAt));
+        res.json(history);
+      } catch (e) {
+        console.error("GET /api/inventory/stock-adjustments error:", e);
+        res.status(500).json({ error: "Failed to fetch adjustment history" });
+      }
+    }
+  );
+  app.get(
+    "/api/inventory/opening-stock/template",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "Company context required" });
+        const [existingItems, existingWarehouses] = await Promise.all([
+          db.select({ id: inventory_items.id, itemCode: inventory_items.itemCode, name: inventory_items.name, uom: inventory_items.uom }).from(inventory_items).where((0, import_drizzle_orm22.eq)(inventory_items.companyId, companyId)).orderBy(inventory_items.name),
+          db.select({ id: warehouses.id, name: warehouses.name }).from(warehouses).where((0, import_drizzle_orm22.eq)(warehouses.companyId, companyId)).orderBy(warehouses.name)
+        ]);
+        const wb = XLSX.utils.book_new();
+        const templateHeaders = ["Item Code *", "Item Name (Reference)", "Warehouse Name *", "Opening Quantity *", "Unit Cost (Optional)", "Notes"];
+        const templateSample = [
+          ["ITEM-001", "Office Chair", "Main Warehouse", 10, 2500, "Initial stock as of go-live"],
+          ["ITEM-002", "Laptop", "IT Warehouse", 5, 75e3, ""]
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet([templateHeaders, ...templateSample]);
+        ws1["!cols"] = [{ wch: 16 }, { wch: 30 }, { wch: 22 }, { wch: 20 }, { wch: 18 }, { wch: 28 }];
+        XLSX.utils.book_append_sheet(wb, ws1, "Opening Stock Template");
+        const itemRows = existingItems.length > 0 ? existingItems.map((i) => [i.itemCode, i.name, i.uom]) : [["(No items registered \u2014 add via Inventory Settings \u2192 Inventory Items first)", "", ""]];
+        const ws2 = XLSX.utils.aoa_to_sheet([["Item Code", "Item Name", "UOM"], ...itemRows]);
+        ws2["!cols"] = [{ wch: 16 }, { wch: 35 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, ws2, "Items Reference");
+        const whRows = existingWarehouses.length > 0 ? existingWarehouses.map((w) => [w.name]) : [["(No warehouses registered \u2014 add via Admin \u2192 Warehouses first)"]];
+        const ws3 = XLSX.utils.aoa_to_sheet([["Warehouse Name"], ...whRows]);
+        ws3["!cols"] = [{ wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, ws3, "Warehouses Reference");
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Disposition", 'attachment; filename="opening_stock_template.xlsx"');
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.send(buf);
+      } catch (e) {
+        console.error("GET /api/inventory/opening-stock/template error:", e);
+        res.status(500).json({ error: "Failed to generate template" });
+      }
+    }
+  );
+  app.post(
+    "/api/inventory/opening-stock/upload",
+    requireAuth,
+    async (req, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        const companyId = await resolveTenantId(req);
+        if (!companyId) return res.status(403).json({ error: "Company context required" });
+        const contentType = req.headers["content-type"] || "";
+        if (!contentType.includes("multipart/form-data")) {
+          return res.status(400).json({ error: "Must be multipart/form-data" });
+        }
+        const multer2 = (await import("multer")).default;
+        const upload2 = multer2({ storage: multer2.memoryStorage() });
+        upload2.single("file")(req, res, async (err) => {
+          if (err) return res.status(400).json({ error: "File upload error" });
+          const file = req.file;
+          if (!file) return res.status(400).json({ error: "No file uploaded" });
+          try {
+            const wb = XLSX.read(file.buffer, { type: "buffer" });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+            if (rows.length < 2) return res.status(400).json({ error: "No data rows found in file" });
+            const [existingItems, existingWarehouses] = await Promise.all([
+              db.select({ id: inventory_items.id, itemCode: inventory_items.itemCode, name: inventory_items.name, uom: inventory_items.uom, quantityInStock: inventory_items.quantityInStock }).from(inventory_items).where((0, import_drizzle_orm22.eq)(inventory_items.companyId, companyId)),
+              db.select({ id: warehouses.id, name: warehouses.name }).from(warehouses).where((0, import_drizzle_orm22.eq)(warehouses.companyId, companyId))
+            ]);
+            const itemsByCode = new Map(existingItems.map((i) => [String(i.itemCode).toLowerCase().trim(), i]));
+            const warehousesByName = new Map(existingWarehouses.map((w) => [w.name.toLowerCase().trim(), w]));
+            const errors = [];
+            const successes = [];
+            const dataRows = rows.slice(1);
+            for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+              const row = dataRows[rowIdx];
+              const rowNum = rowIdx + 2;
+              const itemCode = String(row[0] || "").trim();
+              const warehouseName = String(row[2] || "").trim();
+              const qty = parseInt(String(row[3] || "0"));
+              const unitCost = parseFloat(String(row[4] || "0")) || null;
+              const notes = String(row[5] || "").trim();
+              if (!itemCode) continue;
+              const item = itemsByCode.get(itemCode.toLowerCase());
+              if (!item) {
+                errors.push(`Row ${rowNum}: Item code "${itemCode}" not found.`);
+                continue;
+              }
+              const warehouse = warehousesByName.get(warehouseName.toLowerCase());
+              if (!warehouse) {
+                errors.push(`Row ${rowNum}: Warehouse "${warehouseName}" not found.`);
+                continue;
+              }
+              if (isNaN(qty) || qty < 0) {
+                errors.push(`Row ${rowNum}: Invalid quantity "${row[3]}".`);
+                continue;
+              }
+              const wsRecord = await db.select().from(warehouse_stock).where((0, import_drizzle_orm22.and)((0, import_drizzle_orm22.eq)(warehouse_stock.itemId, item.id), (0, import_drizzle_orm22.eq)(warehouse_stock.warehouseId, warehouse.id))).limit(1);
+              if (wsRecord.length > 0) {
+                await db.update(warehouse_stock).set({ quantity: qty, lastUpdated: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm22.eq)(warehouse_stock.id, wsRecord[0].id));
+              } else {
+                await db.insert(warehouse_stock).values({
+                  companyId,
+                  itemId: item.id,
+                  warehouseId: warehouse.id,
+                  quantity: qty,
+                  lastUpdated: /* @__PURE__ */ new Date()
+                });
+              }
+              const newGlobalQty = qty;
+              await db.update(inventory_items).set({
+                quantityInStock: newGlobalQty,
+                ...unitCost ? { basePrice: String(unitCost) } : {}
+              }).where((0, import_drizzle_orm22.eq)(inventory_items.id, item.id));
+              await db.insert(stock_adjustments).values({
+                companyId,
+                itemId: item.id,
+                warehouseId: warehouse.id,
+                adjustmentQty: qty,
+                reason: "Opening Stock Upload",
+                adjustedFromQty: item.quantityInStock || 0,
+                adjustedToQty: qty,
+                adjustedByUid: req.user.uid,
+                status: "Approved"
+              });
+              successes.push(`Row ${rowNum}: ${item.name} \u2192 Qty set to ${qty}`);
+            }
+            res.json({ success: true, processed: successes.length, errors, successes });
+          } catch (parseErr) {
+            res.status(500).json({ error: "Failed to parse file: " + parseErr.message });
+          }
+        });
+      } catch (e) {
+        console.error("POST /api/inventory/opening-stock/upload error:", e);
+        res.status(500).json({ error: "Upload failed: " + e.message });
       }
     }
   );
