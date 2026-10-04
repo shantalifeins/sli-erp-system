@@ -1007,6 +1007,24 @@ If the command fails because of non-interactive CLI prompts, the Agent may use t
 
 Temporary migration scripts MUST be removed after successful execution.
 
+## 21.1 🚨 Mandatory Live DB Migration on Every DB Change (Strict Standard)
+
+Whenever ANY new development, bug fix, patch, or refactoring touches the database:
+* Creating new tables or modifying existing tables
+* Adding, altering, renaming, or dropping columns
+* Adding or modifying foreign keys, constraints, or unique indexes
+* Modifying column default values, nullability, or data types
+* Seeding or updating prerequisite data (e.g. plugins, settings, roles, permissions)
+
+The Agent MUST strictly follow these rules:
+
+1. **Never Assume Automatic Live DB Migration**: Pulling application code via git and rebuilding/restarting the Docker container (`sli_erp_app`) on the live server DOES NOT automatically run database migrations on PostgreSQL.
+2. **Mandatory Live Migration Execution**: During deployment to the live server, executing the database migration against the production database (`runSqlMigration` via MCP deployment tool or approved migration script) is **STRICTLY MANDATORY**.
+3. **Live Verification Before Finishing**: The Agent MUST execute a live verification query or API test to confirm that:
+   * The new columns/tables exist in the live PostgreSQL database.
+   * The affected API endpoints return HTTP `200 OK` (not `500 Internal Server Error` due to missing columns or relations).
+4. **No Deployment Without DB Sync**: Any deployment where backend code depends on new/altered database schema but the live database has not been migrated is strictly considered **BROKEN AND INCOMPLETE**.
+
 ---
 
 # 22. 🌿 Git & Branching Strategy
@@ -1085,6 +1103,15 @@ npx vercel --prod
 without explicit user permission.
 
 Production deployment must follow the project's approved deployment mechanism.
+
+---
+
+## 23.4 Mandatory Live DB Migration Gate
+
+If the deployed changeset involves any database schema or table modifications:
+* The deployment is strictly **INCOMPLETE** until the database migration is executed and verified on the live production database.
+* The Agent MUST verify that all endpoints interacting with the altered tables execute cleanly with `200 OK` on live.
+* Under no circumstances should live deployment stop after code push if the live database schema has not been updated to match the code.
 
 ---
 
