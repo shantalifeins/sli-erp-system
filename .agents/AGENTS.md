@@ -268,6 +268,19 @@ Strict RBAC visibility MUST be enforced for all navigation elements across all m
 
 ---
 
+## 3.9 Universal Stock Transaction Logging Standard (Zero Reporting Drift)
+
+Every operation that alters inventory stock balances (whether increasing, decreasing, or adjusting stock) MUST insert an audit record into `stock_transactions`. This applies strictly to:
+* GRN Inspection QC Pass (`Stock In` / `GRN`)
+* Stock Out Dispatches & Requisition Issues (`Stock Out` / `Issue`)
+* In-Transit Transfers (`Stock Transfer Out` / `Stock Transfer In`)
+* Opening Stock Uploads (`Opening Stock`)
+* Physical Stock Reconciliation & Manual Variance Corrections (`Adjustment`)
+
+Under no circumstances should backend code modify `inventory_items.quantityInStock` or `warehouse_stock` without simultaneously recording the corresponding event in `stock_transactions`. Failure to log transactions creates silent data discrepancies between dashboard summary cards and transaction audit reports (`/inventory-report`).
+
+---
+
 # 4. 🔄 General Workflow & Approval Standards
 
 The system uses the Global Inbox as the central location for actionable approval/review workflows.

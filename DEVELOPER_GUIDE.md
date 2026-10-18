@@ -201,6 +201,9 @@ Located in `src/shared/db/schema.ts`:
 - **In-Transit Shipment Tracking**: Stock Transfer approvals set status to `In Transit` and record `dispatchDate` while deducting source warehouse stock. Destination receipt updates status to `Received` and sets `actualArrivalDate`.
 - **Weighted Average Costing (WAC)**: On each GRN QC pass, recalculates unit cost: `New WAC = ((Current Qty * Current WAC) + (Received Qty * Purchase Price)) / Total Qty` and updates `inventory_items.basePrice`.
 - **Vendor Quality Scorecard**: Auto-calculates `vendor_quality_metrics` (`qualityScore = (Passed / Total) * 10`, `rejectionRate`) and displays quality rating badges (e.g. ⭐ 9.8 / 10) on `Vendors.tsx`.
+- **Mandatory Stock Ledger Synchronization Rule**: All stock mutation endpoints (`/api/qc/inspection`, `/api/stock-out`, `/api/stock-transfers`, `/api/inventory/opening-stock/upload`, `/api/inventory/stock-adjustments`, and reconciliation approvals) MUST write to `stock_transactions` in the same execution cycle:
+  - Supported `transactionType` values: `'Stock In'`, `'Stock Out'`, `'GRN'`, `'Issue'`, `'Adjustment'`, `'Opening Stock'`, `'Stock Transfer In'`, `'Stock Transfer Out'`.
+  - Whenever building or modifying stock import or adjustment tools, always verify that `stock_transactions` receives matching rows with `companyId`, `itemId`, `warehouseId`, `quantity`, `referenceId`, `performedBy`, and `createdAt` so that transaction audit reports (`/inventory-report`) remain perfectly synchronized with dashboard stock counts.
 
 ---
 

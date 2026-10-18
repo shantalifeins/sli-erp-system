@@ -14825,6 +14825,16 @@ async function startServer() {
             approvedByUid: req.user.uid,
             status: "Approved"
           });
+          await db.insert(stock_transactions).values({
+            companyId,
+            itemId: detail.itemId,
+            warehouseId: countRecord[0].warehouseId,
+            transactionType: "Adjustment",
+            quantity: Math.abs(detail.varianceQty || 0),
+            referenceId: `Adjustment #${id}`,
+            performedBy: req.user.uid,
+            createdAt: /* @__PURE__ */ new Date()
+          });
           if (detail.warehouseStockId) {
             await db.update(warehouse_stock).set({
               quantity: detail.physicalQty || 0,
@@ -14946,6 +14956,16 @@ async function startServer() {
           adjustedByUid: req.user.uid,
           status: "Approved"
         }).returning();
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId,
+          warehouseId,
+          transactionType: "Adjustment",
+          quantity: Math.abs(Number(adjustmentQty)),
+          referenceId: reason || "Manual Adjustment",
+          performedBy: req.user.uid,
+          createdAt: /* @__PURE__ */ new Date()
+        });
         res.json(adjustment[0]);
       } catch (e) {
         console.error("POST /api/inventory/stock-adjustments error:", e);
@@ -15098,6 +15118,16 @@ async function startServer() {
                 adjustedToQty: qty,
                 adjustedByUid: req.user.uid,
                 status: "Approved"
+              });
+              await db.insert(stock_transactions).values({
+                companyId,
+                itemId: item.id,
+                warehouseId: warehouse.id,
+                transactionType: "Opening Stock",
+                quantity: qty,
+                referenceId: "Opening Stock Upload",
+                performedBy: req.user.uid,
+                createdAt: /* @__PURE__ */ new Date()
               });
               successes.push(`Row ${rowNum}: ${item.name} \u2192 Qty set to ${qty}`);
             }

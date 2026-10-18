@@ -13,3 +13,5 @@ repomix-output.xml
 *.bak
 debug.txt
 vercel-*.txt
+__pycache__/
+

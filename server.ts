@@ -11280,6 +11280,16 @@ async function startServer() {
             approvedByUid: req.user.uid,
             status: "Approved",
           });
+          await db.insert(stock_transactions).values({
+            companyId,
+            itemId: detail.itemId,
+            warehouseId: countRecord[0].warehouseId,
+            transactionType: "Adjustment",
+            quantity: Math.abs(detail.varianceQty || 0),
+            referenceId: `Adjustment #${id}`,
+            performedBy: req.user.uid,
+            createdAt: new Date(),
+          });
           if (detail.warehouseStockId) {
             await db
               .update(warehouse_stock)
@@ -11442,6 +11452,17 @@ async function startServer() {
           adjustedByUid: req.user.uid,
           status: 'Approved',
         }).returning();
+
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId,
+          warehouseId,
+          transactionType: 'Adjustment',
+          quantity: Math.abs(Number(adjustmentQty)),
+          referenceId: reason || 'Manual Adjustment',
+          performedBy: req.user.uid,
+          createdAt: new Date(),
+        });
 
         res.json(adjustment[0]);
       } catch (e: any) {
@@ -11627,6 +11648,18 @@ async function startServer() {
                 adjustmentQty: qty, reason: 'Opening Stock Upload',
                 adjustedFromQty: item.quantityInStock || 0, adjustedToQty: qty,
                 adjustedByUid: req.user!.uid, status: 'Approved',
+              });
+
+              // Record in stock_transactions for Inventory Reports
+              await db.insert(stock_transactions).values({
+                companyId,
+                itemId: item.id,
+                warehouseId: warehouse.id,
+                transactionType: 'Opening Stock',
+                quantity: qty,
+                referenceId: 'Opening Stock Upload',
+                performedBy: req.user!.uid,
+                createdAt: new Date(),
               });
 
               successes.push(`Row ${rowNum}: ${item.name} → Qty set to ${qty}`);

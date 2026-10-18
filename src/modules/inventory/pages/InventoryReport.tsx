@@ -222,11 +222,14 @@ export default function InventoryReport() {
               className="block w-full rounded-md border-slate-200 p-2 border sm:text-sm focus:border-brand-orange outline-none"
             >
               <option value="">All Types</option>
+              <option value="Opening Stock">Opening Stock</option>
               <option value="Stock In">Stock In</option>
               <option value="Stock Out">Stock Out</option>
               <option value="GRN">GRN</option>
               <option value="Issue">Issue</option>
               <option value="Adjustment">Adjustment</option>
+              <option value="Stock Transfer In">Stock Transfer In</option>
+              <option value="Stock Transfer Out">Stock Transfer Out</option>
             </select>
           </div>
           <div className="col-span-1 lg:col-span-2">
