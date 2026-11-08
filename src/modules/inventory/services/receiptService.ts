@@ -73,6 +73,8 @@ export const receiptService = {
             warehouseId,
             acquisitionDate: new Date(),
             value: String(poItem.unitPrice),
+            acquisitionCost: String(poItem.unitPrice),
+            currentBookValue: String(poItem.unitPrice),
             status: 'Draft',
             poId: poItem.poId,
             poItemId,
@@ -81,6 +83,19 @@ export const receiptService = {
             createdByUid: performedBy
           }).onConflictDoNothing({ target: [assets.sourceGrnItemId, assets.unitIndex] });
         }
+
+        // Also record stock move-in so warehouse stock and stock_transactions reflect physical assets at the warehouse
+        await stockService.moveIn(
+          tx,
+          companyId,
+          warehouseId,
+          itemDef.id,
+          passedQty,
+          String(grnId),
+          'GRN',
+          performedBy,
+          parseFloat(poItem.unitPrice)
+        );
         continue;
       }
 

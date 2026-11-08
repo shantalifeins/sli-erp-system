@@ -1689,6 +1689,8 @@ var receiptService = {
             warehouseId,
             acquisitionDate: /* @__PURE__ */ new Date(),
             value: String(poItem.unitPrice),
+            acquisitionCost: String(poItem.unitPrice),
+            currentBookValue: String(poItem.unitPrice),
             status: "Draft",
             poId: poItem.poId,
             poItemId,
@@ -1697,6 +1699,17 @@ var receiptService = {
             createdByUid: performedBy
           }).onConflictDoNothing({ target: [assets.sourceGrnItemId, assets.unitIndex] });
         }
+        await stockService.moveIn(
+          tx,
+          companyId,
+          warehouseId,
+          itemDef.id,
+          passedQty,
+          String(grnId),
+          "GRN",
+          performedBy,
+          parseFloat(poItem.unitPrice)
+        );
         continue;
       }
       await stockService.moveIn(
@@ -4181,29 +4194,42 @@ router5.post("/", requireAuth, requirePermission("Assets Register", "canCreate")
     }).returning();
     if (warehouseId) {
       const wId = Number(warehouseId);
-      const [existingInvItem] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm16.ilike)(inventory_items.name, name.trim()))).limit(1);
       let invItemId;
-      if (existingInvItem) {
-        invItemId = existingInvItem.id;
-        await db.update(inventory_items).set({
-          quantityInStock: (existingInvItem.quantityInStock || 0) + 1,
-          isFixedAsset: true,
-          assetCategoryId: categoryId || existingInvItem.assetCategoryId
-        }).where((0, import_drizzle_orm16.eq)(inventory_items.id, invItemId));
-      } else {
-        const itemCode = `INV-AST-${Date.now().toString().slice(-4)}`;
-        const [createdInvItem] = await db.insert(inventory_items).values({
-          companyId,
-          itemCode,
-          name: name.trim(),
-          category: "Fixed Asset",
-          isFixedAsset: true,
-          assetCategoryId: categoryId || null,
-          quantityInStock: 1,
-          uom: "pcs",
-          basePrice: String(costNum)
-        }).returning();
-        invItemId = createdInvItem.id;
+      if (req.body.itemId) {
+        const [specifiedItem] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm16.eq)(inventory_items.id, Number(req.body.itemId)))).limit(1);
+        if (specifiedItem) {
+          invItemId = specifiedItem.id;
+          await db.update(inventory_items).set({
+            quantityInStock: (specifiedItem.quantityInStock || 0) + 1,
+            isFixedAsset: true,
+            assetCategoryId: categoryId || specifiedItem.assetCategoryId
+          }).where((0, import_drizzle_orm16.eq)(inventory_items.id, invItemId));
+        }
+      }
+      if (!invItemId) {
+        const [existingInvItem] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm16.ilike)(inventory_items.name, name.trim()))).limit(1);
+        if (existingInvItem) {
+          invItemId = existingInvItem.id;
+          await db.update(inventory_items).set({
+            quantityInStock: (existingInvItem.quantityInStock || 0) + 1,
+            isFixedAsset: true,
+            assetCategoryId: categoryId || existingInvItem.assetCategoryId
+          }).where((0, import_drizzle_orm16.eq)(inventory_items.id, invItemId));
+        } else {
+          const itemCode = `INV-AST-${Date.now().toString().slice(-4)}`;
+          const [createdInvItem] = await db.insert(inventory_items).values({
+            companyId,
+            itemCode,
+            name: name.trim(),
+            category: "Fixed Asset",
+            isFixedAsset: true,
+            assetCategoryId: categoryId || null,
+            quantityInStock: 1,
+            uom: "pcs",
+            basePrice: String(costNum)
+          }).returning();
+          invItemId = createdInvItem.id;
+        }
       }
       const [ws] = await db.select().from(warehouse_stock).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(warehouse_stock.warehouseId, wId), (0, import_drizzle_orm16.eq)(warehouse_stock.itemId, invItemId))).limit(1);
       if (ws) {
@@ -4235,6 +4261,16 @@ router5.post("/", requireAuth, requirePermission("Assets Register", "canCreate")
           lastUpdated: /* @__PURE__ */ new Date()
         });
       }
+      await db.insert(stock_transactions).values({
+        companyId,
+        itemId: invItemId,
+        warehouseId: wId,
+        transactionType: "Stock In",
+        referenceId: `Asset Entry: ${newAsset.assetCode}`,
+        quantity: 1,
+        performedBy: req.user?.uid || null,
+        createdAt: /* @__PURE__ */ new Date()
+      });
     }
     return res.status(201).json({ asset: newAsset });
   } catch (error) {
@@ -5181,8 +5217,52 @@ router5.post("/disposals/:disposalId/approve", requireAuth, checkPlugin("asset-m
       )
     );
     const finalStatus = approvedDisposal.disposalType === "Sale" ? "Sold" : "Disposed";
+    const [existingAsset] = await db.select().from(assets).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, approvedDisposal.assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId))).limit(1);
+    if (existingAsset?.warehouseId) {
+      const wId = Number(existingAsset.warehouseId);
+      let invItem = null;
+      if (existingAsset.poItemId) {
+        const [poItem] = await db.select().from(po_items).where((0, import_drizzle_orm16.eq)(po_items.id, existingAsset.poItemId)).limit(1);
+        if (poItem?.itemId) {
+          const [found] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.id, poItem.itemId), (0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId))).limit(1);
+          invItem = found;
+        }
+      }
+      if (!invItem) {
+        const [found] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm16.ilike)(inventory_items.name, existingAsset.name.trim()))).limit(1);
+        invItem = found;
+      }
+      if (invItem) {
+        const [ws] = await db.select().from(warehouse_stock).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(warehouse_stock.warehouseId, wId), (0, import_drizzle_orm16.eq)(warehouse_stock.itemId, invItem.id))).limit(1);
+        if (ws && (ws.quantity || 0) > 0) {
+          await db.update(warehouse_stock).set({ quantity: Math.max(0, (ws.quantity || 0) - 1), lastUpdated: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm16.eq)(warehouse_stock.id, ws.id));
+        }
+        if (invItem.quantityInStock && invItem.quantityInStock > 0) {
+          await db.update(inventory_items).set({ quantityInStock: Math.max(0, invItem.quantityInStock - 1) }).where((0, import_drizzle_orm16.eq)(inventory_items.id, invItem.id));
+        }
+        const [gsl] = await db.select().from(global_stock_ledger).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(global_stock_ledger.companyId, companyId), (0, import_drizzle_orm16.eq)(global_stock_ledger.itemId, invItem.id))).limit(1);
+        if (gsl) {
+          await db.update(global_stock_ledger).set({
+            totalStockOut: (gsl.totalStockOut || 0) + 1,
+            closingBalance: Math.max(0, (gsl.closingBalance || 0) - 1),
+            lastUpdated: /* @__PURE__ */ new Date()
+          }).where((0, import_drizzle_orm16.eq)(global_stock_ledger.id, gsl.id));
+        }
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId: invItem.id,
+          warehouseId: wId,
+          transactionType: "Stock Out",
+          referenceId: `Asset Disposal: ${existingAsset.assetCode}`,
+          quantity: 1,
+          performedBy: req.user?.uid || null,
+          createdAt: /* @__PURE__ */ new Date()
+        });
+      }
+    }
     const [disposedAsset] = await db.update(assets).set({
       status: finalStatus,
+      warehouseId: null,
       updatedAt: /* @__PURE__ */ new Date()
     }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, approvedDisposal.assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId))).returning();
     return res.json({
@@ -5542,8 +5622,51 @@ router5.post("/assignments/assign", requireAuth, requirePermission("Asset Assign
       status: "Active",
       notes: notes || null
     }).returning();
+    if (targetAsset.warehouseId) {
+      const wId = Number(targetAsset.warehouseId);
+      let invItem = null;
+      if (targetAsset.poItemId) {
+        const [poItem] = await db.select().from(po_items).where((0, import_drizzle_orm16.eq)(po_items.id, targetAsset.poItemId)).limit(1);
+        if (poItem?.itemId) {
+          const [found] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.id, poItem.itemId), (0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId))).limit(1);
+          invItem = found;
+        }
+      }
+      if (!invItem) {
+        const [found] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm16.ilike)(inventory_items.name, targetAsset.name.trim()))).limit(1);
+        invItem = found;
+      }
+      if (invItem) {
+        const [ws] = await db.select().from(warehouse_stock).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(warehouse_stock.warehouseId, wId), (0, import_drizzle_orm16.eq)(warehouse_stock.itemId, invItem.id))).limit(1);
+        if (ws && (ws.quantity || 0) > 0) {
+          await db.update(warehouse_stock).set({ quantity: Math.max(0, (ws.quantity || 0) - 1), lastUpdated: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm16.eq)(warehouse_stock.id, ws.id));
+        }
+        if (invItem.quantityInStock && invItem.quantityInStock > 0) {
+          await db.update(inventory_items).set({ quantityInStock: Math.max(0, invItem.quantityInStock - 1) }).where((0, import_drizzle_orm16.eq)(inventory_items.id, invItem.id));
+        }
+        const [gsl] = await db.select().from(global_stock_ledger).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(global_stock_ledger.companyId, companyId), (0, import_drizzle_orm16.eq)(global_stock_ledger.itemId, invItem.id))).limit(1);
+        if (gsl) {
+          await db.update(global_stock_ledger).set({
+            totalStockOut: (gsl.totalStockOut || 0) + 1,
+            closingBalance: Math.max(0, (gsl.closingBalance || 0) - 1),
+            lastUpdated: /* @__PURE__ */ new Date()
+          }).where((0, import_drizzle_orm16.eq)(global_stock_ledger.id, gsl.id));
+        }
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId: invItem.id,
+          warehouseId: wId,
+          transactionType: "Issue",
+          referenceId: `Asset Assignment: ${targetAsset.assetCode}`,
+          quantity: 1,
+          performedBy: req.user.uid,
+          createdAt: /* @__PURE__ */ new Date()
+        });
+      }
+    }
     await db.update(assets).set({
       custodianUid: assignedToUid || null,
+      warehouseId: null,
       departmentId: departmentId ? Number(departmentId) : targetAsset.departmentId,
       branchId: branchId ? Number(branchId) : targetAsset.branchId,
       locationId: locationId || targetAsset.locationId,
@@ -5561,13 +5684,66 @@ router5.post("/assignments/:id/return", requireAuth, requirePermission("Asset As
     const companyId = await resolveTenantId4(req);
     if (!companyId) return res.status(400).json({ error: "Missing company context" });
     const { id } = req.params;
+    const { targetWarehouseId } = req.body || {};
     const [assignment] = await db.select().from(asset_assignments).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(asset_assignments.id, id), (0, import_drizzle_orm16.eq)(asset_assignments.companyId, companyId))).limit(1);
     if (!assignment) {
       return res.status(404).json({ error: "Assignment record not found" });
     }
     await db.update(asset_assignments).set({ status: "Returned", returnedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(asset_assignments.id, id), (0, import_drizzle_orm16.eq)(asset_assignments.companyId, companyId)));
+    const wId = targetWarehouseId ? Number(targetWarehouseId) : null;
+    if (wId) {
+      const [assetObj] = await db.select().from(assets).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, assignment.assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId))).limit(1);
+      if (assetObj) {
+        let invItem = null;
+        if (assetObj.poItemId) {
+          const [poItem] = await db.select().from(po_items).where((0, import_drizzle_orm16.eq)(po_items.id, assetObj.poItemId)).limit(1);
+          if (poItem?.itemId) {
+            const [found] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.id, poItem.itemId), (0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId))).limit(1);
+            invItem = found;
+          }
+        }
+        if (!invItem) {
+          const [found] = await db.select().from(inventory_items).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(inventory_items.companyId, companyId), (0, import_drizzle_orm16.ilike)(inventory_items.name, assetObj.name.trim()))).limit(1);
+          invItem = found;
+        }
+        if (invItem) {
+          const [ws] = await db.select().from(warehouse_stock).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(warehouse_stock.warehouseId, wId), (0, import_drizzle_orm16.eq)(warehouse_stock.itemId, invItem.id))).limit(1);
+          if (ws) {
+            await db.update(warehouse_stock).set({ quantity: (ws.quantity || 0) + 1, lastUpdated: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm16.eq)(warehouse_stock.id, ws.id));
+          } else {
+            await db.insert(warehouse_stock).values({
+              companyId,
+              warehouseId: wId,
+              itemId: invItem.id,
+              quantity: 1,
+              lastUpdated: /* @__PURE__ */ new Date()
+            });
+          }
+          await db.update(inventory_items).set({ quantityInStock: (invItem.quantityInStock || 0) + 1 }).where((0, import_drizzle_orm16.eq)(inventory_items.id, invItem.id));
+          const [gsl] = await db.select().from(global_stock_ledger).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(global_stock_ledger.companyId, companyId), (0, import_drizzle_orm16.eq)(global_stock_ledger.itemId, invItem.id))).limit(1);
+          if (gsl) {
+            await db.update(global_stock_ledger).set({
+              totalStockIn: (gsl.totalStockIn || 0) + 1,
+              closingBalance: (gsl.closingBalance || 0) + 1,
+              lastUpdated: /* @__PURE__ */ new Date()
+            }).where((0, import_drizzle_orm16.eq)(global_stock_ledger.id, gsl.id));
+          }
+          await db.insert(stock_transactions).values({
+            companyId,
+            itemId: invItem.id,
+            warehouseId: wId,
+            transactionType: "Stock In",
+            referenceId: `Asset Return: ${assetObj.assetCode}`,
+            quantity: 1,
+            performedBy: req.user.uid,
+            createdAt: /* @__PURE__ */ new Date()
+          });
+        }
+      }
+    }
     await db.update(assets).set({
       custodianUid: null,
+      warehouseId: wId,
       status: "Active",
       updatedAt: /* @__PURE__ */ new Date()
     }).where((0, import_drizzle_orm16.and)((0, import_drizzle_orm16.eq)(assets.id, assignment.assetId), (0, import_drizzle_orm16.eq)(assets.companyId, companyId)));

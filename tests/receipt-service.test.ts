@@ -38,7 +38,7 @@ describe('Receipt Service', () => {
     );
   });
 
-  it('auto-creates draft assets for capitalized physical items', async () => {
+  it('auto-creates draft assets and records stock movement for capitalized physical items', async () => {
      let insertedAssets: any[] = [];
      let callCount2 = 0;
      const mockTx = {
@@ -62,6 +62,8 @@ describe('Receipt Service', () => {
       }))
     };
     
+    const stockMoveInSpy = vi.spyOn(stockService, 'moveIn').mockResolvedValue(undefined);
+
     await receiptService.processGrnAddition(
       mockTx,
       'comp-1',
@@ -76,5 +78,10 @@ describe('Receipt Service', () => {
     expect(insertedAssets[0].assetCode).toBe('LAP-SN1');
     expect(insertedAssets[1].assetCode).toBe('LAP-SN2');
     expect(insertedAssets[0].status).toBe('Draft');
+    expect(insertedAssets[0].acquisitionCost).toBe('50.00');
+    expect(insertedAssets[0].currentBookValue).toBe('50.00');
+    expect(stockMoveInSpy).toHaveBeenCalledWith(
+      mockTx, 'comp-1', 10, 100, 2, '500', 'GRN', 'user-1', 50
+    );
   });
 });

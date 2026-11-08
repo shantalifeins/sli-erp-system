@@ -4,7 +4,7 @@ import { requireAuth, AuthRequest } from '../../../shared/middleware/auth.js';
 import { checkPlugin } from '../../../shared/middleware/checkPlugin.js';
 import { db } from '../../../shared/db/index.js';
 import { resolveTenantId } from '../../../shared/lib/tenant.js';
-import { asset_attributes, asset_categories, assets, asset_assignments, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger, digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from '../../../shared/db/schema.js';
+import { asset_attributes, asset_categories, assets, asset_assignments, asset_depreciation_schedule, asset_transfers, asset_maintenance, asset_disposals, asset_physical_verifications, asset_verification_details, asset_locations, vendors, branches, departments, warehouses, users, document_approvals, inbox_tasks, bpmn_definitions, inventory_items, warehouse_stock, global_stock_ledger, stock_transactions, po_items, digital_assets, digital_asset_renewals, digital_asset_users, digital_asset_amortization } from '../../../shared/db/schema.js';
 import { calculateStraightLineSchedule, calculateDecliningBalanceSchedule } from '../lib/depreciationEngine.js';
 
 import { eq, ne, and, desc, sql, ilike, or, count, isNull, gte, lte } from 'drizzle-orm';
@@ -1527,40 +1527,64 @@ router.post("/", requireAuth, requirePermission('Assets Register', 'canCreate'),
     // Inventory Stock Auto-Sync for Direct Asset Entry (if warehouseId specified)
     if (warehouseId) {
       const wId = Number(warehouseId);
-      const [existingInvItem] = await db
-        .select()
-        .from(inventory_items)
-        .where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, name.trim())))
-        .limit(1);
+      let invItemId: number | undefined;
 
-      let invItemId: number;
-      if (existingInvItem) {
-        invItemId = existingInvItem.id;
-        await db
-          .update(inventory_items)
-          .set({
-            quantityInStock: (existingInvItem.quantityInStock || 0) + 1,
-            isFixedAsset: true,
-            assetCategoryId: categoryId || existingInvItem.assetCategoryId
-          })
-          .where(eq(inventory_items.id, invItemId));
-      } else {
-        const itemCode = `INV-AST-${Date.now().toString().slice(-4)}`;
-        const [createdInvItem] = await db
-          .insert(inventory_items)
-          .values({
-            companyId,
-            itemCode,
-            name: name.trim(),
-            category: 'Fixed Asset',
-            isFixedAsset: true,
-            assetCategoryId: categoryId || null,
-            quantityInStock: 1,
-            uom: 'pcs',
-            basePrice: String(costNum)
-          })
-          .returning();
-        invItemId = createdInvItem.id;
+      // 1. If explicit itemId is passed in request body, use it directly
+      if (req.body.itemId) {
+        const [specifiedItem] = await db
+          .select()
+          .from(inventory_items)
+          .where(and(eq(inventory_items.companyId, companyId), eq(inventory_items.id, Number(req.body.itemId))))
+          .limit(1);
+        if (specifiedItem) {
+          invItemId = specifiedItem.id;
+          await db
+            .update(inventory_items)
+            .set({
+              quantityInStock: (specifiedItem.quantityInStock || 0) + 1,
+              isFixedAsset: true,
+              assetCategoryId: categoryId || specifiedItem.assetCategoryId
+            })
+            .where(eq(inventory_items.id, invItemId));
+        }
+      }
+
+      // 2. Otherwise search by exact name match
+      if (!invItemId) {
+        const [existingInvItem] = await db
+          .select()
+          .from(inventory_items)
+          .where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, name.trim())))
+          .limit(1);
+
+        if (existingInvItem) {
+          invItemId = existingInvItem.id;
+          await db
+            .update(inventory_items)
+            .set({
+              quantityInStock: (existingInvItem.quantityInStock || 0) + 1,
+              isFixedAsset: true,
+              assetCategoryId: categoryId || existingInvItem.assetCategoryId
+            })
+            .where(eq(inventory_items.id, invItemId));
+        } else {
+          const itemCode = `INV-AST-${Date.now().toString().slice(-4)}`;
+          const [createdInvItem] = await db
+            .insert(inventory_items)
+            .values({
+              companyId,
+              itemCode,
+              name: name.trim(),
+              category: 'Fixed Asset',
+              isFixedAsset: true,
+              assetCategoryId: categoryId || null,
+              quantityInStock: 1,
+              uom: 'pcs',
+              basePrice: String(costNum)
+            })
+            .returning();
+          invItemId = createdInvItem.id;
+        }
       }
 
       // Update warehouse_stock
@@ -1612,6 +1636,18 @@ router.post("/", requireAuth, requirePermission('Assets Register', 'canCreate'),
           lastUpdated: new Date()
         });
       }
+
+      // Rule 3.9: Universal Stock Transaction Logging
+      await db.insert(stock_transactions).values({
+        companyId,
+        itemId: invItemId,
+        warehouseId: wId,
+        transactionType: 'Stock In',
+        referenceId: `Asset Entry: ${newAsset.assetCode}`,
+        quantity: 1,
+        performedBy: req.user?.uid || null,
+        createdAt: new Date()
+      });
     }
 
     return res.status(201).json({ asset: newAsset });
@@ -3089,10 +3125,95 @@ router.post('/disposals/:disposalId/approve', requireAuth, checkPlugin('asset-ma
 
     // Update asset status
     const finalStatus = approvedDisposal.disposalType === 'Sale' ? 'Sold' : 'Disposed';
+
+    // Check if asset was in a warehouse prior to disposal
+    const [existingAsset] = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.id, approvedDisposal.assetId), eq(assets.companyId, companyId)))
+      .limit(1);
+
+    if (existingAsset?.warehouseId) {
+      const wId = Number(existingAsset.warehouseId);
+      let invItem = null;
+      if (existingAsset.poItemId) {
+        const [poItem] = await db
+          .select()
+          .from(po_items)
+          .where(eq(po_items.id, existingAsset.poItemId))
+          .limit(1);
+        if (poItem?.itemId) {
+          const [found] = await db
+            .select()
+            .from(inventory_items)
+            .where(and(eq(inventory_items.id, poItem.itemId), eq(inventory_items.companyId, companyId)))
+            .limit(1);
+          invItem = found;
+        }
+      }
+      if (!invItem) {
+        const [found] = await db
+          .select()
+          .from(inventory_items)
+          .where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, existingAsset.name.trim())))
+          .limit(1);
+        invItem = found;
+      }
+
+      if (invItem) {
+        const [ws] = await db
+          .select()
+          .from(warehouse_stock)
+          .where(and(eq(warehouse_stock.warehouseId, wId), eq(warehouse_stock.itemId, invItem.id)))
+          .limit(1);
+        if (ws && (ws.quantity || 0) > 0) {
+          await db
+            .update(warehouse_stock)
+            .set({ quantity: Math.max(0, (ws.quantity || 0) - 1), lastUpdated: new Date() })
+            .where(eq(warehouse_stock.id, ws.id));
+        }
+
+        if (invItem.quantityInStock && invItem.quantityInStock > 0) {
+          await db
+            .update(inventory_items)
+            .set({ quantityInStock: Math.max(0, invItem.quantityInStock - 1) })
+            .where(eq(inventory_items.id, invItem.id));
+        }
+
+        const [gsl] = await db
+          .select()
+          .from(global_stock_ledger)
+          .where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItem.id)))
+          .limit(1);
+        if (gsl) {
+          await db
+            .update(global_stock_ledger)
+            .set({
+              totalStockOut: (gsl.totalStockOut || 0) + 1,
+              closingBalance: Math.max(0, (gsl.closingBalance || 0) - 1),
+              lastUpdated: new Date()
+            })
+            .where(eq(global_stock_ledger.id, gsl.id));
+        }
+
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId: invItem.id,
+          warehouseId: wId,
+          transactionType: 'Stock Out',
+          referenceId: `Asset Disposal: ${existingAsset.assetCode}`,
+          quantity: 1,
+          performedBy: req.user?.uid || null,
+          createdAt: new Date()
+        });
+      }
+    }
+
     const [disposedAsset] = await db
       .update(assets)
       .set({
         status: finalStatus,
+        warehouseId: null,
         updatedAt: new Date()
       })
       .where(and(eq(assets.id, approvedDisposal.assetId), eq(assets.companyId, companyId)))
@@ -3582,11 +3703,89 @@ router.post('/assignments/assign', requireAuth, requirePermission('Asset Assignm
       })
       .returning();
 
-    // 3. Sync custodianUid & status on target asset in real-time
+    // 3. If asset was stored in a warehouse, deduct warehouse stock and record Stock Out / Issue
+    if (targetAsset.warehouseId) {
+      const wId = Number(targetAsset.warehouseId);
+      let invItem = null;
+      if (targetAsset.poItemId) {
+        const [poItem] = await db
+          .select()
+          .from(po_items)
+          .where(eq(po_items.id, targetAsset.poItemId))
+          .limit(1);
+        if (poItem?.itemId) {
+          const [found] = await db
+            .select()
+            .from(inventory_items)
+            .where(and(eq(inventory_items.id, poItem.itemId), eq(inventory_items.companyId, companyId)))
+            .limit(1);
+          invItem = found;
+        }
+      }
+      if (!invItem) {
+        const [found] = await db
+          .select()
+          .from(inventory_items)
+          .where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, targetAsset.name.trim())))
+          .limit(1);
+        invItem = found;
+      }
+
+      if (invItem) {
+        const [ws] = await db
+          .select()
+          .from(warehouse_stock)
+          .where(and(eq(warehouse_stock.warehouseId, wId), eq(warehouse_stock.itemId, invItem.id)))
+          .limit(1);
+        if (ws && (ws.quantity || 0) > 0) {
+          await db
+            .update(warehouse_stock)
+            .set({ quantity: Math.max(0, (ws.quantity || 0) - 1), lastUpdated: new Date() })
+            .where(eq(warehouse_stock.id, ws.id));
+        }
+
+        if (invItem.quantityInStock && invItem.quantityInStock > 0) {
+          await db
+            .update(inventory_items)
+            .set({ quantityInStock: Math.max(0, invItem.quantityInStock - 1) })
+            .where(eq(inventory_items.id, invItem.id));
+        }
+
+        const [gsl] = await db
+          .select()
+          .from(global_stock_ledger)
+          .where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItem.id)))
+          .limit(1);
+        if (gsl) {
+          await db
+            .update(global_stock_ledger)
+            .set({
+              totalStockOut: (gsl.totalStockOut || 0) + 1,
+              closingBalance: Math.max(0, (gsl.closingBalance || 0) - 1),
+              lastUpdated: new Date()
+            })
+            .where(eq(global_stock_ledger.id, gsl.id));
+        }
+
+        await db.insert(stock_transactions).values({
+          companyId,
+          itemId: invItem.id,
+          warehouseId: wId,
+          transactionType: 'Issue',
+          referenceId: `Asset Assignment: ${targetAsset.assetCode}`,
+          quantity: 1,
+          performedBy: req.user!.uid,
+          createdAt: new Date()
+        });
+      }
+    }
+
+    // 4. Sync custodianUid & status on target asset in real-time, clear warehouseId
     await db
       .update(assets)
       .set({
         custodianUid: assignedToUid || null,
+        warehouseId: null,
         departmentId: departmentId ? Number(departmentId) : targetAsset.departmentId,
         branchId: branchId ? Number(branchId) : targetAsset.branchId,
         locationId: locationId || targetAsset.locationId,
@@ -3609,6 +3808,7 @@ router.post('/assignments/:id/return', requireAuth, requirePermission('Asset Ass
     if (!companyId) return res.status(400).json({ error: 'Missing company context' });
 
     const { id } = req.params;
+    const { targetWarehouseId } = req.body || {};
 
     const [assignment] = await db
       .select()
@@ -3626,11 +3826,104 @@ router.post('/assignments/:id/return', requireAuth, requirePermission('Asset Ass
       .set({ status: 'Returned', returnedAt: new Date() })
       .where(and(eq(asset_assignments.id, id), eq(asset_assignments.companyId, companyId)));
 
-    // 2. Clear custodianUid on target asset & set status to Active
+    const wId = targetWarehouseId ? Number(targetWarehouseId) : null;
+
+    // 2. If returning to a warehouse, restore stock & record Stock In
+    if (wId) {
+      const [assetObj] = await db
+        .select()
+        .from(assets)
+        .where(and(eq(assets.id, assignment.assetId), eq(assets.companyId, companyId)))
+        .limit(1);
+
+      if (assetObj) {
+        let invItem = null;
+        if (assetObj.poItemId) {
+          const [poItem] = await db
+            .select()
+            .from(po_items)
+            .where(eq(po_items.id, assetObj.poItemId))
+            .limit(1);
+          if (poItem?.itemId) {
+            const [found] = await db
+              .select()
+              .from(inventory_items)
+              .where(and(eq(inventory_items.id, poItem.itemId), eq(inventory_items.companyId, companyId)))
+              .limit(1);
+            invItem = found;
+          }
+        }
+        if (!invItem) {
+          const [found] = await db
+            .select()
+            .from(inventory_items)
+            .where(and(eq(inventory_items.companyId, companyId), ilike(inventory_items.name, assetObj.name.trim())))
+            .limit(1);
+          invItem = found;
+        }
+
+        if (invItem) {
+          const [ws] = await db
+            .select()
+            .from(warehouse_stock)
+            .where(and(eq(warehouse_stock.warehouseId, wId), eq(warehouse_stock.itemId, invItem.id)))
+            .limit(1);
+          if (ws) {
+            await db
+              .update(warehouse_stock)
+              .set({ quantity: (ws.quantity || 0) + 1, lastUpdated: new Date() })
+              .where(eq(warehouse_stock.id, ws.id));
+          } else {
+            await db.insert(warehouse_stock).values({
+              companyId,
+              warehouseId: wId,
+              itemId: invItem.id,
+              quantity: 1,
+              lastUpdated: new Date()
+            });
+          }
+
+          await db
+            .update(inventory_items)
+            .set({ quantityInStock: (invItem.quantityInStock || 0) + 1 })
+            .where(eq(inventory_items.id, invItem.id));
+
+          const [gsl] = await db
+            .select()
+            .from(global_stock_ledger)
+            .where(and(eq(global_stock_ledger.companyId, companyId), eq(global_stock_ledger.itemId, invItem.id)))
+            .limit(1);
+          if (gsl) {
+            await db
+              .update(global_stock_ledger)
+              .set({
+                totalStockIn: (gsl.totalStockIn || 0) + 1,
+                closingBalance: (gsl.closingBalance || 0) + 1,
+                lastUpdated: new Date()
+              })
+              .where(eq(global_stock_ledger.id, gsl.id));
+          }
+
+          await db.insert(stock_transactions).values({
+            companyId,
+            itemId: invItem.id,
+            warehouseId: wId,
+            transactionType: 'Stock In',
+            referenceId: `Asset Return: ${assetObj.assetCode}`,
+            quantity: 1,
+            performedBy: req.user!.uid,
+            createdAt: new Date()
+          });
+        }
+      }
+    }
+
+    // 3. Clear custodianUid on target asset, update warehouseId & set status to Active
     await db
       .update(assets)
       .set({
         custodianUid: null,
+        warehouseId: wId,
         status: 'Active',
         updatedAt: new Date(),
       })

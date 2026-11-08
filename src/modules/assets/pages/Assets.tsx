@@ -199,6 +199,8 @@ export default function Assets() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
+  const [warehousesList, setWarehousesList] = useState<any[]>([]);
+  const [invItemsList, setInvItemsList] = useState<any[]>([]);
   const [attributes, setAttributes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -231,6 +233,7 @@ export default function Assets() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
+    itemId: '',
     name: '',
     categoryId: '',
     branchId: '',
@@ -261,7 +264,7 @@ export default function Assets() {
       const token = await getToken();
       if (!token) return;
 
-      const [assetsRes, catRes, branchRes, deptRes, userRes, locRes, unitRes] = await Promise.all([
+      const [assetsRes, catRes, branchRes, deptRes, userRes, locRes, unitRes, whRes, invRes] = await Promise.all([
         fetchWithAuth(`/api/assets?search=${encodeURIComponent(searchQuery)}&categoryId=${selectedCategory}&branchId=${selectedBranch}&locationId=${selectedLocation}&custodianUid=${selectedCustodian}&status=${selectedStatus}`, token).catch((e) => {
           console.error('Failed to fetch assets list:', e);
           return { assets: [], pagination: {} };
@@ -271,7 +274,9 @@ export default function Assets() {
         fetchWithAuth('/api/departments', token).catch(() => ({ departments: [] })),
         fetchWithAuth('/api/users', token).catch(() => ({ users: [] })),
         fetchWithAuth('/api/assets/locations', token).catch(() => ({ locations: [] })),
-        fetchWithAuth('/api/units', token).catch(() => ({ units: [] }))
+        fetchWithAuth('/api/units', token).catch(() => ({ units: [] })),
+        fetchWithAuth('/api/warehouses', token).catch(() => ({ warehouses: [] })),
+        fetchWithAuth('/api/inventory', token).catch(() => [])
       ]);
 
       setAssetsList(assetsRes.assets || []);
@@ -281,6 +286,8 @@ export default function Assets() {
       setUsersList(Array.isArray(userRes) ? userRes : (userRes?.users || userRes?.data || []));
       setLocations(locRes.locations || []);
       setUnits(unitRes.units || []);
+      setWarehousesList(Array.isArray(whRes) ? whRes : (whRes?.warehouses || []));
+      setInvItemsList(Array.isArray(invRes) ? invRes : []);
     } catch (err) {
       console.error('Failed to load asset register data:', err);
     } finally {
@@ -349,6 +356,7 @@ export default function Assets() {
   const handleOpenCreate = () => {
     setEditingAsset(null);
     setFormData({
+      itemId: '',
       name: '',
       categoryId: categories[0]?.id || '',
       branchId: '',
@@ -378,6 +386,7 @@ export default function Assets() {
   const handleOpenEdit = (asset: any) => {
     setEditingAsset(asset);
     setFormData({
+      itemId: asset.itemId ? String(asset.itemId) : '',
       name: asset.name || '',
       categoryId: asset.categoryId || '',
       branchId: asset.branchId ? String(asset.branchId) : '',
@@ -555,6 +564,50 @@ export default function Assets() {
                 <Box className="w-4 h-4 text-blue-500" />
                 General Information
               </h3>
+
+              {/* Item Master / Catalog Picker */}
+              <div className="mb-4 bg-blue-50/70 p-3.5 rounded-xl border border-blue-100">
+                <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                  <div className="flex-1 w-full">
+                    <label className="block text-xs font-bold text-blue-900 mb-1">
+                      Link from Item Master / Catalog (Optional)
+                    </label>
+                    <select
+                      value={formData.itemId || ''}
+                      onChange={(e) => {
+                        const itm = invItemsList.find(i => String(i.id) === e.target.value);
+                        if (itm) {
+                          const matchedCat = categories.find(c => c.id === itm.assetCategoryId);
+                          setFormData({
+                            ...formData,
+                            itemId: String(itm.id),
+                            name: itm.name || formData.name,
+                            categoryId: itm.assetCategoryId || formData.categoryId,
+                            acquisitionCost: itm.basePrice || formData.acquisitionCost,
+                            depreciationMethod: matchedCat?.defaultDepreciationMethod || formData.depreciationMethod,
+                            decliningRate: matchedCat?.defaultDecliningRate || formData.decliningRate,
+                            usefulLifeMonths: matchedCat?.defaultUsefulLifeMonths || formData.usefulLifeMonths
+                          });
+                        } else {
+                          setFormData({ ...formData, itemId: '' });
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="">-- Select from existing Inventory SKU or enter custom title below --</option>
+                      {invItemsList.map((item: any) => (
+                        <option key={item.id} value={item.id}>
+                          {item.itemCode} — {item.name} {item.category ? `[${item.category}]` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-blue-700/80 max-w-sm mt-1 md:mt-4">
+                    Selecting from the Item Master preserves item linkage and prevents duplicate SKU sprawl.
+                  </p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">
@@ -796,6 +849,23 @@ export default function Assets() {
                     {usersList.map((u: any) => (
                       <option key={u.uid || u.id} value={u.uid || String(u.id)}>
                         {u.name || u.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Warehouse Storage (Optional)
+                  </label>
+                  <select
+                    value={formData.warehouseId}
+                    onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                  >
+                    <option value="">No Warehouse (Direct Custody)</option>
+                    {warehousesList.map((w: any) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.code || 'WH'})
                       </option>
                     ))}
                   </select>
